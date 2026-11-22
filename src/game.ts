@@ -671,7 +671,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     crew(id, by) {
       if (by === null) crews.delete(id);
       else crews.set(id, by);
-      if (by === myId && !solo) joinCrew(id);
+      if (by === myId && !solo) {
+        // Already on it (a quiet re-board): keep the view and the target.
+        if (crewOn !== id) joinCrew(id);
+      }
       else if (crewOn === id) {
         leaveCrew();
         if (!state.get(id)) hud.toast("Your trebuchet is gone");
@@ -720,6 +723,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       } else remotes.throw(id, fall, performance.now());
     },
     denied(reason) {
+      // The server lost track of us on a trebuchet that is still here: get back on it quietly.
+      if (reason === "gone" && crewOn && state.get(crewOn)) {
+        net.board(crewOn, [player.position.x, player.feetY, player.position.z]);
+        hud.toast("Back on the trebuchet: click to fire");
+        return;
+      }
       const text: Record<string, string> = {
         busy: "Someone else is on that trebuchet",
         far: "Get closer to the trebuchet",

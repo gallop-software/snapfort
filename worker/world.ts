@@ -33,6 +33,9 @@ export interface Env {
 /** Kept with each socket, so it survives the object hibernating. */
 interface Attachment extends WirePlayer {
   move?: WireMove;
+  /** The trebuchet they are on, and when it can throw again (ms): kept here so they survive the object sleeping. */
+  crew?: string;
+  readyAt?: number;
 }
 
 /** Most builders connected at once. */
@@ -107,6 +110,7 @@ export class World extends DurableObject<Env> {
   private readonly readyAt = new Map<string, number>();
   /** Hits taken by pieces that have not broken yet. */
   private readonly damage = new Map<string, number>();
+  private damageDirty = false;
   private nextShot = 1;
   /** Builders in the air or getting up, until when (ms). */
   private readonly downUntil = new Map<string, number>();
@@ -120,11 +124,23 @@ export class World extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.build.subscribe((op, piece) => this.track(op, piece));
-    void ctx.blockConcurrencyWhile(async () => this.load());
-    for (const ws of ctx.getWebSockets()) {
-      const player = ws.deserializeAttachment() as Attachment | null;
-      if (player) this.players.set(ws, player);
-    }
+    void ctx.blockConcurrencyWhile(async () => {
+      this.load();
+      for (const ws of ctx.getWebSockets()) {
+        const player = ws.deserializeAttachment() as Attachment | null;
+        if (!player) continue;
+        this.players.set(ws, player);
+        // Back from sleep: who was on which trebuchet, and its reload.
+        if (player.crew && this.build.get(player.crew)?.type === "trebuchet") {
+          this.crews.set(player.crew, player.id);
+          this.crewOf.set(player.id, player.crew);
+          if (player.readyAt) this.readyAt.set(player.crew, player.readyAt);
+        } else if (player.crew) {
+          delete player.crew;
+          ws.serializeAttachment(player);
+        }
+      }
+    });
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -342,6 +358,9 @@ export class World extends DurableObject<Env> {
     this.release(player.id);
     this.crews.set(t.id, player.id);
     this.crewOf.set(player.id, t.id);
+    player.crew = t.id;
+    player.readyAt = this.readyAt.get(t.id);
+    ws.serializeAttachment(player);
     this.broadcast({ t: "crew", id: t.id, by: player.id });
   }
 
@@ -351,6 +370,12 @@ export class World extends DurableObject<Env> {
     if (id === undefined) return;
     this.crewOf.delete(playerId);
     this.crews.delete(id);
+    for (const [ws, player] of this.players) {
+      if (player.id !== playerId) continue;
+      delete player.crew;
+      delete player.readyAt;
+      ws.serializeAttachment(player);
+    }
     this.broadcast({ t: "crew", id, by: null });
   }
 
@@ -365,6 +390,8 @@ export class World extends DurableObject<Env> {
     const range = checkRange(t, target);
     if (range !== "ok") return send(ws, { t: "denied", reason: range === "near" ? "near" : "range" });
     this.readyAt.set(t.id, now + TREBUCHET.reload * 1000);
+    player.readyAt = now + TREBUCHET.reload * 1000;
+    ws.serializeAttachment(player);
     const from = launchPoint(t);
     const flight = planFlight(from, target);
     const shot = this.nextShot++;
@@ -389,6 +416,10 @@ export class World extends DurableObject<Env> {
   private land(shot: number, point: Vec, by: string): void {
     const now = Date.now();
     const { broken, damaged } = strike(this.build, point, this.damage);
+    if (damaged.length > 0 || broken.length > 0) {
+      this.damageDirty = true;
+      this.scheduleFlush();
+    }
     const ops: WireOp[] = [];
     const remove = (piece: Piece) => {
       const op: BuildOp = { kind: "remove", id: piece.id };
@@ -488,7 +519,11 @@ export class World extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     sql.exec(`CREATE TABLE IF NOT EXISTS chunks (key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS log (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, ops TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+    // Hits taken by pieces that have not broken yet.
+    const saved = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'damage'").toArray()[0];
+    if (saved) for (const [id, hits] of JSON.parse(saved.value) as [string, number][]) this.damage.set(id, hits);
     for (const row of sql.exec<{ data: string }>("SELECT data FROM chunks").toArray()) {
       for (const piece of decodePieces(JSON.parse(row.data) as WirePiece[])) this.build.apply({ kind: "place", piece });
     }
@@ -517,7 +552,7 @@ export class World extends DurableObject<Env> {
       if (ids.size === 0) this.chunks.delete(key);
     }
     if (op.kind === "remove") {
-      this.damage.delete(piece.id);
+      if (this.damage.delete(piece.id)) this.damageDirty = true;
       // A trebuchet taken away (removed, broken or fallen) drops whoever was on it.
       const crew = this.crews.get(piece.id);
       if (crew !== undefined) this.release(crew);
@@ -535,7 +570,7 @@ export class World extends DurableObject<Env> {
   private flush(): void {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    if (this.dirty.size === 0 && this.unsavedLog.length === 0) return;
+    if (this.dirty.size === 0 && this.unsavedLog.length === 0 && !this.damageDirty) return;
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     this.ctx.storage.transactionSync(() => {
@@ -551,7 +586,13 @@ export class World extends DurableObject<Env> {
         sql.exec("INSERT INTO log (at, ops) VALUES (?, ?)", now, JSON.stringify(this.unsavedLog.slice(i, i + LOG_ROW_ENTRIES)));
       }
       sql.exec("DELETE FROM log WHERE at < ?", now - LOG_MS);
+      if (this.damageDirty) {
+        // Only pieces still standing.
+        const damage = [...this.damage].filter(([id]) => this.build.get(id));
+        sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('damage', ?)", JSON.stringify(damage));
+      }
     });
+    this.damageDirty = false;
     this.dirty.clear();
     this.unsavedLog = [];
   }

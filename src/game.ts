@@ -341,7 +341,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   function startEdit(): void {
     const piece = aimPieceId ? state.get(aimPieceId) : undefined;
     if (!piece) {
-      hud.toast("Aim at a wall or floor to edit it");
+      hud.toast(pieceFarAway() ? "Get closer to edit it" : "Aim at a wall or floor to edit it");
       return sfx.deny();
     }
     if (!editGrid(piece.type)) {
@@ -485,11 +485,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (toolIndex < 0) return;
       if (TOOLS[toolIndex] === "remove") {
         if (aimPieceId) removePiece(aimPieceId);
+        else if (pieceFarAway()) hud.toast("Get closer to remove it");
       } else {
         placing = true;
         placeAtAim(true);
       }
-    } else if (button === 2 && aimPieceId) removePiece(aimPieceId);
+    } else if (button === 2) {
+      if (aimPieceId) removePiece(aimPieceId);
+      else if (pieceFarAway()) hud.toast("Get closer to remove it");
+    }
   };
   input.onMouseUp = (button) => {
     if (button === 0) {
@@ -572,6 +576,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (under.rot === q) return LEVEL / CELL;
     if (under.rot === (q + 2) % 4) return -LEVEL / CELL;
     return 0;
+  }
+
+  /** True when the crosshair is on a piece that is just out of reach (for a helpful message). */
+  function pieceFarAway(): boolean {
+    rig.pivot.addToRef(rig.forward.scale(80), rayEnd);
+    physics.raycastToRef(rig.pivot, rayEnd, ray, IGNORE_BUILDER);
+    return ray.hasHit && view.pieceIdOf(ray.body) !== undefined;
   }
 
   function updateAim(): void {

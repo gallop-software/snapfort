@@ -128,6 +128,8 @@ export class World extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.build.subscribe((op, piece) => this.track(op, piece));
+    // Heartbeats are answered by Cloudflare without waking (or billing) the world.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     void ctx.blockConcurrencyWhile(async () => {
       this.load();
       for (const ws of ctx.getWebSockets()) {

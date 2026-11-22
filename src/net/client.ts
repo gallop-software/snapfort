@@ -46,6 +46,16 @@ export interface NetHandlers {
 
 /** How often this builder's position goes out while they move, ms. */
 const MOVE_INTERVAL = 100;
+/**
+ * Heartbeat: a "ping" goes out this often (the server's edge answers "pong"
+ * without waking the world), and a connection that has heard nothing for
+ * DEAD_AFTER is taken for dead (a laptop that slept, a Wi-Fi switch) and
+ * replaced.
+ */
+const PING_EVERY = 20_000;
+const DEAD_AFTER = 45_000;
+/** After coming back to the tab or the network, a pong must arrive this fast. */
+const CHECK_WITHIN = 5_000;
 
 /**
  * The connection to the shared world. Reconnects on its own (waiting a little
@@ -57,6 +67,9 @@ export class NetClient {
   private lastMoveAt = 0;
   private lastMove = "";
   private stopped = false;
+  /** When anything last arrived (performance.now()). */
+  private heardAt = 0;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
   status: NetStatus = "connecting";
 
   constructor(
@@ -70,14 +83,17 @@ export class NetClient {
   }
 
   connect(): void {
+    this.startHeartbeat();
     this.setStatus("connecting");
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.onopen = () => {
+      this.heardAt = performance.now();
       this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color });
     };
     ws.onmessage = (event) => {
-      if (typeof event.data === "string") this.receive(event.data);
+      this.heardAt = performance.now();
+      if (typeof event.data === "string" && event.data !== "pong") this.receive(event.data);
     };
     ws.onclose = () => {
       if (this.ws !== ws) return;
@@ -90,6 +106,38 @@ export class NetClient {
       this.retry = Math.min(10_000, this.retry * 2);
       setTimeout(() => this.connect(), wait);
     };
+  }
+
+  /** Starts the heartbeat, and checks the connection on coming back to the tab or the network. */
+  private startHeartbeat(): void {
+    if (this.heartbeat) return;
+    this.heartbeat = setInterval(() => {
+      const ws = this.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (performance.now() - this.heardAt > DEAD_AFTER) return this.drop(ws);
+      ws.send("ping");
+    }, PING_EVERY);
+    const check = () => {
+      const ws = this.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN || document.hidden) return;
+      const asked = performance.now();
+      ws.send("ping");
+      setTimeout(() => {
+        if (this.ws === ws && this.heardAt < asked) this.drop(ws);
+      }, CHECK_WITHIN);
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("online", check);
+  }
+
+  /** Gives up on a connection that has gone quiet, and connects again. */
+  private drop(ws: WebSocket): void {
+    if (this.ws !== ws) return;
+    ws.onclose = null;
+    ws.close();
+    this.ws = null;
+    this.setStatus("offline");
+    setTimeout(() => this.connect(), 200);
   }
 
   /** Sends one action (operations applied together). */

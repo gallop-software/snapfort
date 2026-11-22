@@ -27,7 +27,7 @@ function bot(n) {
     const cx = ((n % 10) - 5) * 40, cz = (Math.floor(n / 10) - 5) * 40, radius = 6 + (n % 5);
     let t = Math.random() * 6;
     const timers = [];
-    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1, name: `Bot ${n}`, color: "#4a8fe0" }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 2, name: `Bot ${n}`, color: "#4a8fe0" }));
     ws.onclose = () => { closed++; timers.forEach(clearInterval); };
     ws.onmessage = (e) => {
       received++;

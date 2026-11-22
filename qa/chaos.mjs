@@ -3,7 +3,7 @@
  * for a few minutes (moving, jumping, every tool, placing, removing, editing,
  * materials, undo/redo, trebuchets, zoom, Esc). Afterwards both pages must
  * agree, every piece must be drawn and solid, and nothing may have thrown.
- * Start the Gallop dev server first, then: node qa/chaos.mjs [seconds]
+ * Start the Gallop dev server first, then: node qa/chaos.mjs [seconds] [seed]
  */
 import { chromium } from "playwright-core";
 const SECONDS = Number(process.argv[2] ?? 180);
@@ -19,7 +19,7 @@ const open = async (label) => {
 };
 const pages = [await open("A"), await open("B")];
 await pages[1].evaluate(() => window.snapfort.player.teleport(12.5, 0.95, 2.5));
-let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+let seed = Number(process.argv[3] ?? 7); const r = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 const pick = (list) => list[Math.floor(r() * list.length)];
 const keys = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyZ", "KeyF", "KeyX", "KeyC", "KeyV", "KeyB", "KeyG", "KeyT", "KeyR", "KeyQ", "KeyE", "KeyH", "Enter", "Digit1", "Digit6", "ShiftLeft"];
 const counts = {};

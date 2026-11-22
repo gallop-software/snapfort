@@ -90,6 +90,20 @@ export class BuildState {
     return found;
   }
 
+  /** Pieces whose own cell is within `reach` cells of `spec`'s cell (every axis). */
+  around(spec: PieceSpec, reach: number): Piece[] {
+    const found: Piece[] = [];
+    for (let x = spec.x - reach; x <= spec.x + reach; x++) {
+      for (let y = spec.y - reach; y <= spec.y + reach; y++) {
+        for (let z = spec.z - reach; z <= spec.z + reach; z++) {
+          const bucket = this.cells.get(cellKey(x, y, z));
+          if (bucket) for (const id of bucket) found.push(this.pieces.get(id)!);
+        }
+      }
+    }
+    return found;
+  }
+
   /** Pieces whose own cell is within one cell of the cell holding point (x, y, z) in metres. */
   near(x: number, y: number, z: number): Piece[] {
     const gx = Math.floor(x / CELL), gy = Math.floor(y / LEVEL), gz = Math.floor(z / CELL);

@@ -149,6 +149,28 @@ describe("trebuchets and collapse", () => {
 });
 
 describe("tallest towers", () => {
+  it("counts walls standing inside a fort, a cell from its walls, as part of it", () => {
+    const state = new BuildState();
+    // A fort: a ring of walls around cells 0..3, roofed on one side.
+    for (let i = 0; i < 4; i++) {
+      for (const [x, z, rot] of [[i, 0, 0], [i, 4, 0], [0, i, 1], [4, i, 1]] as const) place(state, piece({ type: "wall", x, y: 0, z, rot }, `f${x},${z},${rot}`));
+    }
+    place(state, piece({ type: "roof", x: 0, y: 1, z: 0, rot: 0 }, "roof"));
+    // Two storeys of walls in the middle, touching nothing of the fort.
+    tower(state, "inner", 2, 2, 2);
+    const towers = measureTowers(state);
+    expect(towers).toHaveLength(1);
+    expect(towers[0]!.pieces).toBe(16 + 1 + 2);
+    expect(towers[0]!.height).toBe(2 * LEVEL);
+  });
+
+  it("keeps towers two cells apart separate", () => {
+    const state = new BuildState();
+    tower(state, "a", 0, 0, 4);
+    tower(state, "b", 2, 2, 3);
+    expect(measureTowers(state).map((t) => t.pieces)).toEqual([4, 3]);
+  });
+
   it("measures each standing structure, tallest first, without trebuchets or huts", () => {
     const state = new BuildState();
     tower(state, "a", 0, 0, 6);

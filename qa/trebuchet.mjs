@@ -142,6 +142,7 @@ check("a target nearer than the minimum shows as too close", (await b.textConten
 await sf(a, () => { const s = window.snapfort; const t = [...s.state.all()].find((p) => p.type === "trebuchet"); s.removePiece(t.id); });
 await wait(800);
 check("removing a manned trebuchet takes its crew off", !(await sf(b, () => window.snapfort.crewOn)) && !(await b.isVisible("#crew")));
+check("…and gives them their normal view and body back", await sf(b, () => !document.body.classList.contains("scoped") && window.snapfort.rig.scope === null && window.snapfort.player.avatar.root.isEnabled()));
 
 // B builds a ramp run up four storeys, one floor at the top and a trebuchet on it, then gets on with H.
 await put(b, [["ramp", -10, 0, 0, 0], ["ramp", -10, 1, 1, 0], ["ramp", -10, 2, 2, 0], ["ramp", -10, 3, 3, 0], ["floor", -10, 4, 4, 0], ["trebuchet", -10, 4, 4, 0]]);

@@ -303,6 +303,12 @@ body.scoped #crosshair {
   font-weight: 600;
 }
 .keyrow { display: contents; }
+/* Narrow screens: one column of keys, so no label is cut off. */
+@media (max-width: 600px) {
+  .keys { grid-template-columns: max-content minmax(0, 1fr); }
+}
+#touch-note { margin: 12px 0 0; font-size: 14px; font-weight: 700; color: var(--coral); opacity: 1; }
+#touch-note[hidden] { display: none; }
 .keyrow span { align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .keys kbd {
   justify-self: start;

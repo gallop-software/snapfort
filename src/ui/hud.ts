@@ -230,8 +230,11 @@ export class Hud {
   ready(online = true): void {
     document.body.classList.add("ready");
     const free = el<HTMLButtonElement>("play-free");
-    free.disabled = false;
-    free.textContent = online ? "Start building" : "Build offline for now";
+    // A phone or tablet with no mouse cannot play: say so instead of offering a start that goes nowhere.
+    const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+    el("touch-note").hidden = !touchOnly;
+    free.disabled = touchOnly;
+    free.textContent = touchOnly ? "Keyboard and mouse needed" : online ? "Start building" : "Build offline for now";
     el<HTMLButtonElement>("play-siege").disabled = false;
   }
 

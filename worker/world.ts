@@ -499,6 +499,7 @@ export class World extends DurableObject<Env> {
       this.towersCost = Date.now() - started;
       if (JSON.stringify(next) === JSON.stringify(this.towers)) return;
       this.towers = next;
+      this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('towers', ?)", JSON.stringify(next));
       this.broadcast({ t: "towers", list: next });
     }, Math.max(TOWERS_MS, this.towersCost * 20));
   }
@@ -552,13 +553,23 @@ export class World extends DurableObject<Env> {
     // Building rules change now and then: whatever no longer stands under the
     // current ones comes down when the world loads (and is saved that way).
     const now = Date.now();
+    let cleaned = 0;
     for (const piece of findUnsupported(this.build)) {
       const op: BuildOp = { kind: "remove", id: piece.id };
       const inverse = this.build.apply(op);
-      if (inverse) this.unsavedLog.push([now, "rules", encodeOp(op), encodeOp(inverse)]);
+      if (!inverse) continue;
+      this.unsavedLog.push([now, "rules", encodeOp(op), encodeOp(inverse)]);
+      cleaned++;
     }
     this.flush();
-    this.towers = this.measure();
+    // The last tower list saved, so waking up does not mean searching the whole world
+    // (unless the clean-up just changed it, or there is none yet).
+    const savedTowers = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'towers'").toArray()[0];
+    if (savedTowers && cleaned === 0) this.towers = JSON.parse(savedTowers.value) as WireTower[];
+    else {
+      this.towers = this.measure();
+      sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('towers', ?)", JSON.stringify(this.towers));
+    }
   }
 
   /** Keeps the chunk index up to date and marks the chunk as needing a save. */

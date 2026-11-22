@@ -273,6 +273,19 @@ check("the gear opens the settings, and the controls hide", await p.isVisible("#
 await tap("#resume"); await wait(500);
 check("Back to building returns to play", await sf(() => window.snapfort.input.locked) && (await p.isVisible("#t-place")));
 check("the gear does not stay stuck looking pressed", !(await p.evaluate(() => document.getElementById("t-settings").classList.contains("pressed"))));
+// Pinching (on the hotbar, a button, the open screen and the menu) never zooms the page.
+const zoomOff = await sf(() => ["#hotbar", "#t-jump", "#touch-layer", "canvas"].every((sel) => getComputedStyle(document.querySelector(sel)).touchAction === "none") && getComputedStyle(document.body).touchAction === "pan-x pan-y");
+check("touch zoom is switched off on every control and the page", zoomOff);
+for (const sel of ["#hotbar", "#t-jump", "#t-place"]) {
+  const [x, y] = await centre(sel);
+  await cdp.send("Input.synthesizePinchGesture", { x, y, scaleFactor: 2.5, relativeSpeed: 1600, gestureSourceType: "touch" }).catch(() => {});
+  await wait(200);
+}
+await tap("#t-settings"); await wait(400);
+await cdp.send("Input.synthesizePinchGesture", { x: W / 2, y: H / 2, scaleFactor: 2.5, relativeSpeed: 1600, gestureSourceType: "touch" }).catch(() => {});
+await wait(200);
+await tap("#resume"); await wait(400);
+check("pinching the hotbar, the buttons or the menu leaves the page at its size", await sf(() => (visualViewport?.scale ?? 1) === 1), `scale ${await sf(() => visualViewport?.scale)}`);
 // Nothing scrolled or zoomed the page.
 check("the page never scrolled or zoomed", await sf(() => scrollX === 0 && scrollY === 0 && (visualViewport?.scale ?? 1) === 1));
 

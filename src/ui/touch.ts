@@ -50,6 +50,7 @@ export class TouchControls {
     actions: TouchActions,
   ) {
     document.body.classList.add("touch");
+    blockPageZoom();
     this.root = div("touch", "");
     const layer = div("touch-layer", "");
     this.base = div("joy-base", "");
@@ -205,6 +206,24 @@ export class TouchControls {
     this.input.axis.x = this.input.axis.y = 0;
     this.input.axis.run = false;
   }
+}
+
+/**
+ * Pinching the page zooms the whole game on iPhone, and Safari ignores
+ * user-scalable=no, so the gestures are cancelled here: Safari's pinch events
+ * and any two-finger touch move. (Double-tap zoom is off through touch-action
+ * in the stylesheet, which leaves quick taps on the hotbar alone.)
+ */
+function blockPageZoom(): void {
+  const stop = (e: Event) => e.preventDefault();
+  for (const type of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(type, stop, { passive: false });
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches.length > 1) e.preventDefault();
+    },
+    { passive: false },
+  );
 }
 
 function div(id: string, html: string): HTMLDivElement {

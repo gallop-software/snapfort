@@ -585,8 +585,9 @@ body.touch #material { display: none; }
 /* No page zooming, scrolling, bouncing, text selection or long-press menus while playing. */
 html, body { overscroll-behavior: none; }
 body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-body.touch canvas { touch-action: none; }
-body.touch button { touch-action: manipulation; }
+/* Pans only (menus still scroll): no pinch or double-tap zoom anywhere. */
+body.touch, body.touch * { touch-action: pan-x pan-y; }
+body.touch canvas, body.touch button, body.touch #hud, body.touch #hud * { touch-action: none; }
 
 #touch[hidden] { display: none; }
 #touch-layer { position: fixed; inset: 0; touch-action: none; }

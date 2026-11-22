@@ -4,7 +4,7 @@ import { CELL, LEVEL } from "../src/game/constants";
 import type { Piece, PieceSpec } from "../src/game/pieces";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
-import { checkRange, findImpact, launchPoint, maxRange, planFlight, positionAt, strike, TREBUCHET, type Vec } from "../src/game/trebuchet";
+import { checkRange, findImpact, launchPoint, maxRange, planFlight, positionAt, strike, throwVelocity, TREBUCHET, type Vec } from "../src/game/trebuchet";
 
 const piece = (s: PieceSpec, id: string, extra: Partial<Piece> = {}): Piece => ({ ...s, id, material: "wood", edit: 0, ...extra });
 const place = (state: BuildState, p: Piece) => expect(state.apply({ kind: "place", piece: p } as BuildOp)).not.toBeNull();
@@ -94,6 +94,21 @@ describe("damage", () => {
     const { broken } = strike(state, [2.5, 1.8, 0], new Map());
     expect(broken.map((p) => p.id)).toEqual(["near"]);
     expect(TREBUCHET.blastRadius).toBeLessThan(CELL);
+  });
+});
+
+describe("builders near an impact", () => {
+  it("are thrown away from it and high up, harder the closer they stood", () => {
+    const near = throwVelocity([0, 0, 0], [1, 0.9, 0])!;
+    const far = throwVelocity([0, 0, 0], [6, 0.9, 0])!;
+    expect(near[0]).toBeGreaterThan(far[0]);
+    expect(near[0]).toBeGreaterThan(0);
+    expect(near[1]).toBeGreaterThan(25);
+    expect(Math.abs(near[2])).toBeLessThan(1e-9);
+  });
+
+  it("are left alone out of reach", () => {
+    expect(throwVelocity([0, 0, 0], [TREBUCHET.throwRadius + 0.5, 0.9, 0])).toBeNull();
   });
 });
 

@@ -423,7 +423,7 @@ export class World extends DurableObject<Env> {
     if (!Array.isArray(m) || m.length !== 5 || !m.every((v) => Number.isInteger(v))) return;
     const [x, y, z, yaw, flags] = m as number[];
     if (Math.abs(x!) > MAX_COORD || Math.abs(z!) > MAX_COORD || y! < -5_000 || y! > (MAX_LEVEL + 3) * LEVEL * 100) return;
-    const move: WireMove = [player.id, x!, y!, z!, yaw! % 6284, flags! & 1];
+    const move: WireMove = [player.id, x!, y!, z!, yaw! % 6284, flags! & 3];
     player.move = move;
     this.moves.set(player.id, move);
     this.quietTicks = 0;

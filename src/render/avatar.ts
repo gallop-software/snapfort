@@ -6,6 +6,7 @@ import { CreateCapsule } from "@babylonjs/core/Meshes/Builders/capsuleBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 
@@ -60,6 +61,8 @@ export class Avatar {
   private legsTurn!: TransformNode;
   /** Current angle of the legs from the facing direction, radians (positive = toward the right). */
   private legYaw = 0;
+  /** Seconds into a tumble (0 when not tumbling). */
+  private tumbleTime = 0;
   /** Left then right: hip, knee, shoulder and elbow joints. */
   private readonly hips: TransformNode[] = [];
   private readonly knees: TransformNode[] = [];
@@ -93,7 +96,15 @@ export class Avatar {
    * Animates the builder. `facingYaw` is where they look, (vx, vz) their
    * horizontal velocity in m/s. Place `root` at their feet first.
    */
-  animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean): void {
+  animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean, tumbling = false): void {
+    if (tumbling) return this.tumble(dt);
+    if (this.tumbleTime > 0) {
+      // Back on their feet: upright again.
+      this.tumbleTime = 0;
+      this.root.rotation.x = 0;
+      this.root.rotation.z = 0;
+      for (const joint of [...this.shoulders, ...this.hips]) joint.rotation.z = 0;
+    }
     // Turn toward the view direction along the shortest arc.
     let diff = (facingYaw - this.root.rotation.y) % (Math.PI * 2);
     if (diff > Math.PI) diff -= Math.PI * 2;
@@ -165,6 +176,36 @@ export class Avatar {
     this.body.position.y += (bob - this.body.position.y) * ease;
     const twist = Math.sin(this.stride) * 0.12 * effort * w;
     this.body.rotation.y += (twist + this.legYaw * 0.25 - this.body.rotation.y) * ease;
+    this.holdLegs();
+  }
+
+  /**
+   * Thrown through the air: head-over-heels flips, a slow sideways roll, and
+   * arms and legs flailing out of time with each other. Spins around the
+   * middle of the body, not the feet.
+   */
+  private tumble(dt: number): void {
+    const t = (this.tumbleTime += dt);
+    const feet = this.root.position.clone();
+    this.root.rotation.x = t * 8.5;
+    this.root.rotation.z = Math.sin(t * 2.1) * 1.1 + t * 2.4;
+    this.root.rotation.y += dt * 3;
+    // Keep the middle of the body where the feet were told to be plus its height.
+    const middle = new Vector3(0, 0.95, 0);
+    const turned = Vector3.TransformCoordinates(middle, Matrix.RotationYawPitchRoll(this.root.rotation.y, this.root.rotation.x, this.root.rotation.z));
+    this.root.position.set(feet.x + middle.x - turned.x, feet.y + middle.y - turned.y, feet.z + middle.z - turned.z);
+    for (let side = 0; side < 2; side++) {
+      const s = side === 0 ? 1 : -1;
+      this.shoulders[side]!.rotation.x = -1.6 + Math.sin(t * 15 + side * 2.3) * 1.5;
+      this.shoulders[side]!.rotation.z = s * (0.9 + Math.sin(t * 11 + side) * 0.6);
+      this.elbows[side]!.rotation.x = -0.5 - Math.abs(Math.sin(t * 13 + side)) * 1.2;
+      this.hips[side]!.rotation.x = Math.sin(t * 12 + side * 2.8) * 1.3;
+      this.hips[side]!.rotation.z = s * Math.abs(Math.sin(t * 9 + side)) * 0.5;
+      this.knees[side]!.rotation.x = 0.3 + Math.abs(Math.sin(t * 14 + side * 1.7)) * 1.4;
+    }
+    this.body.rotation.set(Math.sin(t * 7) * 0.3, 0, Math.sin(t * 5) * 0.3);
+    this.body.position.y = 0;
+    this.legYaw = 0;
     this.holdLegs();
   }
 

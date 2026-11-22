@@ -41,6 +41,10 @@ export class Player {
   onGround = false;
 
   private state: State = "air";
+  /** Seconds since being thrown by a trebuchet hit, or -1 when not flying. */
+  private flying = -1;
+  /** Seconds left getting back on their feet after landing. */
+  private stunned = 0;
   private readonly desired = new Vector3();
   private readonly forwardDir = new Vector3();
   constructor(scene: Scene, shadows: ShadowGenerator) {
@@ -61,6 +65,27 @@ export class Player {
     const cc = this.controller;
     const support = cc.checkSupport(dt, DOWN);
     const supported = support.supportedState === CharacterSupportedState.SUPPORTED;
+
+    if (this.flying >= 0) {
+      this.flying += dt;
+      if (!supported || this.flying < 0.25) {
+        // Thrown: only gravity steers until they come down.
+        const v = cc.getVelocity();
+        cc.setVelocity(new Vector3(v.x, v.y + GRAVITY.y * dt, v.z));
+        cc.integrate(dt, support, GRAVITY);
+        this.state = "air";
+        this.onGround = false;
+        this.settle();
+        return;
+      }
+      this.flying = -1;
+      this.stunned = 0.6;
+      this.state = "ground";
+    }
+    if (this.stunned > 0) {
+      this.stunned -= dt;
+      input = { ...input, strafe: 0, forward: 0, jump: false };
+    }
 
     if (this.state === "jump") this.state = "air";
     else if (this.state === "air" && supported) this.state = "ground";
@@ -105,7 +130,26 @@ export class Player {
 
     cc.setVelocity(out);
     cc.integrate(dt, support, GRAVITY);
+    this.settle();
+  }
 
+  /** Throws the builder (a trebuchet hit nearby): velocity in m/s. */
+  launch(vx: number, vy: number, vz: number): void {
+    this.controller.setVelocity(new Vector3(vx, vy, vz));
+    this.flying = 0;
+    this.stunned = 0;
+    this.state = "air";
+    this.onGround = false;
+  }
+
+  /** True from being thrown until back on their feet. */
+  get tumbling(): boolean {
+    return this.flying >= 0;
+  }
+
+  /** Copies the controller's position out, keeping the builder inside the world. */
+  private settle(): void {
+    const cc = this.controller;
     const p = cc.getPosition();
     if (p.y < -30 || Math.abs(p.x) > WORLD_LIMIT || Math.abs(p.z) > WORLD_LIMIT) {
       p.x = Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, p.x));
@@ -129,12 +173,14 @@ export class Player {
     this.controller.setPosition(new Vector3(x, y, z));
     this.controller.setVelocity(Vector3.Zero());
     this.position.set(x, y, z);
+    this.flying = -1;
+    this.stunned = 0;
   }
 
   /** Moves the avatar to the character and animates it. Call before rendering. */
   animate(dt: number, facingYaw: number): void {
     this.avatar.root.position.set(this.position.x, this.position.y - HEIGHT / 2, this.position.z);
     const v = this.controller.getVelocity();
-    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround);
+    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling);
   }
 }

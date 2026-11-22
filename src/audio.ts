@@ -17,6 +17,13 @@ export class Sfx {
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
+  /** Thrown into the air: a wobbling "whoaaa". */
+  yelp(): void {
+    this.tone("sine", 420, 980, 0.35, 0.3);
+    this.tone("triangle", 980, 520, 0.6, 0.22, 0.32);
+    this.tone("sine", 700, 1100, 0.2, 0.12, 0.1);
+  }
+
   /** The arm swings: a creak and a whoosh. */
   launch(): void {
     this.tone("sawtooth", 90, 60, 0.25, 0.12);

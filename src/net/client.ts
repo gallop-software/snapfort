@@ -95,10 +95,10 @@ export class NetClient {
   }
 
   /** Sends where this builder is, at most every 100 ms and only when it changed. */
-  sendMove(x: number, y: number, z: number, yaw: number, onGround: boolean, now: number): void {
+  sendMove(x: number, y: number, z: number, yaw: number, onGround: boolean, now: number, tumbling = false): void {
     if (!this.online || now - this.lastMoveAt < MOVE_INTERVAL) return;
     const yawMilli = Math.round((((yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) * 1000);
-    const m: [number, number, number, number, number] = [Math.round(x * 100), Math.round(y * 100), Math.round(z * 100), yawMilli, onGround ? 1 : 0];
+    const m: [number, number, number, number, number] = [Math.round(x * 100), Math.round(y * 100), Math.round(z * 100), yawMilli, (onGround ? 1 : 0) | (tumbling ? 2 : 0)];
     const key = m.join(",");
     if (key === this.lastMove) return;
     this.lastMove = key;

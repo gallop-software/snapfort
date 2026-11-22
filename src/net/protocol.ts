@@ -28,7 +28,7 @@ export interface WirePlayer {
   color: string;
 }
 
-/** Where a builder is: [id, x, y, z, yaw, flags]. Positions in centimetres, yaw in milliradians. Flags: 1 = on the ground. */
+/** Where a builder is: [id, x, y, z, yaw, flags]. Positions in centimetres, yaw in milliradians. Flags: 1 = on the ground, 2 = thrown (tumbling). */
 export type WireMove = [string, number, number, number, number, number];
 
 /** A point in metres. */

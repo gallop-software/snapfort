@@ -24,6 +24,11 @@ export const TREBUCHET = {
   stoneRadius: 0.4,
   /** Pieces this close to the impact take a hit. */
   blastRadius: 2.2,
+  /** Builders this close to an impact are thrown. */
+  throwRadius: 7,
+  /** How hard a builder right at the impact is thrown: sideways and upward speed, m/s. */
+  throwOut: 26,
+  throwUp: 42,
   /** How near a builder must be to get on, from the trebuchet's centre. */
   boardReach: 6,
 } as const;
@@ -88,6 +93,22 @@ export function planFlight(from: Vec, to: Vec): Flight {
 
 export function positionAt(f: Flight, t: number): Vec {
   return [f.from[0] + f.v[0] * t, f.from[1] + f.v[1] * t - 0.5 * TREBUCHET.gravity * t * t, f.from[2] + f.v[2] * t];
+}
+
+/**
+ * How a builder whose body centre is at `at` is thrown by an impact at
+ * `point`: away from it and high into the air, harder the closer they were.
+ * null when out of reach.
+ */
+export function throwVelocity(point: Vec, at: Vec, spin = Math.random()): Vec | null {
+  const dx = at[0] - point[0], dy = at[1] - point[1], dz = at[2] - point[2];
+  const d = Math.hypot(dx, dy, dz);
+  if (d > TREBUCHET.throwRadius) return null;
+  const k = 0.55 + 0.45 * (1 - d / TREBUCHET.throwRadius);
+  const flat = Math.hypot(dx, dz);
+  // Right on top of it: thrown in a random direction.
+  const a = flat > 0.3 ? Math.atan2(dx, dz) : spin * Math.PI * 2;
+  return [Math.sin(a) * TREBUCHET.throwOut * k, TREBUCHET.throwUp * k, Math.cos(a) * TREBUCHET.throwOut * k];
 }
 
 /** A piece's solid space in metres: [minX, minY, minZ, maxX, maxY, maxZ]. */

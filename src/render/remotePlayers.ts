@@ -31,6 +31,7 @@ interface Sample {
   z: number;
   yaw: number;
   ground: boolean;
+  tumbling: boolean;
 }
 
 interface Remote {
@@ -43,6 +44,7 @@ interface Remote {
   vx: number;
   vz: number;
   ground: boolean;
+  tumbling: boolean;
   avatar: Avatar | null;
   tag: Mesh | null;
 }
@@ -89,7 +91,7 @@ export class RemotePlayers {
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);
     if (!remote) {
-      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, avatar: null, tag: null });
+      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, avatar: null, tag: null });
       return;
     }
     const renamed = remote.player.name !== player.name || remote.player.color !== player.color;
@@ -116,7 +118,7 @@ export class RemotePlayers {
   move(m: WireMove, now: number): void {
     const remote = this.remotes.get(m[0]);
     if (!remote) return;
-    const sample: Sample = { at: now, x: m[1] / 100, y: m[2] / 100, z: m[3] / 100, yaw: m[4] / 1000, ground: (m[5] & 1) === 1 };
+    const sample: Sample = { at: now, x: m[1] / 100, y: m[2] / 100, z: m[3] / 100, yaw: m[4] / 1000, ground: (m[5] & 1) === 1, tumbling: (m[5] & 2) === 2 };
     if (remote.samples.length === 0) {
       // First sighting: appear there at once.
       remote.x = sample.x;
@@ -151,7 +153,7 @@ export class RemotePlayers {
       const avatar = (remote.avatar ??= this.claim(remote.player.color));
       avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
       avatar.root.rotation.y = remote.yaw;
-      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground);
+      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling);
       const showTag = dist < TAG_RANGE;
       if (showTag && !remote.tag) remote.tag = this.makeTag(remote.player);
       if (remote.tag) {
@@ -192,6 +194,7 @@ export class RemotePlayers {
       remote.z = latest.z;
       remote.yaw = latest.yaw;
       remote.ground = latest.ground;
+      remote.tumbling = latest.tumbling;
       remote.vx = remote.vz = 0;
       return;
     }
@@ -202,6 +205,7 @@ export class RemotePlayers {
     remote.z = a.z + (b.z - a.z) * t;
     remote.yaw = a.yaw + wrap(b.yaw - a.yaw) * t;
     remote.ground = t < 0.5 ? a.ground : b.ground;
+    remote.tumbling = a.tumbling || b.tumbling;
     // A long gap means they stood still in between, not that they crept along.
     const moving = t < 1 && span < 400;
     remote.vx = moving ? ((b.x - a.x) / span) * 1000 : 0;

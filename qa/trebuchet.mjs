@@ -74,21 +74,38 @@ check("right click sets a target on the tower", !!target && Math.abs(target[2] -
 check("the panel says it is in range and ready", (await b.textContent("#crew")).includes("ready"), await b.textContent("#crew"));
 await b.screenshot({ path: "qa/shots/trebuchet-aim.png" });
 
+// A stands right in front of the target wall.
+await sf(a, () => { const s = window.snapfort; s.player.teleport(2.5, 0.95, 57.5); s.rig.yaw = Math.PI; });
+await wait(400);
+const startA = await sf(a, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z }));
+
 // Fire, and watch the stone land on A's page too.
 const before = (await ids(a)).split(",").length;
 await b.mouse.down(); await b.mouse.up();
-await wait(400);
-await a.screenshot({ path: "qa/shots/trebuchet-flight.png" });
-await wait(3600);
+await wait(300);
+check("the panel shows the reload", (await b.textContent("#crew")).includes("reloading"), await b.textContent("#crew"));
+await b.mouse.down(); await b.mouse.up(); await wait(150);
+check("firing again too soon is refused", (await b.textContent("#toast")).includes("reloading"), await b.textContent("#toast"));
+// Follow A through the air after the impact (the stone flies about 2.8 s).
+let peak = 0, sawTumble = false;
+const t0 = Date.now();
+while (Date.now() - t0 < 6500) {
+  const y = await sf(a, () => window.snapfort.player.feetY);
+  peak = Math.max(peak, y);
+  if (!sawTumble) sawTumble = await sf(b, () => [...window.snapfort.remotes.remotes.values()].some((r) => r.tumbling));
+  await wait(60);
+}
+const endA = await sf(a, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z, tumbling: window.snapfort.player.tumbling }));
+const thrownFar = Math.hypot(endA.x - startA.x, endA.z - startA.z);
+check("a builder standing at the impact is thrown high into the air", peak > 12, `peak ${peak.toFixed(1)} m`);
+check("…lands far away and back on their feet", thrownFar > 30 && !endA.tumbling, `${thrownFar.toFixed(0)} m away`);
+check("…and the other builder saw them tumbling", sawTumble);
 await frames(a, 3);
 const after = (await ids(a)).split(",").length;
 check("the stone breaks the bottom of the tower, and what it held falls", after <= before - 9, `${before} → ${after} pieces`);
 check("both pages agree on what is left", (await ids(a)) === (await ids(b)));
 check("rubble is falling on A's page", (await sf(a, () => window.snapfort.debris.count)) > 0, `${await sf(a, () => window.snapfort.debris.count)} pieces of rubble`);
 await a.screenshot({ path: "qa/shots/trebuchet-collapse.png" });
-check("the panel shows the reload", (await b.textContent("#crew")).includes("reloading"), await b.textContent("#crew"));
-await b.mouse.down(); await b.mouse.up(); await wait(300);
-check("firing again too soon is refused", (await b.textContent("#toast")).includes("reloading"), await b.textContent("#toast"));
 await wait(6000);
 check("the rubble is gone after a few seconds", (await sf(a, () => window.snapfort.debris.count)) === 0);
 await wait(1000);

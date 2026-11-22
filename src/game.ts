@@ -46,7 +46,7 @@ import { Debris } from "./render/debris";
 import { RemotePlayers } from "./render/remotePlayers";
 import { TowerFlags } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
-import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
+import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, throwVelocity, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
 import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
@@ -463,6 +463,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   });
   input.onMouseDown = (button) => {
     sfx.unlock();
+    // Flying through the air: hands are busy flailing.
+    if (player.tumbling) return;
     if (crewOn) {
       if (button === 2) setTarget();
       else if (button === 0) fireStone();
@@ -687,6 +689,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         damage.set(id, n);
         tint(id);
       }
+      // Standing too close: thrown through the air (and off a trebuchet).
+      const thrown = throwVelocity(point, [player.position.x, player.position.y, player.position.z]);
+      if (thrown) {
+        if (crewOn) {
+          net.leaveTrebuchet();
+          leaveCrew();
+        }
+        finishEdit(false);
+        placing = false;
+        player.launch(...thrown);
+        sfx.yelp();
+      }
       const near = nearness(point);
       if (near > 0) {
         sfx.boom(near);
@@ -876,8 +890,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     world.update(dt);
     flash.update(dt);
 
-    if (crewOn) {
+    if (crewOn || player.tumbling) {
       ghost.hide();
+      placing = false;
     } else if (input.locked && editing) {
       updateEdit();
     } else if (input.locked) {
@@ -903,7 +918,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (!solo && net.online) {
       const action = synced.takeAction();
       if (action) net.sendAction(action.seq, action.ops);
-      net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now);
+      net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now, player.tumbling);
     }
     remotes.update(dt, now, player.position);
     showMaterial();

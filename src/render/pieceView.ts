@@ -16,6 +16,7 @@ import type { BuildState } from "../game/buildState";
 import { CELL, LEVEL, THICK } from "../game/constants";
 import { MATERIAL_DEFS, MATERIALS, PIECE_TYPES, pieceTransform, type MaterialId, type Piece, type PieceSpec, type PieceType } from "../game/pieces";
 import { editedGeometry, pieceGeometry, TREBUCHET_BASE } from "./geometry";
+import { BUILDER_GROUP, FRAME_GROUP } from "./physicsGroups";
 import { pieceTexture } from "./textures";
 
 const UP = Vector3.Up();
@@ -180,6 +181,9 @@ export class PieceView {
   private readonly materials = new Map<string, StandardMaterial>();
   private readonly shapes = {} as Record<PieceType, PhysicsShape>;
   private readonly bodies = new Map<string, PhysicsBody>();
+  /** Trebuchet frames: hit by the crosshair, not by builders (see FRAME_GROUP). */
+  private readonly frames = new Map<string, PhysicsBody>();
+  private frameShape!: PhysicsShape;
   private readonly edited = new Map<string, { mesh: Mesh; shape: PhysicsShape }>();
 
   constructor(
@@ -210,6 +214,9 @@ export class PieceView {
     // A trebuchet's turntable base is solid, so its crew stands on it; the frame
     // above turns to aim and is not (it would shove the crew off).
     this.shapes.trebuchet = new PhysicsShapeBox(new Vector3(0, TREBUCHET_BASE / 2, 0), Quaternion.Identity(), new Vector3(CELL * 0.84, TREBUCHET_BASE, CELL * 0.84), scene);
+    this.frameShape = new PhysicsShapeBox(new Vector3(0, TREBUCHET_BASE + 3, 0), Quaternion.Identity(), new Vector3(2.6, 6, 2.6), scene);
+    this.frameShape.filterMembershipMask = FRAME_GROUP;
+    this.frameShape.filterCollideMask = ~BUILDER_GROUP;
     for (const type of ["ramp", "roof"] as const) {
       const hull = makeMesh(pieceGeometry(type), scene, `hull-${type}`);
       this.shapes[type] = new PhysicsShapeConvexHull(hull, scene);
@@ -326,9 +333,25 @@ export class PieceView {
     // Pieces never move, so there is nothing to copy back from the physics world each frame.
     body.disableSync = true;
     this.bodies.set(piece.id, body);
+    if (piece.type === "trebuchet") {
+      const frame = new TransformNode(`frame-${piece.id}`, this.scene);
+      frame.position.set(t.px, t.py, t.pz);
+      frame.metadata = { pieceId: piece.id };
+      const frameBody = new PhysicsBody(frame, PhysicsMotionType.STATIC, false, this.scene);
+      frameBody.shape = this.frameShape;
+      frameBody.disableSync = true;
+      this.frames.set(piece.id, frameBody);
+    }
   }
 
   private remove(piece: Piece): void {
+    const frame = this.frames.get(piece.id);
+    if (frame) {
+      const node = frame.transformNode;
+      frame.dispose();
+      node.dispose();
+      this.frames.delete(piece.id);
+    }
     this.pools.get(poolKey(piece.type, piece.material))?.remove(piece.id);
     const body = this.bodies.get(piece.id);
     if (body) {

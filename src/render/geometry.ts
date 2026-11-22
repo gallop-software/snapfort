@@ -1,6 +1,7 @@
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { CELL, LEVEL, THICK } from "../game/constants";
 import { editGrid, type PieceType } from "../game/pieces";
+import { TREBUCHET_BASE } from "../game/trebuchet";
 
 type V3 = readonly [number, number, number];
 
@@ -137,8 +138,7 @@ export function pieceGeometry(type: PieceType): VertexData {
   }
 }
 
-/** Height of a trebuchet's turntable base. */
-export const TREBUCHET_BASE = 0.5;
+export { TREBUCHET_BASE } from "../game/trebuchet";
 
 /**
  * Texture coordinates for one tile of an edited piece, matching what the

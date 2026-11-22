@@ -1,7 +1,7 @@
 import type { BuildState } from "./buildState";
 import { CELL, LEVEL, THICK, WORLD_HALF_CELLS } from "./constants";
 import { normalizeSpec, type Piece } from "./pieces";
-import type { Vec } from "./trebuchet";
+import { TREBUCHET_BASE, type Vec } from "./trebuchet";
 
 /**
  * A builder thrown by a trebuchet, or left standing on nothing: where they fly
@@ -53,7 +53,7 @@ export function standHeight(p: Piece, x: number, z: number): number | null {
     case "floor":
       return base + THICK / 2;
     case "trebuchet":
-      return base + 0.5;
+      return base + TREBUCHET_BASE;
     case "roof":
       return base + LEVEL * Math.max(0, 1 - 2 * Math.max(Math.abs(cu - 0.5), Math.abs(cw - 0.5)));
     case "ramp": {

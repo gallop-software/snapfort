@@ -171,6 +171,20 @@ await sf(a, () => { const s = window.snapfort; s.engine.runRenderLoop(() => s.sc
 await wait(400);
 check("…and is on the ground when their tab wakes up", (await sf(a, () => window.snapfort.player.feetY)) < 0.6, `${(await sf(a, () => window.snapfort.player.feetY)).toFixed(1)} m`);
 
+// Walking onto a trebuchet needs no jump, and the Remove tool takes it down when aimed at its frame.
+await put(a, [["trebuchet", -20, 0, -20, 0]]);
+await wait(500);
+await sf(a, () => { const s = window.snapfort; s.engine.runRenderLoop?.(() => {}); s.player.teleport(-97.5, 0.95, -105); s.rig.yaw = 0; s.rig.pitch = 0; });
+await a.keyboard.down("KeyW"); await wait(1100); await a.keyboard.up("KeyW"); await wait(200);
+check("a builder walks straight onto and over a trebuchet", (await sf(a, () => window.snapfort.player.position.z)) > -95, `reached z ${(await sf(a, () => window.snapfort.player.position.z)).toFixed(1)}`);
+await sf(a, () => { const s = window.snapfort; s.player.teleport(-97.5, 0.95, -110); });
+await wait(300);
+await a.keyboard.press("KeyV");
+await sf(a, () => { const s = window.snapfort; const pv = s.rig.pivot; s.rig.yaw = Math.atan2(-97.5 - pv.x, -97.5 - pv.z); s.rig.pitch = -Math.atan2(2.5 - pv.y, Math.hypot(-97.5 - pv.x, -97.5 - pv.z)); });
+await wait(300);
+await a.mouse.down(); await a.mouse.up(); await wait(400);
+check("the Remove tool takes a trebuchet down when aimed at its frame", !(await sf(a, () => [...window.snapfort.state.all()].some((q) => q.type === "trebuchet" && q.x === -20))));
+
 check("no errors or warnings in the console", errors.length === 0, errors.slice(0, 5).join(" | "));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in world ${world}`);

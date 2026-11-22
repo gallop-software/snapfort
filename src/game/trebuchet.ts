@@ -33,6 +33,9 @@ export const TREBUCHET = {
   boardReach: 6,
 } as const;
 
+/** Height of a trebuchet's turntable base: low enough to walk straight onto (builders step up 0.4 m). */
+export const TREBUCHET_BASE = 0.35;
+
 /** Hits a piece takes before it breaks. */
 export const MATERIAL_HP: Record<MaterialId, number> = { wood: 1, brick: 2, metal: 3 };
 export const TREBUCHET_HP = 2;

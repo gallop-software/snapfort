@@ -43,7 +43,7 @@ import { RemotePlayers } from "./render/remotePlayers";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
 import { createWorld } from "./render/world";
-import { clock, Hud, type HotbarItem } from "./ui/hud";
+import { clock, Hud, showStats, type HotbarItem } from "./ui/hud";
 
 type Tool = PieceType | "remove";
 const TOOLS: readonly Tool[] = [...PIECE_TYPES, "remove"];
@@ -578,6 +578,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   net.connect();
 
   let statsTimer = 0;
+  const stats = showStats();
+  /** Which graphics chip is drawing, for the ?stats readout. */
+  const gpuName = (() => {
+    const info = (engine as AbstractEngine & { getInfo?: () => { vendor: string; renderer: string } }).getInfo?.() ?? { vendor: "", renderer: "" };
+    return [info.vendor, info.renderer].filter((s) => s && s !== "unknown").join(" ") || "unknown GPU";
+  })();
 
   scene.onBeforeRenderObservable.add(() => {
     resolution.update(engine.getDeltaTime() / 1000);
@@ -620,9 +626,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     view.flush();
 
     statsTimer -= dt;
-    if (statsTimer <= 0 && import.meta.env.DEV) {
+    if (statsTimer <= 0 && stats) {
       statsTimer = 0.25;
-      hud.setStats(`${engine.getFps().toFixed(0)} fps · ${api}`);
+      hud.setStats(`${engine.getFps().toFixed(0)} fps · ${api} · ${resolution.scale}× · ${gpuName}`);
     }
     if (mode === "siege") {
       if (siege.wave === 0) hud.setSiege(`The army arrives in ${clock(Math.ceil(siege.nextWave))}`, siege.nextWave < 10);

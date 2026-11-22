@@ -35,6 +35,11 @@ const ICONS: Record<string, string> = {
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+/** The frame-rate readout shows in development, or anywhere with ?stats in the address. */
+export function showStats(): boolean {
+  return import.meta.env.DEV || new URLSearchParams(location.search).has("stats");
+}
+
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -83,7 +88,7 @@ export class Hud {
       el("mouse-speed-value").textContent = `${speed.toFixed(2)}×`;
       actions.setMouseSpeed(speed);
     });
-    if (!import.meta.env.DEV) this.stats.hidden = true;
+    if (!showStats()) this.stats.hidden = true;
     this.actions = actions;
     const name = el<HTMLInputElement>("player-name");
     name.addEventListener("change", () => this.changeIdentity());

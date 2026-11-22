@@ -171,6 +171,15 @@ await sf(a, () => { const s = window.snapfort; s.engine.runRenderLoop(() => s.sc
 await wait(400);
 check("…and is on the ground when their tab wakes up", (await sf(a, () => window.snapfort.player.feetY)) < 0.6, `${(await sf(a, () => window.snapfort.player.feetY)).toFixed(1)} m`);
 
+// A is in mid-air far away while B removes a piece: A must not be knocked down.
+await put(b, [["wall", 30, 0, 30, 0]]);
+await wait(400);
+await sf(a, () => window.snapfort.player.teleport(-150, 6, -150));
+await wait(250);
+await sf(b, () => { const s = window.snapfort; const w = [...s.state.all()].find((p) => p.type === "wall" && p.x === 30); s.removePiece(w.id); });
+await wait(1200);
+check("someone mid-jump elsewhere is not knocked down when a piece is removed", !(await sf(a, () => window.snapfort.player.knockedDown)) && !(await sf(b, () => [...window.snapfort.remotes.remotes.values()][0]?.fall)));
+
 // Walking onto a trebuchet needs no jump, and the Remove tool takes it down when aimed at its frame.
 await put(a, [["trebuchet", -20, 0, -20, 0]]);
 await wait(500);

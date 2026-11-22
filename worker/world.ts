@@ -4,7 +4,7 @@ import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
 import { DOWN_TIME, planFall, RISE_TIME } from "../src/game/fall";
-import { checkRange, findImpact, launchPoint, planFlight, strike, throwVelocity, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
+import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import { applyAction } from "../src/net/authority";
 import {
@@ -276,7 +276,8 @@ export class World extends DurableObject<Env> {
       this.broadcast({ t: "ops", by: player.id, ops: [...done.map((d) => encodeOp(d.op)), ...extraWire] }, ws);
       this.scheduleFlush();
       this.scheduleTowers();
-      if (done.some((d) => d.op.kind === "remove") || extra.length > 0) this.knock(null);
+      const gone = [...done, ...extra].flatMap((d) => (d.inverse.kind === "place" ? [d.inverse.piece] : []));
+      if (gone.length > 0) this.knock(null, gone);
     }
   }
 
@@ -312,16 +313,18 @@ export class World extends DurableObject<Env> {
   private applyAsAdmin(ops: readonly BuildOp[]): number {
     const now = Date.now();
     let count = 0;
+    const removed: Piece[] = [];
     for (const op of ops) {
       const inverse = this.build.apply(op);
       if (!inverse) continue;
       count++;
+      if (inverse.kind === "place") removed.push(inverse.piece);
       this.unsavedLog.push([now, "admin", encodeOp(op), encodeOp(inverse)]);
     }
     this.flush();
     this.broadcast({ t: "snap", pieces: this.allPieces() });
     this.scheduleTowers();
-    this.knock(null);
+    this.knock(null, removed);
     return count;
   }
 
@@ -432,7 +435,7 @@ export class World extends DurableObject<Env> {
     const gone = broken.filter(remove);
     const fallen = gone.length > 0 ? findLooseAfterRemoval(this.build, gone).filter(remove) : [];
     this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
-    this.knock(point);
+    this.knock(point, [...gone, ...fallen]);
     if (ops.length > 0) {
       this.scheduleFlush();
       this.scheduleTowers();
@@ -444,13 +447,16 @@ export class World extends DurableObject<Env> {
    * nothing (what held them was removed) fall. Each flight is planned here,
    * from where the server last knew them to be, and sent to everyone.
    */
-  private knock(point: Vec | null): void {
+  private knock(point: Vec | null, gone: readonly Piece[]): void {
     const now = Date.now();
     for (const player of this.players.values()) {
       const m = this.moves.get(player.id) ?? player.move;
       if (!m || now < (this.downUntil.get(player.id) ?? 0)) continue;
       const centre: Vec = [m[1] / 100, m[2] / 100, m[3] / 100];
       const v = point ? throwVelocity(point, centre) : null;
+      // Not thrown: only someone who was standing on (or right by) a piece that went can fall.
+      // (Anyone else, mid-jump say, is left alone.)
+      if (!v && !gone.some((p) => wasStandingOn(p, centre))) continue;
       let fall = v ? planFall(this.build, centre, v) : planFall(this.build, centre, [0, 0, 0]);
       // Still standing on something: no fall.
       if (!v && fall.time < 0.12) continue;
@@ -625,6 +631,14 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 }
 
 const publicPlayer = (p: Attachment): WirePlayer => ({ id: p.id, name: p.name, color: p.color });
+
+/** True when a builder with body centre `c` was standing on, or right at the edge of, piece `p`. */
+function wasStandingOn(p: Piece, c: Vec): boolean {
+  const [x0, y0, z0, x1, y1, z1] = pieceBounds(p);
+  const feet = c[1] - 0.9;
+  const margin = 0.6;
+  return c[0] > x0 - margin && c[0] < x1 + margin && c[2] > z0 - margin && c[2] < z1 + margin && feet > y0 - 0.5 && feet < y1 + 1.5;
+}
 
 /** A point in metres from a message, or null when malformed or far outside the world. */
 function readVec(v: unknown): Vec | null {

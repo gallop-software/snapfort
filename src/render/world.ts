@@ -120,6 +120,18 @@ export function createWorld(scene: Scene, camera: Camera): World {
   groundBody.shape = groundShape;
   groundBody.disableSync = true;
 
+  // Up a tall tower the ground is further away: push the fog and the shadows'
+  // reach out with height, so the view down stays clear and shadowed.
+  let lastHeight = 0;
+  const followHeight = () => {
+    const h = Math.max(0, camera.globalPosition.y);
+    if (Math.abs(h - lastHeight) < 2) return;
+    lastHeight = h;
+    scene.fogStart = 140 + h;
+    scene.fogEnd = 700 + h * 1.5;
+    shadows.shadowMaxZ = 110 + h * 0.9;
+  };
+
   return {
     shadows,
     setShadows(on) {
@@ -127,6 +139,7 @@ export function createWorld(scene: Scene, camera: Camera): World {
     },
     update(dt) {
       cloud.rotation.y += dt * 0.004;
+      followHeight();
     },
   };
 }

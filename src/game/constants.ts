@@ -9,5 +9,5 @@ export const THICK = 0.3;
 
 /** Buildable area: cells from -WORLD_HALF_CELLS to WORLD_HALF_CELLS - 1 on x and z. */
 export const WORLD_HALF_CELLS = 48;
-/** Highest storey a piece can sit on. */
-export const MAX_LEVEL = 40;
+/** Highest storey a piece can sit on: storeys 0 to 80, so the tallest towers top out at about 304 m. */
+export const MAX_LEVEL = 80;

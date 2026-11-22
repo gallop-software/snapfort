@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { BuildState, type BuildOp } from "../src/game/buildState";
+import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
 import { checkRange, findImpact, launchPoint, planFlight, strike, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
@@ -421,7 +422,7 @@ export class World extends DurableObject<Env> {
   private move(player: Attachment, m: unknown): void {
     if (!Array.isArray(m) || m.length !== 5 || !m.every((v) => Number.isInteger(v))) return;
     const [x, y, z, yaw, flags] = m as number[];
-    if (Math.abs(x!) > MAX_COORD || Math.abs(z!) > MAX_COORD || y! < -5_000 || y! > 20_000) return;
+    if (Math.abs(x!) > MAX_COORD || Math.abs(z!) > MAX_COORD || y! < -5_000 || y! > (MAX_LEVEL + 3) * LEVEL * 100) return;
     const move: WireMove = [player.id, x!, y!, z!, yaw! % 6284, flags! & 1];
     player.move = move;
     this.moves.set(player.id, move);
@@ -541,7 +542,7 @@ const publicPlayer = (p: Attachment): WirePlayer => ({ id: p.id, name: p.name, c
 function readVec(v: unknown): Vec | null {
   if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
   const [x, y, z] = v as number[];
-  if (Math.abs(x!) > MAX_COORD / 100 || Math.abs(z!) > MAX_COORD / 100 || y! < -10 || y! > 400) return null;
+  if (Math.abs(x!) > MAX_COORD / 100 || Math.abs(z!) > MAX_COORD / 100 || y! < -10 || y! > (MAX_LEVEL + 3) * LEVEL * 2) return null;
   return [x!, y!, z!];
 }
 

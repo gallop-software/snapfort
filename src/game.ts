@@ -40,6 +40,7 @@ import { Ghost, PieceView, PlaceFlash } from "./render/pieceView";
 import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
 import { RemotePlayers } from "./render/remotePlayers";
+import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
 import { createWorld } from "./render/world";
@@ -168,6 +169,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       settings.mouseSpeed = speed;
       rig.sensitivity = speed;
       saveSettings(settings);
+    },
+    setGraphics(mode) {
+      settings.graphics = mode;
+      saveSettings(settings);
+      graphics.apply(mode);
     },
     setIdentity(next) {
       identity.name = next.name;
@@ -628,7 +634,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     statsTimer -= dt;
     if (statsTimer <= 0 && stats) {
       statsTimer = 0.25;
-      hud.setStats(`${engine.getFps().toFixed(0)} fps · ${api} · ${resolution.scale}× · ${gpuName}`);
+      hud.setStats(`${engine.getFps().toFixed(0)} fps · ${api} · ${graphics.effective} · ${resolution.scale}× · ${gpuName}`);
     }
     if (mode === "siege") {
       if (siege.wave === 0) hud.setSiege(`The army arrives in ${clock(Math.ceil(siege.nextWave))}`, siege.nextWave < 10);
@@ -639,6 +645,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   selectTool(0);
   showMaterial();
   hud.showMouseSpeed(settings.mouseSpeed);
+  const graphics = new Graphics(engine, world, resolution, gpuName);
+  graphics.apply(settings.graphics);
+  hud.showGraphics(settings.graphics, graphics.autoMode);
   window.addEventListener("resize", () => engine.resize());
   engine.runRenderLoop(() => scene.render());
   await scene.whenReadyAsync();
@@ -650,7 +659,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, resolution, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, resolution, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

@@ -1,4 +1,5 @@
 import type { Identity } from "../identity";
+import type { GraphicsMode } from "../render/graphics";
 import type { NetStatus } from "../net/client";
 import "./style.css";
 
@@ -15,6 +16,8 @@ export interface HudActions {
   menu(): void;
   /** The mouse speed slider moved. */
   setMouseSpeed(speed: number): void;
+  /** The graphics setting was changed on the menu. */
+  setGraphics(mode: GraphicsMode): void;
   /** The name or colour was changed on the menu. */
   setIdentity(identity: Identity): void;
 }
@@ -131,6 +134,27 @@ export class Hud {
     if (name) this.identity.name = name;
     input.value = this.identity.name;
     this.actions.setIdentity({ ...this.identity });
+  }
+
+  /** Fills the graphics setting. `auto` says what Auto picked on this computer. */
+  showGraphics(mode: GraphicsMode, auto: Exclude<GraphicsMode, "auto">): void {
+    const select = el<HTMLSelectElement>("graphics");
+    const label: Record<GraphicsMode, string> = {
+      auto: `Auto (${auto === "saver" ? "battery saver" : "sharp"} here)`,
+      sharp: "Sharp: 60 fps, shadows",
+      saver: "Battery saver: cool and quiet",
+    };
+    select.replaceChildren(
+      ...(Object.keys(label) as GraphicsMode[]).map((m) => {
+        const option = document.createElement("option");
+        option.value = m;
+        option.textContent = label[m];
+        return option;
+      }),
+    );
+    select.value = mode;
+    select.onchange = () => this.actions.setGraphics(select.value as GraphicsMode);
+    select.onkeydown = (e) => e.stopPropagation();
   }
 
   /** How many builders are in the world, this player included; null hides it. */

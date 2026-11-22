@@ -22,6 +22,8 @@ const GROUND_SIZE = 2400;
 
 export interface World {
   shadows: CascadedShadowGenerator;
+  /** Live sun shadows on or off (battery saver turns them off). */
+  setShadows(on: boolean): void;
   update(dt: number): void;
 }
 
@@ -120,6 +122,9 @@ export function createWorld(scene: Scene, camera: Camera): World {
 
   return {
     shadows,
+    setShadows(on) {
+      sun.shadowEnabled = on;
+    },
     update(dt) {
       cloud.rotation.y += dt * 0.004;
     },

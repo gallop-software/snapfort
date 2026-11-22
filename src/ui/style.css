@@ -374,6 +374,16 @@ body.playing #crosshair { opacity: 1; }
   font: inherit;
   cursor: text;
 }
+.setting select {
+  width: 180px;
+  padding: 6px 8px;
+  border: 2px solid rgba(31, 42, 55, 0.25);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
 .colors { display: flex; gap: 6px; width: 180px; flex-wrap: wrap; }
 .colors button {
   width: 22px;

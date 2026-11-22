@@ -248,15 +248,14 @@ export class Hud {
 
   /**
    * Hides the panel while playing, or shows one of its views. "away" (the
-   * player switched to another window) shows no panel, only a small note that
-   * a click picks up where they left off.
+   * player switched to another window) shows nothing over the game: one click
+   * on it picks up where they left off.
    */
   show(view: View | "playing" | "away"): void {
     this.view = view;
     const playing = view === "playing";
     const away = view === "away";
     el("settings").hidden = view === "captured";
-    el("resume-hint").hidden = !away;
     document.body.classList.toggle("playing", playing);
     this.overlay.hidden = playing || away;
     for (const [name, node] of Object.entries(this.views)) node.hidden = name !== view;

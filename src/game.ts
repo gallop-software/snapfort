@@ -428,8 +428,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /**
    * Closes the settings panel and carries on building. The panel goes at once;
    * if the browser will not capture the mouse from this key or click (it
-   * refuses for Esc, and for a moment after the mouse was released), the small
-   * click-to-continue note stays until one click on the game.
+   * refuses for Esc, and for a moment after the mouse was released), one click
+   * on the game carries on.
    */
   function backToBuilding(): void {
     sfx.unlock();

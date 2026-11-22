@@ -328,14 +328,14 @@ const keep = (await pieces()).length;
 await page.evaluate(() => { document.hasFocus = () => false; document.exitPointerLock(); window.dispatchEvent(new Event("blur")); });
 await wait(400);
 check("switching windows shows no pause panel", !(await page.isVisible("#overlay")), "");
-check("…just a small click-to-continue note", await page.isVisible("#resume-hint"));
+check("…and no note over the game either", !(await page.isVisible("#crosshair + *:has-text('Click to keep building')")) && (await page.$("#resume-hint")) === null);
 await page.evaluate(() => { document.hasFocus = () => true; });
 await wait(1200);
 await page.mouse.click(640, 380); await wait(500);
-check("one click back in the game carries on", await sf(() => window.snapfort.input.locked) && !(await page.isVisible("#resume-hint")));
+check("one click back in the game carries on", await sf(() => window.snapfort.input.locked));
 check("…and that click does not place a piece", (await pieces()).length === keep, `${(await pieces()).length} vs ${keep}`);
 await page.evaluate(() => document.exitPointerLock()); await wait(400);
-check("Esc (mouse released while the window keeps focus) still opens the pause menu", await page.isVisible("#view-paused") && !(await page.isVisible("#resume-hint")));
+check("Esc (mouse released while the window keeps focus) still opens the pause menu", await page.isVisible("#view-paused"));
 await wait(1200); await page.click("#resume"); await wait(500);
 await clear();
 

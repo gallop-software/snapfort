@@ -5,6 +5,5 @@ dist
 *.local
 qa/shots
 
-# Only encrypted secrets are committed
-secrets/*
-!secrets/*.age
+# Secrets stay on this computer only, encrypted or not
+secrets/

@@ -95,7 +95,7 @@ export class Hud {
     const slider = el<HTMLInputElement>("mouse-speed");
     slider.addEventListener("input", () => {
       const speed = Number(slider.value);
-      el("mouse-speed-value").textContent = `${speed.toFixed(2)}×`;
+      this.paintSpeed(speed);
       actions.setMouseSpeed(speed);
     });
     if (!showStats()) this.stats.hidden = true;
@@ -145,10 +145,19 @@ export class Hud {
     this.actions.setIdentity({ ...this.identity });
   }
 
+  /** The slider's value beside it and its filled part. */
+  private paintSpeed(speed: number): void {
+    const slider = el<HTMLInputElement>("mouse-speed");
+    const fill = ((speed - Number(slider.min)) / (Number(slider.max) - Number(slider.min))) * 100;
+    slider.style.setProperty("--fill", `${fill}%`);
+    el("mouse-speed-value").textContent = `${speed.toFixed(2)}×`;
+  }
+
+  /** The Sound switch: on means sound plays. */
   showMuted(muted: boolean): void {
-    const box = el<HTMLInputElement>("mute");
-    box.checked = muted;
-    box.onchange = () => this.actions.setMuted(box.checked);
+    const box = el<HTMLInputElement>("sound");
+    box.checked = !muted;
+    box.onchange = () => this.actions.setMuted(!box.checked);
   }
 
   /** Fills the graphics setting. `auto` says what Auto picked on this computer. */
@@ -243,7 +252,7 @@ export class Hud {
   /** Puts the mouse speed slider at a saved value. */
   showMouseSpeed(speed: number): void {
     el<HTMLInputElement>("mouse-speed").value = String(speed);
-    el("mouse-speed-value").textContent = `${speed.toFixed(2)}×`;
+    this.paintSpeed(speed);
   }
 
   /**

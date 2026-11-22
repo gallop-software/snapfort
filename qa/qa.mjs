@@ -488,7 +488,7 @@ for (const [key, axis, sign] of [["ArrowUp", "z", 1], ["ArrowDown", "z", -1], ["
   if (!(d * sign > 3)) moveFails.push(`${key} moved ${d.toFixed(1)} on ${axis}`);
 }
 check("arrow keys and W A S D all move the builder the right way", moveFails.length === 0, moveFails.join(", "));
-check("the key list shows both", (await page.textContent("#view-menu .keys")).includes("Arrows / W A S D"));
+check("the key list shows both", (await page.textContent("#view-menu .keys")).includes("W A S D / Arrows"));
 
 // ---------- Console ----------
 const relevant = errors.filter((e) => !e.includes("Download the React") );

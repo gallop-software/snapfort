@@ -278,17 +278,19 @@ body.playing #crosshair { opacity: 1; }
 
 .keys {
   display: grid;
-  grid-template-columns: auto 1fr auto 1fr;
+  /* Each half: keys as wide as the longest one, then labels. */
+  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
   gap: 8px 10px;
   margin: 0 0 22px;
   text-align: left;
   font-size: 13px;
   font-weight: 600;
-  align-items: center;
 }
+.keyrow { display: contents; }
+.keyrow span { align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .keys kbd {
-  justify-self: end;
-  padding: 3px 7px;
+  justify-self: start;
+  padding: 3px 8px;
   border-radius: 7px;
   background: var(--ink);
   color: var(--cream);
@@ -407,50 +409,139 @@ body.playing #crosshair { opacity: 1; }
 #edit-hint[hidden] { display: none; }
 #edit-hint b { color: var(--sun); }
 
-/* Settings row under the menu and pause buttons. */
-#settings { margin-top: 18px; display: grid; gap: 10px; }
+/* Settings, under the menu and pause buttons: a card of rows, labels in one column, controls in the other. */
+#settings {
+  margin-top: 20px;
+  padding: 2px 18px;
+  border: 1px solid rgba(31, 42, 55, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 2px rgba(31, 42, 55, 0.06);
+  text-align: left;
+}
 #settings[hidden] { display: none; }
 .setting {
-  display: flex;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 12px;
+  column-gap: 14px;
+  min-height: 50px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(31, 42, 55, 0.07);
+}
+.setting:last-child { border-bottom: 0; }
+.setting[hidden] { display: none; }
+.setting > label,
+.setting > .label {
   font-size: 13px;
   font-weight: 700;
+  color: rgba(31, 42, 55, 0.72);
 }
-.setting[hidden] { display: none; }
-.setting input { width: 180px; accent-color: var(--coral); cursor: pointer; }
-.setting input[type="text"] {
-  padding: 6px 10px;
-  border: 2px solid rgba(31, 42, 55, 0.25);
-  border-radius: 9px;
-  background: #fff;
-  color: var(--ink);
-  font: inherit;
-  cursor: text;
-}
+
+/* Text field and dropdown: same height, same border, same focus ring. */
+.setting input[type="text"],
 .setting select {
-  width: 180px;
-  padding: 6px 8px;
-  border: 2px solid rgba(31, 42, 55, 0.25);
-  border-radius: 9px;
-  background: #fff;
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1.5px solid rgba(31, 42, 55, 0.14);
+  border-radius: 10px;
+  background-color: #fff;
   color: var(--ink);
   font: inherit;
-  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.toggle { display: flex; align-items: center; gap: 8px; width: 180px; }
-.setting .toggle input { width: 18px; height: 18px; margin: 0; }
-.colors { display: flex; gap: 6px; width: 180px; flex-wrap: wrap; }
+.setting input[type="text"]:focus,
+.setting select:focus { border-color: var(--coral); box-shadow: 0 0 0 3px rgba(240, 118, 90, 0.2); }
+.setting select {
+  appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%231f2a37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+/* Colour swatches: one row. */
+.colors { display: flex; flex-wrap: wrap; gap: 6px; }
 .colors button {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border: 2px solid rgba(31, 42, 55, 0.3);
+  border: 0;
   border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(31, 42, 55, 0.18);
   cursor: pointer;
+  transition: transform 0.12s;
 }
-.colors button.selected { border-color: var(--ink); box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink); }
-.setting output { min-width: 44px; text-align: left; font-variant-numeric: tabular-nums; }
+.colors button:hover { transform: scale(1.12); }
+.colors button.selected { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink); }
+
+/* On/off switch. */
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; justify-self: start; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(31, 42, 55, 0.2);
+  transition: background 0.18s;
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(31, 42, 55, 0.3);
+  transition: transform 0.18s;
+}
+.switch input:checked + .track { background: var(--coral); }
+.switch input:checked + .track::after { transform: translateX(18px); }
+.switch input:focus-visible + .track { box-shadow: 0 0 0 3px rgba(240, 118, 90, 0.3); }
+.switch .state { font-size: 14px; font-weight: 600; color: rgba(31, 42, 55, 0.72); }
+.switch .state::before { content: "Off"; }
+.switch input:checked ~ .state::before { content: "On"; }
+
+/* Slider with the value beside it. */
+.slider { display: grid; grid-template-columns: minmax(0, 1fr) 46px; align-items: center; gap: 10px; }
+.slider input[type="range"] {
+  --fill: 50%;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  margin: 0;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--coral) var(--fill), rgba(31, 42, 55, 0.14) var(--fill));
+  cursor: pointer;
+  outline: none;
+}
+.slider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--coral);
+  box-shadow: 0 1px 3px rgba(31, 42, 55, 0.25);
+}
+.slider input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--coral);
+  box-shadow: 0 1px 3px rgba(31, 42, 55, 0.25);
+}
+.slider input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(240, 118, 90, 0.3); }
+.slider output { text-align: right; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 

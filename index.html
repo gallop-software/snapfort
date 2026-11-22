@@ -32,22 +32,22 @@
         <div id="view-menu">
           <p>Build the tallest tower in one shared world. Knock down the competition with trebuchets.</p>
           <div class="keys">
-            <kbd>Arrows / W A S D</kbd><span>Move</span>
-            <kbd>Shift</kbd><span>Run even faster</span>
-            <kbd>Space</kbd><span>Jump</span>
-            <kbd>Z / F1</kbd><span>Wall</span>
-            <kbd>F / F2</kbd><span>Floor</span>
-            <kbd>X / F3</kbd><span>Ramp</span>
-            <kbd>C / F4</kbd><span>Roof</span>
-            <kbd>Click</kbd><span>Place (hold to keep placing)</span>
-            <kbd>Right click</kbd><span>Remove a piece</span>
-            <kbd>G</kbd><span>Edit: cut windows and doors</span>
-            <kbd>T</kbd><span>Wood, brick or metal</span>
-            <kbd>R</kbd><span>Turn the ramp</span>
-            <kbd>Q / E</kbd><span>Undo / redo</span>
-            <kbd>B / 6</kbd><span>Trebuchet (on a floor)</span>
-            <kbd>H</kbd><span>Get on / off a trebuchet</span>
-            <kbd>Same key again</kbd><span>Put the piece away, just run</span>
+            <div class="keyrow"><kbd>W A S D / Arrows</kbd><span>Move</span></div>
+            <div class="keyrow"><kbd>Shift</kbd><span>Run faster</span></div>
+            <div class="keyrow"><kbd>Space</kbd><span>Jump</span></div>
+            <div class="keyrow"><kbd>Z / F1</kbd><span>Wall</span></div>
+            <div class="keyrow"><kbd>F / F2</kbd><span>Floor</span></div>
+            <div class="keyrow"><kbd>X / F3</kbd><span>Ramp</span></div>
+            <div class="keyrow"><kbd>C / F4</kbd><span>Roof</span></div>
+            <div class="keyrow"><kbd>B / 6</kbd><span>Trebuchet</span></div>
+            <div class="keyrow"><kbd>Click / hold</kbd><span>Place</span></div>
+            <div class="keyrow"><kbd>Right click</kbd><span>Remove</span></div>
+            <div class="keyrow"><kbd>G</kbd><span>Cut a door</span></div>
+            <div class="keyrow"><kbd>T</kbd><span>Material</span></div>
+            <div class="keyrow"><kbd>R</kbd><span>Turn ramp</span></div>
+            <div class="keyrow"><kbd>Q / E</kbd><span>Undo / redo</span></div>
+            <div class="keyrow"><kbd>H</kbd><span>Board trebuchet</span></div>
+            <div class="keyrow"><kbd>Same key</kbd><span>Put piece away</span></div>
           </div>
           <div class="buttons">
             <button id="play-free" class="primary" type="button" disabled>Loading…</button>
@@ -64,27 +64,33 @@
         </div>
 
         <div id="settings">
-          <label class="setting">
-            <span>Your name</span>
-            <input id="player-name" type="text" maxlength="20" autocomplete="off" spellcheck="false" />
-          </label>
           <div class="setting">
-            <span>Colour</span>
-            <div id="player-colors" class="colors"></div>
+            <label for="player-name">Name</label>
+            <input id="player-name" type="text" maxlength="20" autocomplete="off" spellcheck="false" />
           </div>
-          <label class="setting">
-            <span>Sound</span>
-            <span class="toggle"><input id="mute" type="checkbox" /> Mute</span>
-          </label>
-          <label class="setting">
-            <span>Graphics</span>
+          <div class="setting">
+            <span class="label">Colour</span>
+            <div id="player-colors" class="colors" role="radiogroup" aria-label="Colour"></div>
+          </div>
+          <div class="setting">
+            <label for="sound">Sound</label>
+            <label class="switch">
+              <input id="sound" type="checkbox" role="switch" checked />
+              <span class="track"></span>
+              <span class="state"></span>
+            </label>
+          </div>
+          <div class="setting">
+            <label for="graphics">Graphics</label>
             <select id="graphics"></select>
-          </label>
-          <label class="setting">
-            <span>Mouse speed</span>
-            <input id="mouse-speed" type="range" min="0.25" max="3" step="0.05" value="2" />
-            <output id="mouse-speed-value">2.00×</output>
-          </label>
+          </div>
+          <div class="setting">
+            <label for="mouse-speed">Mouse speed</label>
+            <div class="slider">
+              <input id="mouse-speed" type="range" min="0.25" max="3" step="0.05" value="2" />
+              <output id="mouse-speed-value">2.00×</output>
+            </div>
+          </div>
         </div>
 
         <div id="view-captured" hidden>

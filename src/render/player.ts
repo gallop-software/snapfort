@@ -3,7 +3,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL, WORLD_HALF_CELLS } from "../game/constants";
-import { Avatar, AVATAR_RUN_SPEED } from "./avatar";
+import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
+import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
 import { BUILDER_GROUP } from "./physicsGroups";
 
 const HEIGHT = 1.8;
@@ -41,10 +42,8 @@ export class Player {
   onGround = false;
 
   private state: State = "air";
-  /** Seconds since being thrown by a trebuchet hit, or -1 when not flying. */
-  private flying = -1;
-  /** Seconds left getting back on their feet after landing. */
-  private stunned = 0;
+  /** A flight planned by the server (thrown or falling), and when it started (performance.now()). */
+  private fall: { fall: Fall; start: number } | null = null;
   private readonly desired = new Vector3();
   private readonly forwardDir = new Vector3();
   constructor(scene: Scene, shadows: ShadowGenerator) {
@@ -66,25 +65,17 @@ export class Player {
     const support = cc.checkSupport(dt, DOWN);
     const supported = support.supportedState === CharacterSupportedState.SUPPORTED;
 
-    if (this.flying >= 0) {
-      this.flying += dt;
-      if (!supported || this.flying < 0.25) {
-        // Thrown: only gravity steers until they come down.
-        const v = cc.getVelocity();
-        cc.setVelocity(new Vector3(v.x, v.y + GRAVITY.y * dt, v.z));
-        cc.integrate(dt, support, GRAVITY);
-        this.state = "air";
-        this.onGround = false;
-        this.settle();
-        return;
-      }
-      this.flying = -1;
-      this.stunned = 0.6;
-      this.state = "ground";
-    }
-    if (this.stunned > 0) {
-      this.stunned -= dt;
-      input = { ...input, strafe: 0, forward: 0, jump: false };
+    if (this.fall) {
+      // Following a planned flight, then lying flat, then getting up: no control.
+      const t = this.fallTime;
+      const p = fallPosition(this.fall.fall, t);
+      cc.setPosition(new Vector3(p[0], p[1], p[2]));
+      cc.setVelocity(Vector3.Zero());
+      this.position.set(p[0], p[1], p[2]);
+      this.onGround = t >= this.fall.fall.time;
+      this.state = this.onGround ? "ground" : "air";
+      if (t >= this.fall.fall.time + DOWN_TIME + RISE_TIME) this.fall = null;
+      return;
     }
 
     if (this.state === "jump") this.state = "air";
@@ -133,18 +124,29 @@ export class Player {
     this.settle();
   }
 
-  /** Throws the builder (a trebuchet hit nearby): velocity in m/s. */
-  launch(vx: number, vy: number, vz: number): void {
-    this.controller.setVelocity(new Vector3(vx, vy, vz));
-    this.flying = 0;
-    this.stunned = 0;
-    this.state = "air";
-    this.onGround = false;
+  /** Starts a flight planned by the server: thrown by a trebuchet, or falling. */
+  startFall(fall: Fall): void {
+    this.fall = { fall, start: performance.now() };
   }
 
-  /** True from being thrown until back on their feet. */
+  private get fallTime(): number {
+    return this.fall ? (performance.now() - this.fall.start) / 1000 : 0;
+  }
+
+  /** In the air after a throw or fall. */
   get tumbling(): boolean {
-    return this.flying >= 0;
+    return this.fall !== null && this.fallTime < this.fall.fall.time;
+  }
+
+  /** From being thrown until back on their feet: no building, no moving. */
+  get knockedDown(): boolean {
+    return this.fall !== null;
+  }
+
+  /** 1 lying flat after coming down, easing to 0 while getting up. */
+  get down(): number {
+    if (!this.fall) return 0;
+    return downness(this.fallTime - this.fall.fall.time);
   }
 
   /** Copies the controller's position out, keeping the builder inside the world. */
@@ -173,14 +175,13 @@ export class Player {
     this.controller.setPosition(new Vector3(x, y, z));
     this.controller.setVelocity(Vector3.Zero());
     this.position.set(x, y, z);
-    this.flying = -1;
-    this.stunned = 0;
+    this.fall = null;
   }
 
   /** Moves the avatar to the character and animates it. Call before rendering. */
   animate(dt: number, facingYaw: number): void {
     this.avatar.root.position.set(this.position.x, this.position.y - HEIGHT / 2, this.position.z);
     const v = this.controller.getVelocity();
-    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling);
+    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down);
   }
 }

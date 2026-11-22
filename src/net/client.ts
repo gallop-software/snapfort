@@ -1,4 +1,5 @@
 import type { BuildOp } from "../game/buildState";
+import type { Fall } from "../game/fall";
 import type { Piece } from "../game/pieces";
 import type { Identity } from "../identity";
 import {
@@ -38,6 +39,8 @@ export interface NetHandlers {
   /** `ops` are applied like anyone's changes; this is told which pieces they remove first. */
   impact(shot: number, point: WireVec, ops: BuildOp[], fallen: string[], damage: [string, number][]): void;
   towers(list: WireTower[]): void;
+  /** Builder `id` is thrown or falls along a planned flight. */
+  thrown(id: string, fall: Fall): void;
   denied(reason: string): void;
 }
 
@@ -170,6 +173,8 @@ export class NetClient {
         return h.impact(msg.shot, msg.point, decodeOps(msg.ops), msg.fallen, msg.damage);
       case "towers":
         return h.towers(msg.list);
+      case "thrown":
+        return h.thrown(msg.id, { from: msg.path[0] ?? msg.land, v: [0, 0, 0], time: msg.time, land: msg.land, path: msg.path });
       case "denied":
         return h.denied(msg.reason);
       case "error":

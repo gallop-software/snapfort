@@ -75,6 +75,13 @@ export type ServerMessage =
    * hits of pieces that held.
    */
   | { t: "impact"; shot: number; point: WireVec; ops: WireOp[]; fallen: string[]; damage: [string, number][] }
+  /**
+   * Builder `id` is thrown (by a trebuchet hit) or falls (what they stood on
+   * went): their body's centre follows `path` (a point every tenth of a
+   * second), comes down at `land` after `time` seconds, lies there a moment and
+   * gets up. Every page plays it, so it happens even with their tab hidden.
+   */
+  | { t: "thrown"; id: string; path: WireVec[]; time: number; land: WireVec }
   /** The tallest standing structures, tallest first. */
   | { t: "towers"; list: WireTower[] }
   /** A board or fire request was turned down. */

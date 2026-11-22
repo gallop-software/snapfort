@@ -74,10 +74,11 @@ check("right click sets a target on the tower", !!target && Math.abs(target[2] -
 check("the panel says it is in range and ready", (await b.textContent("#crew")).includes("ready"), await b.textContent("#crew"));
 await b.screenshot({ path: "qa/shots/trebuchet-aim.png" });
 
-// A stands right in front of the target wall.
+// A stands right in front of the target wall, then their tab "goes to sleep" (the game stops drawing, as in a background tab).
 await sf(a, () => { const s = window.snapfort; s.player.teleport(2.5, 0.95, 57.5); s.rig.yaw = Math.PI; });
 await wait(400);
 const startA = await sf(a, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z }));
+await sf(a, () => window.snapfort.engine.stopRenderLoop());
 
 // Fire, and watch the stone land on A's page too.
 const before = (await ids(a)).split(",").length;
@@ -86,20 +87,23 @@ await wait(300);
 check("the panel shows the reload", (await b.textContent("#crew")).includes("reloading"), await b.textContent("#crew"));
 await b.mouse.down(); await b.mouse.up(); await wait(150);
 check("firing again too soon is refused", (await b.textContent("#toast")).includes("reloading"), await b.textContent("#toast"));
-// Follow A through the air after the impact (the stone flies about 2.8 s).
-let peak = 0, sawTumble = false;
+// Watch A from B's page: A's own page is asleep, but the server's flight plays anyway.
+let peak = 0, sawTumble = false, sawDown = false;
 const t0 = Date.now();
-while (Date.now() - t0 < 6500) {
-  const y = await sf(a, () => window.snapfort.player.feetY);
-  peak = Math.max(peak, y);
-  if (!sawTumble) sawTumble = await sf(b, () => [...window.snapfort.remotes.remotes.values()].some((r) => r.tumbling));
+while (Date.now() - t0 < 10000) {
+  const r = await sf(b, () => { const r = [...window.snapfort.remotes.remotes.values()][0]; return r && { y: r.y, tumbling: r.tumbling, down: r.down }; });
+  if (r) { peak = Math.max(peak, r.y - 0.9); sawTumble ||= r.tumbling; sawDown ||= r.down > 0.9; }
   await wait(60);
 }
-const endA = await sf(a, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z, tumbling: window.snapfort.player.tumbling }));
+const seenByB = await sf(b, () => { const r = [...window.snapfort.remotes.remotes.values()][0]; return { x: r.x, z: r.z }; });
+check("a builder at the impact is thrown high, even with their tab asleep (as others see it)", peak > 12 && sawTumble, `peak ${peak.toFixed(1)} m`);
+check("…comes down flat on their back for a moment", sawDown);
+// A's tab wakes up: they are where they came down.
+await sf(a, () => { const s = window.snapfort; s.engine.runRenderLoop(() => s.scene.render()); });
+await wait(500);
+const endA = await sf(a, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z, down: window.snapfort.player.knockedDown }));
 const thrownFar = Math.hypot(endA.x - startA.x, endA.z - startA.z);
-check("a builder standing at the impact is thrown high into the air", peak > 12, `peak ${peak.toFixed(1)} m`);
-check("…lands far away and back on their feet", thrownFar > 30 && !endA.tumbling, `${thrownFar.toFixed(0)} m away`);
-check("…and the other builder saw them tumbling", sawTumble);
+check("…and on waking up, their own page has them where they landed, back on their feet", thrownFar > 30 && Math.hypot(endA.x - seenByB.x, endA.z - seenByB.z) < 1.5 && !endA.down, `${thrownFar.toFixed(0)} m away; B sees them ${Math.hypot(endA.x - seenByB.x, endA.z - seenByB.z).toFixed(1)} m from there`);
 await frames(a, 3);
 const after = (await ids(a)).split(",").length;
 check("the stone breaks the bottom of the tower, and what it held falls", after <= before - 9, `${before} → ${after} pieces`);
@@ -120,6 +124,21 @@ check("a target nearer than the minimum shows as too close", (await b.textConten
 await sf(a, () => { const s = window.snapfort; const t = [...s.state.all()].find((p) => p.type === "trebuchet"); s.removePiece(t.id); });
 await wait(800);
 check("removing a manned trebuchet takes its crew off", !(await sf(b, () => window.snapfort.crewOn)) && !(await b.isVisible("#crew")));
+
+// A stands on a raised floor; B knocks out the wall holding it up. A falls to the ground, tab asleep or not.
+await put(a, [["wall", 20, 0, 20, 0], ["wall", 20, 1, 20, 0], ["floor", 20, 2, 20, 0]]);
+await wait(600);
+await sf(a, () => { const s = window.snapfort; s.player.teleport(102.5, 2 * 3.75 + 0.15 + 0.9, 102.5); });
+await wait(600);
+await sf(a, () => window.snapfort.engine.stopRenderLoop());
+await sf(b, () => { const s = window.snapfort; const w = [...s.state.all()].find((p) => p.type === "wall" && p.x === 20 && p.y === 0); s.removePiece(w.id); });
+let lowest = 99;
+const t1 = Date.now();
+while (Date.now() - t1 < 4500) { const y = await sf(b, () => { const r = [...window.snapfort.remotes.remotes.values()][0]; return r?.y ?? 99; }); lowest = Math.min(lowest, y); await wait(80); }
+check("a builder whose floor is knocked out falls to the ground (as others see it, tab asleep)", lowest < 1.5, `lowest ${lowest.toFixed(1)} m`);
+await sf(a, () => { const s = window.snapfort; s.engine.runRenderLoop(() => s.scene.render()); });
+await wait(400);
+check("…and is on the ground when their tab wakes up", (await sf(a, () => window.snapfort.player.feetY)) < 0.6, `${(await sf(a, () => window.snapfort.player.feetY)).toFixed(1)} m`);
 
 check("no errors or warnings in the console", errors.length === 0, errors.slice(0, 5).join(" | "));
 const failed = results.filter((r) => !r.ok);

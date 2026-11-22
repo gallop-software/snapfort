@@ -9,9 +9,21 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
+import { DOWN_TIME, RISE_TIME } from "../game/fall";
 
 /** Full running speed, m/s: the stride is at its widest here. */
 export const AVATAR_RUN_SPEED = 26;
+/**
+ * How flat a builder lies `t` seconds after coming down from a throw: 1 for
+ * DOWN_TIME, then easing to 0 over RISE_TIME as they get up. 0 before landing.
+ */
+export function downness(t: number): number {
+  if (t < 0) return 0;
+  if (t < DOWN_TIME) return 1;
+  const k = Math.min(1, (t - DOWN_TIME) / RISE_TIME);
+  return 1 - k * k * (3 - 2 * k);
+}
+
 /** The local player's jacket. */
 export const DEFAULT_AVATAR_COLOR = "#f07356";
 
@@ -96,8 +108,9 @@ export class Avatar {
    * Animates the builder. `facingYaw` is where they look, (vx, vz) their
    * horizontal velocity in m/s. Place `root` at their feet first.
    */
-  animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean, tumbling = false): void {
+  animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean, tumbling = false, down = 0): void {
     if (tumbling) return this.tumble(dt);
+    if (down > 0) return this.lie(down);
     if (this.tumbleTime > 0) {
       // Back on their feet: upright again.
       this.tumbleTime = 0;
@@ -204,6 +217,29 @@ export class Avatar {
       this.knees[side]!.rotation.x = 0.3 + Math.abs(Math.sin(t * 14 + side * 1.7)) * 1.4;
     }
     this.body.rotation.set(Math.sin(t * 7) * 0.3, 0, Math.sin(t * 5) * 0.3);
+    this.body.position.y = 0;
+    this.legYaw = 0;
+    this.holdLegs();
+  }
+
+  /**
+   * Flat on their back where they came down, arms and legs out (down = 1),
+   * swinging back up onto their feet as `down` falls to 0.
+   */
+  private lie(down: number): void {
+    this.tumbleTime = Math.max(this.tumbleTime, 1e-3);
+    this.root.rotation.x = (-Math.PI / 2) * down;
+    this.root.rotation.z = 0;
+    for (let side = 0; side < 2; side++) {
+      const s = side === 0 ? 1 : -1;
+      this.shoulders[side]!.rotation.x = -0.3 * down;
+      this.shoulders[side]!.rotation.z = s * 1.25 * down;
+      this.elbows[side]!.rotation.x = -0.35 * down;
+      this.hips[side]!.rotation.x = -0.1 * down;
+      this.hips[side]!.rotation.z = s * 0.28 * down;
+      this.knees[side]!.rotation.x = 0.25 * down;
+    }
+    this.body.rotation.set(0, 0, 0);
     this.body.position.y = 0;
     this.legYaw = 0;
     this.holdLegs();

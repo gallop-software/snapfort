@@ -3,7 +3,8 @@ import { BuildState, type BuildOp } from "../src/game/buildState";
 import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
-import { checkRange, findImpact, launchPoint, planFlight, strike, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
+import { DOWN_TIME, planFall, RISE_TIME } from "../src/game/fall";
+import { checkRange, findImpact, launchPoint, planFlight, strike, throwVelocity, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import { applyAction } from "../src/net/authority";
 import {
@@ -107,6 +108,8 @@ export class World extends DurableObject<Env> {
   /** Hits taken by pieces that have not broken yet. */
   private readonly damage = new Map<string, number>();
   private nextShot = 1;
+  /** Builders in the air or getting up, until when (ms). */
+  private readonly downUntil = new Map<string, number>();
   private towers: WireTower[] = [];
   private towersTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -231,6 +234,7 @@ export class World extends DurableObject<Env> {
     this.messageCounts.delete(ws);
     if (!player) return;
     this.moves.delete(player.id);
+    this.downUntil.delete(player.id);
     this.release(player.id);
     this.broadcast({ t: "leave", id: player.id });
     if (this.players.size === 0) this.flush();
@@ -256,6 +260,7 @@ export class World extends DurableObject<Env> {
       this.broadcast({ t: "ops", by: player.id, ops: [...done.map((d) => encodeOp(d.op)), ...extraWire] }, ws);
       this.scheduleFlush();
       this.scheduleTowers();
+      if (done.some((d) => d.op.kind === "remove") || extra.length > 0) this.knock(null);
     }
   }
 
@@ -300,6 +305,7 @@ export class World extends DurableObject<Env> {
     this.flush();
     this.broadcast({ t: "snap", pieces: this.allPieces() });
     this.scheduleTowers();
+    this.knock(null);
     return count;
   }
 
@@ -395,9 +401,41 @@ export class World extends DurableObject<Env> {
     const gone = broken.filter(remove);
     const fallen = gone.length > 0 ? findLooseAfterRemoval(this.build, gone).filter(remove) : [];
     this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
+    this.knock(point);
     if (ops.length > 0) {
       this.scheduleFlush();
       this.scheduleTowers();
+    }
+  }
+
+  /**
+   * Builders near an impact at `point` are thrown; builders left standing on
+   * nothing (what held them was removed) fall. Each flight is planned here,
+   * from where the server last knew them to be, and sent to everyone.
+   */
+  private knock(point: Vec | null): void {
+    const now = Date.now();
+    for (const player of this.players.values()) {
+      const m = this.moves.get(player.id) ?? player.move;
+      if (!m || now < (this.downUntil.get(player.id) ?? 0)) continue;
+      const centre: Vec = [m[1] / 100, m[2] / 100, m[3] / 100];
+      const v = point ? throwVelocity(point, centre) : null;
+      let fall = v ? planFall(this.build, centre, v) : planFall(this.build, centre, [0, 0, 0]);
+      // Still standing on something: no fall.
+      if (!v && fall.time < 0.12) continue;
+      if (!v && fall.land[1] > centre[1] - 0.3) continue;
+      fall = { ...fall, path: fall.path.map(round), land: round(fall.land) };
+      this.release(player.id);
+      this.downUntil.set(player.id, now + (fall.time + DOWN_TIME + RISE_TIME) * 1000);
+      this.broadcast({ t: "thrown", id: player.id, path: fall.path, time: Math.round(fall.time * 1000) / 1000, land: fall.land });
+      // Where they come to rest is where they are (for anyone joining, and if their tab is asleep).
+      setTimeout(() => {
+        const move: WireMove = [player.id, Math.round(fall.land[0] * 100), Math.round(fall.land[1] * 100), Math.round(fall.land[2] * 100), m[4], 1];
+        player.move = move;
+        this.moves.set(player.id, move);
+        this.quietTicks = 0;
+        this.tickTimer ??= setInterval(() => this.tick(), TICK_MS);
+      }, fall.time * 1000);
     }
   }
 

@@ -46,7 +46,7 @@ import { Debris } from "./render/debris";
 import { RemotePlayers } from "./render/remotePlayers";
 import { TowerFlags } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
-import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, throwVelocity, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
+import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
 import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
@@ -463,8 +463,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   });
   input.onMouseDown = (button) => {
     sfx.unlock();
-    // Flying through the air: hands are busy flailing.
-    if (player.tumbling) return;
+    // Flying through the air, or flat on the ground: hands are busy.
+    if (player.knockedDown) return;
     if (crewOn) {
       if (button === 2) setTarget();
       else if (button === 0) fireStone();
@@ -689,18 +689,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         damage.set(id, n);
         tint(id);
       }
-      // Standing too close: thrown through the air (and off a trebuchet).
-      const thrown = throwVelocity(point, [player.position.x, player.position.y, player.position.z]);
-      if (thrown) {
-        if (crewOn) {
-          net.leaveTrebuchet();
-          leaveCrew();
-        }
-        finishEdit(false);
-        placing = false;
-        player.launch(...thrown);
-        sfx.yelp();
-      }
       const near = nearness(point);
       if (near > 0) {
         sfx.boom(near);
@@ -709,6 +697,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     },
     towers(list) {
       showTowers(list);
+    },
+    thrown(id, fall) {
+      if (solo) return;
+      if (id === myId) {
+        // The server threw us (or what we stood on went): follow its flight, even
+        // if this tab was asleep; waking up later puts us where we came down.
+        if (crewOn) leaveCrew();
+        finishEdit(false);
+        placing = false;
+        player.startFall(fall);
+        if (fall.time > 0.6) sfx.yelp();
+      } else remotes.throw(id, fall, performance.now());
     },
     denied(reason) {
       const text: Record<string, string> = {
@@ -890,7 +890,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     world.update(dt);
     flash.update(dt);
 
-    if (crewOn || player.tumbling) {
+    if (crewOn || player.knockedDown) {
       ghost.hide();
       placing = false;
     } else if (input.locked && editing) {

@@ -10,7 +10,8 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { WireMove, WirePlayer } from "../net/protocol";
-import { Avatar } from "./avatar";
+import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
+import { Avatar, downness } from "./avatar";
 
 /** Positions are shown this far in the past, so there are always two to blend between, ms. */
 const DELAY = 200;
@@ -47,6 +48,9 @@ interface Remote {
   tumbling: boolean;
   avatar: Avatar | null;
   tag: Mesh | null;
+  /** A flight from the server (thrown or falling), played here whatever their own page does. */
+  fall: { fall: Fall; start: number } | null;
+  down: number;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -91,7 +95,7 @@ export class RemotePlayers {
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);
     if (!remote) {
-      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, avatar: null, tag: null });
+      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, avatar: null, tag: null, fall: null, down: 0 });
       return;
     }
     const renamed = remote.player.name !== player.name || remote.player.color !== player.color;
@@ -112,6 +116,12 @@ export class RemotePlayers {
 
   clear(): void {
     for (const id of [...this.remotes.keys()]) this.leave(id);
+  }
+
+  /** Builder `id` is thrown or falls: play the server's flight, then lying down and getting up. */
+  throw(id: string, fall: Fall, now: number): void {
+    const remote = this.remotes.get(id);
+    if (remote) remote.fall = { fall, start: now };
   }
 
   /** A position from the server. */
@@ -135,7 +145,8 @@ export class RemotePlayers {
     const at = now - DELAY;
     const order: { remote: Remote; dist: number }[] = [];
     for (const remote of this.remotes.values()) {
-      this.blend(remote, at);
+      if (remote.fall) this.followFall(remote, now);
+      else this.blend(remote, at);
       if (remote.samples.length === 0) continue;
       order.push({ remote, dist: Math.hypot(remote.x - viewer.x, remote.y - viewer.y, remote.z - viewer.z) });
     }
@@ -153,7 +164,7 @@ export class RemotePlayers {
       const avatar = (remote.avatar ??= this.claim(remote.player.color));
       avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
       avatar.root.rotation.y = remote.yaw;
-      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling);
+      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down);
       const showTag = dist < TAG_RANGE;
       if (showTag && !remote.tag) remote.tag = this.makeTag(remote.player);
       if (remote.tag) {
@@ -177,6 +188,26 @@ export class RemotePlayers {
       this.figure.thinInstanceBufferUpdated("color");
     }
     this.figure.setEnabled(figures > 0);
+  }
+
+  /** Moves a thrown builder along their flight; afterwards they stay where they came down. */
+  private followFall(remote: Remote, now: number): void {
+    const { fall, start } = remote.fall!;
+    const t = (now - start) / 1000;
+    const [x, y, z] = fallPosition(fall, t);
+    remote.x = x;
+    remote.y = y;
+    remote.z = z;
+    remote.vx = remote.vz = 0;
+    remote.tumbling = t < fall.time;
+    remote.ground = !remote.tumbling;
+    remote.down = downness(t - fall.time);
+    if (t >= fall.time + DOWN_TIME + RISE_TIME) {
+      remote.fall = null;
+      remote.down = 0;
+      // Hold the landing spot until their own page says otherwise (it may be asleep).
+      remote.samples = [{ at: now, x, y, z, yaw: remote.yaw, ground: true, tumbling: false }];
+    }
   }
 
   /** Where `remote` was at time `at`, between the two samples around it. */

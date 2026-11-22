@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fbe9c8" />
+    <title>SnapFort.io</title>
+    <meta name="description" content="Run around and snap big pieces together to build forts, castles and anything else." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <canvas id="game" tabindex="0"></canvas>
+    <div id="hud">
+      <div id="crosshair"></div>
+      <div id="stats"></div>
+      <div id="count"></div>
+      <div id="siege" hidden></div>
+      <div id="banner"></div>
+      <div id="toast"></div>
+      <div id="resume-hint" hidden>Click to keep building <span>· Esc for the menu</span></div>
+      <div id="material"></div>
+      <div id="edit-hint" hidden>Editing: click or drag tiles to cut them · <b>G</b> confirm · <b>Right click</b> reset</div>
+      <div id="hotbar"></div>
+    </div>
+    <div id="overlay">
+      <div class="panel">
+        <h1>Snap<span>Fort</span><small>.io</small></h1>
+
+        <div id="view-menu">
+          <p>Run, jump and snap big pieces together, fast.</p>
+          <div class="keys">
+            <kbd>W A S D</kbd><span>Move</span>
+            <kbd>Shift</kbd><span>Run even faster</span>
+            <kbd>Space</kbd><span>Jump</span>
+            <kbd>Z / F1</kbd><span>Wall</span>
+            <kbd>F / F2</kbd><span>Floor</span>
+            <kbd>X / F3</kbd><span>Ramp</span>
+            <kbd>C / F4</kbd><span>Roof</span>
+            <kbd>Click</kbd><span>Place (hold to keep placing)</span>
+            <kbd>Right click</kbd><span>Remove a piece</span>
+            <kbd>G</kbd><span>Edit: cut windows and doors</span>
+            <kbd>T</kbd><span>Wood, brick or metal</span>
+            <kbd>R</kbd><span>Turn the ramp</span>
+            <kbd>Q / E</kbd><span>Undo / redo</span>
+          </div>
+          <div class="buttons">
+            <button id="play-free" class="primary" type="button" disabled>Loading…</button>
+            <button id="play-siege" class="secondary" type="button" disabled hidden>Defend the fort</button>
+          </div>
+          <p class="small">Pieces land right in front of you at your level. Look up to build a storey higher. Anything that loses its connection to the ground falls.</p>
+        </div>
+
+        <div id="view-paused" hidden>
+          <p>Paused</p>
+          <div class="buttons">
+            <button id="resume" class="primary" type="button">Keep playing</button>
+            <button id="start-over" class="secondary" type="button">Start over</button>
+          </div>
+        </div>
+
+        <label id="settings" class="setting">
+          <span>Mouse speed</span>
+          <input id="mouse-speed" type="range" min="0.25" max="3" step="0.05" value="1" />
+          <output id="mouse-speed-value">1.00×</output>
+        </label>
+
+        <div id="view-captured" hidden>
+          <svg class="bars" viewBox="0 0 120 80" aria-hidden="true">
+            <rect x="6" y="6" width="108" height="68" rx="8" />
+            <circle cx="60" cy="36" r="13" /><path d="M38 74c2-16 12-22 22-22s20 6 22 22" />
+            <path d="M24 6v68M42 6v68M60 6v68M78 6v68M96 6v68" class="bar" />
+          </svg>
+          <h2>Captured!</h2>
+          <p>The army broke through and marched you off to prison.</p>
+          <div class="stats" id="captured-stats"></div>
+          <div class="buttons">
+            <button id="retry" class="primary" type="button">Try again</button>
+            <button id="captured-menu" class="secondary" type="button">Main menu</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

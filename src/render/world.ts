@@ -1,0 +1,125 @@
+import type { Camera } from "@babylonjs/core/Cameras/camera";
+import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
+import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
+import { CascadedShadowGenerator } from "@babylonjs/core/Lights/Shadows/cascadedShadowGenerator";
+import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
+import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
+import "@babylonjs/core/Meshes/thinInstanceMesh";
+import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
+import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
+import { Scene } from "@babylonjs/core/scene";
+import { CELL } from "../game/constants";
+import { groundTexture, skyTexture } from "./textures";
+
+const HORIZON = new Color3(0.98, 0.91, 0.78);
+const GROUND_SIZE = 2400;
+
+export interface World {
+  shadows: CascadedShadowGenerator;
+  update(dt: number): void;
+}
+
+/** Sky, sun, shadows, drifting clouds and the flat meadow everything is built on. */
+export function createWorld(scene: Scene, camera: Camera): World {
+  scene.clearColor = new Color4(HORIZON.r, HORIZON.g, HORIZON.b, 1);
+  scene.ambientColor = new Color3(0, 0, 0);
+  scene.fogMode = Scene.FOGMODE_LINEAR;
+  scene.fogColor = HORIZON;
+  scene.fogStart = 140;
+  scene.fogEnd = 700;
+
+  const ambient = new HemisphericLight("ambient", new Vector3(0.2, 1, 0.1), scene);
+  ambient.intensity = 0.74;
+  ambient.diffuse = new Color3(0.93, 0.97, 1);
+  ambient.groundColor = new Color3(0.78, 0.72, 0.64);
+  ambient.specular = Color3.Black();
+
+  const sun = new DirectionalLight("sun", new Vector3(-0.55, -1, 0.4).normalize(), scene);
+  sun.intensity = 0.62;
+  sun.diffuse = new Color3(1, 0.95, 0.84);
+  sun.specular = Color3.Black();
+
+  const shadows = new CascadedShadowGenerator(2048, sun, undefined, camera);
+  shadows.numCascades = 3;
+  shadows.shadowMaxZ = 150;
+  shadows.lambda = 0.85;
+  shadows.stabilizeCascades = true;
+  shadows.cascadeBlendPercentage = 0.08;
+  shadows.bias = 0.004;
+  shadows.normalBias = 0.02;
+  shadows.setDarkness(0.42);
+  shadows.usePercentageCloserFiltering = true;
+
+  // Sky dome.
+  const sky = CreateSphere("sky", { diameter: 1800, segments: 16, sideOrientation: Mesh.BACKSIDE }, scene);
+  const skyMat = new StandardMaterial("sky", scene);
+  skyMat.disableLighting = true;
+  skyMat.emissiveTexture = skyTexture(scene);
+  skyMat.diffuseColor = Color3.Black();
+  skyMat.specularColor = Color3.Black();
+  skyMat.fogEnabled = false;
+  sky.material = skyMat;
+  sky.infiniteDistance = true;
+  sky.isPickable = false;
+  sky.applyFog = false;
+
+  // Clouds: one squashed ball drawn many times.
+  const cloud = CreateSphere("cloud", { diameter: 1, segments: 6 }, scene);
+  const cloudMat = new StandardMaterial("cloud", scene);
+  cloudMat.disableLighting = true;
+  cloudMat.emissiveColor = new Color3(1, 0.99, 0.96);
+  cloudMat.fogEnabled = false;
+  cloud.material = cloudMat;
+  cloud.isPickable = false;
+  cloud.alwaysSelectAsActiveMesh = true;
+  const cloudMatrices: number[] = [];
+  let seed = 11;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  for (let i = 0; i < 16; i++) {
+    const angle = rand() * Math.PI * 2;
+    const radius = 320 + rand() * 480;
+    const centre = new Vector3(Math.cos(angle) * radius, 150 + rand() * 90, Math.sin(angle) * radius);
+    const puffs = 3 + Math.floor(rand() * 3);
+    for (let p = 0; p < puffs; p++) {
+      const size = 45 + rand() * 50;
+      const offset = new Vector3((p - puffs / 2) * 38 + rand() * 12, rand() * 10, rand() * 26);
+      const m = Matrix.Compose(new Vector3(size * 1.5, size * 0.5, size), Quaternion.Identity(), centre.add(offset));
+      cloudMatrices.push(...m.asArray());
+    }
+  }
+  cloud.thinInstanceSetBuffer("matrix", new Float32Array(cloudMatrices), 16, true);
+
+  // Ground.
+  const ground = new Mesh("ground", scene);
+  const h = GROUND_SIZE / 2;
+  const uv = h / (CELL * 2);
+  const data = new VertexData();
+  data.positions = [-h, 0, -h, h, 0, -h, h, 0, h, -h, 0, h];
+  data.normals = [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
+  data.uvs = [-uv, -uv, uv, -uv, uv, uv, -uv, uv];
+  data.indices = [0, 1, 2, 0, 2, 3];
+  data.applyToMesh(ground);
+  const groundMat = new StandardMaterial("ground", scene);
+  groundMat.diffuseTexture = groundTexture(scene);
+  groundMat.specularColor = Color3.Black();
+  ground.material = groundMat;
+  ground.receiveShadows = true;
+  ground.isPickable = false;
+  const groundShape = new PhysicsShapeBox(new Vector3(0, -1, 0), Quaternion.Identity(), new Vector3(GROUND_SIZE, 2, GROUND_SIZE), scene);
+  const groundBody = new PhysicsBody(ground, PhysicsMotionType.STATIC, false, scene);
+  groundBody.shape = groundShape;
+  groundBody.disableSync = true;
+
+  return {
+    shadows,
+    update(dt) {
+      cloud.rotation.y += dt * 0.004;
+    },
+  };
+}

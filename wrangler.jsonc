@@ -1,0 +1,10 @@
+{
+  // SnapFort.io is a static game: Cloudflare Workers serves ./dist as static assets.
+  // Not deployed yet. `npm run deploy` builds and publishes; ask before running it.
+  "name": "snapfort",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

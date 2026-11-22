@@ -16,7 +16,7 @@ import { Avatar, downness } from "./avatar";
 /** Positions are shown this far in the past, so there are always two to blend between, ms. */
 const DELAY = 200;
 /** Builders nearer than this get the full animated body... */
-const FULL_RANGE = 70;
+const FULL_RANGE = 120;
 /** ...up to this many of them, nearest first. The rest are simple figures. */
 const FULL_LIMIT = 24;
 /** Name tags show within this distance. */
@@ -154,7 +154,8 @@ export class RemotePlayers {
 
     let figures = 0;
     order.forEach(({ remote, dist }, rank) => {
-      const full = rank < FULL_LIMIT && dist < FULL_RANGE;
+      // Someone thrown always gets the full body, however far: the flailing is the point.
+      const full = remote.fall !== null || (rank < FULL_LIMIT && dist < FULL_RANGE);
       if (!full) {
         this.release(remote);
         if (remote.tag) remote.tag.setEnabled(false);

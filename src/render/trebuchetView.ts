@@ -31,8 +31,8 @@ interface Engine {
   yaw: number;
   /** Where it turns toward (radians). */
   aimYaw: number;
-  /** Seconds since the last throw (Infinity: wound and ready). */
-  sinceThrow: number;
+  /** When it last threw (performance.now() ms; -Infinity: wound and ready). Clock time, not frames, so a tab that was hidden shows the right moment. */
+  thrownAt: number;
 }
 
 interface Stone {
@@ -148,7 +148,7 @@ export class TrebuchetView {
     this.aimAt(id, to);
     const engine = this.engines.get(id);
     if (engine) {
-      engine.sinceThrow = 0;
+      engine.thrownAt = performance.now();
       // Snap to face the shot: the stone leaves now.
       engine.yaw = engine.aimYaw;
     }
@@ -214,11 +214,10 @@ export class TrebuchetView {
       if (diff > Math.PI) diff -= Math.PI * 2;
       if (diff < -Math.PI) diff += Math.PI * 2;
       engine.yaw += diff * Math.min(1, dt * 4);
-      engine.sinceThrow += dt;
       const [x, y, z] = trebuchetBase(engine.piece);
       const root = Matrix.Compose(Vector3.One(), Quaternion.RotationAxis(Vector3.Up(), engine.yaw), new Vector3(x, y + TREBUCHET_BASE, z));
       root.copyToArray(this.frameMatrices, i * 16);
-      Matrix.RotationX(this.armAngle(engine.sinceThrow)).multiplyToRef(Matrix.Translation(0, PIVOT, 0), this.tmp);
+      Matrix.RotationX(this.armAngle((now - engine.thrownAt) / 1000)).multiplyToRef(Matrix.Translation(0, PIVOT, 0), this.tmp);
       this.tmp.multiplyToRef(root, this.tmp);
       this.tmp.copyToArray(this.armMatrices, i * 16);
       i++;
@@ -250,7 +249,7 @@ export class TrebuchetView {
   }
 
   private add(piece: Piece): void {
-    this.engines.set(piece.id, { piece, yaw: 0, aimYaw: 0, sinceThrow: Infinity });
+    this.engines.set(piece.id, { piece, yaw: 0, aimYaw: 0, thrownAt: -Infinity });
   }
 
   private host(mesh: Mesh, name: string): Mesh {

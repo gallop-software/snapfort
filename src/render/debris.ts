@@ -19,12 +19,13 @@ interface Rubble {
   mesh: Mesh;
   body: PhysicsBody;
   shape: PhysicsShapeBox;
-  age: number;
+  /** When it came down (performance.now() ms): clock time, so it is gone on time even if the tab was hidden. */
+  born: number;
 }
 
 interface Puff {
   mesh: Mesh;
-  age: number;
+  born: number;
   life: number;
   grow: number;
 }
@@ -97,7 +98,7 @@ export class Debris {
         body.setLinearVelocity(new Vector3(r() * 1.5, -0.5, r() * 1.5));
         body.setAngularVelocity(new Vector3(r() * 0.8, r() * 0.4, r() * 0.8));
       }
-      this.rubble.push({ mesh, body, shape, age: 0 });
+      this.rubble.push({ mesh, body, shape, born: performance.now() });
     }
   }
 
@@ -108,16 +109,17 @@ export class Debris {
     mesh.isPickable = false;
     mesh.position.copyFrom(at);
     mesh.scaling.setAll(size * 0.4);
-    this.puffs.push({ mesh, age: 0, life, grow: size });
+    this.puffs.push({ mesh, born: performance.now(), life, grow: size });
   }
 
   update(dt: number): void {
+    const now = performance.now();
     for (let i = this.rubble.length - 1; i >= 0; i--) {
       const r = this.rubble[i]!;
-      r.age += dt;
-      if (r.age > LIFE) r.mesh.visibility = Math.max(0, 1 - (r.age - LIFE) / FADE);
+      const age = (now - r.born) / 1000;
+      if (age > LIFE) r.mesh.visibility = Math.max(0, 1 - (age - LIFE) / FADE);
       // Gone after fading, or fallen out of the world.
-      if (r.age > LIFE + FADE || r.mesh.position.y < -20) {
+      if (age > LIFE + FADE || r.mesh.position.y < -20) {
         r.body.dispose();
         r.shape.dispose();
         r.mesh.dispose();
@@ -126,8 +128,7 @@ export class Debris {
     }
     for (let i = this.puffs.length - 1; i >= 0; i--) {
       const p = this.puffs[i]!;
-      p.age += dt;
-      const k = p.age / p.life;
+      const k = (now - p.born) / 1000 / p.life;
       p.mesh.scaling.setAll(p.grow * (0.4 + 0.9 * Math.sqrt(k)));
       p.mesh.position.y += dt * 0.8;
       p.mesh.visibility = Math.max(0, 1 - k);

@@ -160,6 +160,13 @@ export class Hud {
     box.onchange = () => this.actions.setMuted(!box.checked);
   }
 
+  /** A short note under the menu's Start button (in coral); null hides it. */
+  menuNote(text: string | null): void {
+    const note = el("touch-note");
+    note.hidden = text === null;
+    if (text !== null) note.textContent = text;
+  }
+
   /** Fills the graphics setting. `auto` says what Auto picked on this computer. */
   showGraphics(mode: GraphicsMode, auto: Exclude<GraphicsMode, "auto">): void {
     const select = el<HTMLSelectElement>("graphics");

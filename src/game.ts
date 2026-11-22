@@ -186,7 +186,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     play(next) {
       sfx.unlock();
       startMode(next);
-      void input.lock();
+      void input.lock().then((locked) => {
+        // The browser said no (it sometimes does right after Esc, or when the page is not in front).
+        if (!locked && !input.locked) hud.menuNote("Your browser did not let the game take the mouse. Click Start building again.");
+      });
     },
     resume() {
       backToBuilding();
@@ -435,6 +438,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     placing = false;
     if (locked) {
       away = false;
+      hud.menuNote(null);
       return hud.show("playing");
     }
     finishEdit(false);

@@ -576,7 +576,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   net.connect();
 
   let statsTimer = 0;
-  let lastCount = -1;
 
   scene.onBeforeRenderObservable.add(() => {
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
@@ -617,7 +616,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     remotes.update(dt, now, player.position);
     view.flush();
 
-    if (state.size !== lastCount) hud.setCount((lastCount = state.size));
     statsTimer -= dt;
     if (statsTimer <= 0 && import.meta.env.DEV) {
       statsTimer = 0.25;

@@ -46,7 +46,6 @@ type View = "menu" | "paused" | "captured";
 export class Hud {
   private readonly slots: HTMLElement[] = [];
   private readonly stats = el("stats");
-  private readonly count = el("count");
   private readonly siege = el("siege");
   private readonly bannerEl = el("banner");
   private readonly toastEl = el("toast");
@@ -204,9 +203,6 @@ export class Hud {
     this.stats.textContent = text;
   }
 
-  setCount(pieces: number): void {
-    this.count.textContent = `${pieces} ${pieces === 1 ? "piece" : "pieces"}`;
-  }
 
   /** The siege readout at the top; null hides it. `urgent` turns it red. */
   setSiege(text: string | null, urgent = false): void {

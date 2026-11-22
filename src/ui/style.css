@@ -51,7 +51,7 @@ html, body {
 }
 body.playing #crosshair { opacity: 1; }
 
-#stats, #count, #online {
+#stats, #online {
   position: absolute;
   top: 12px;
   padding: 5px 10px;
@@ -64,8 +64,7 @@ body.playing #crosshair { opacity: 1; }
   letter-spacing: 0.02em;
 }
 #stats { left: 12px; }
-#count { right: 12px; }
-#online { right: 12px; top: 44px; }
+#online { right: 12px; }
 #online[hidden] { display: none; }
 
 /* Connection trouble, at the top of the screen. */

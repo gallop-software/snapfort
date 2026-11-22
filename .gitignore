@@ -4,3 +4,7 @@ dist
 .DS_Store
 *.local
 qa/shots
+
+# Only encrypted secrets are committed
+secrets/*
+!secrets/*.age

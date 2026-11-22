@@ -354,6 +354,8 @@ export class World extends DurableObject<Env> {
     if (!t || t.type !== "trebuchet") return send(ws, { t: "denied", reason: "gone" });
     const crew = this.crews.get(t.id);
     if (crew && crew !== player.id) return send(ws, { t: "denied", reason: "busy" });
+    // Thrown or getting up: no climbing aboard until back on their feet.
+    if (Date.now() < (this.downUntil.get(player.id) ?? 0)) return send(ws, { t: "denied", reason: "far" });
     const pos = readVec(at);
     const base = trebuchetBase(t);
     if (!pos || Math.hypot(pos[0] - base[0], pos[2] - base[2]) > TREBUCHET.boardReach + 1 || Math.abs(pos[1] - base[1]) > 4) {

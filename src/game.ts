@@ -814,7 +814,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       leaveCrew();
       return;
     }
-    if (solo) return;
+    if (solo || player.knockedDown) return;
     const t = trebuchetInReach();
     if (!t) {
       hud.toast("Stand next to a trebuchet to get on");

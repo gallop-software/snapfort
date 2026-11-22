@@ -316,7 +316,7 @@ check("pausing during an edit cancels it", (await pieces()).find((p) => p.id ===
 check("pause panel shows when the mouse is released", await page.isVisible("#view-paused"));
 await wait(1200);
 await page.click("#resume"); await wait(600);
-check("Keep playing captures the mouse again", await sf(() => window.snapfort.input.locked));
+check("Back to building captures the mouse again", await sf(() => window.snapfort.input.locked));
 await page.evaluate(() => document.exitPointerLock()); await wait(1200);
 check("no Start over button in the shared world", (await page.$("#start-over")) === null);
 await page.click("#resume"); await wait(600);

@@ -45,9 +45,10 @@ export function createWorld(scene: Scene, camera: Camera): World {
   sun.diffuse = new Color3(1, 0.95, 0.84);
   sun.specular = Color3.Black();
 
-  const shadows = new CascadedShadowGenerator(2048, sun, undefined, camera);
-  shadows.numCascades = 3;
-  shadows.shadowMaxZ = 150;
+  // Two 1024 cascades: crisp near the builder at a sixth of the cost of three 2048 ones.
+  const shadows = new CascadedShadowGenerator(1024, sun, undefined, camera);
+  shadows.numCascades = 2;
+  shadows.shadowMaxZ = 110;
   shadows.lambda = 0.85;
   shadows.stabilizeCascades = true;
   shadows.cascadeBlendPercentage = 0.08;
@@ -55,6 +56,7 @@ export function createWorld(scene: Scene, camera: Camera): World {
   shadows.normalBias = 0.02;
   shadows.setDarkness(0.42);
   shadows.usePercentageCloserFiltering = true;
+  shadows.filteringQuality = CascadedShadowGenerator.QUALITY_MEDIUM;
 
   // Sky dome.
   const sky = CreateSphere("sky", { diameter: 1800, segments: 16, sideOrientation: Mesh.BACKSIDE }, scene);

@@ -40,6 +40,7 @@ import { Ghost, PieceView, PlaceFlash } from "./render/pieceView";
 import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
 import { RemotePlayers } from "./render/remotePlayers";
+import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
 import { createWorld } from "./render/world";
 import { clock, Hud, type HotbarItem } from "./ui/hud";
@@ -100,6 +101,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const sfx = new Sfx();
   const army = new SoldierView(scene, world.shadows);
   const remotes = new RemotePlayers(scene, world.shadows);
+  const resolution = new ResolutionGovernor(engine);
 
   const settings = loadSettings();
   rig.sensitivity = settings.mouseSpeed;
@@ -578,6 +580,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   let statsTimer = 0;
 
   scene.onBeforeRenderObservable.add(() => {
+    resolution.update(engine.getDeltaTime() / 1000);
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
     const [dx, dy] = input.takeLook();
     rig.look(dx, dy);
@@ -641,7 +644,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, resolution, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

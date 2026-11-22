@@ -109,8 +109,7 @@ body.playing #crosshair { opacity: 1; }
   gap: 10px;
   padding: 10px;
   border-radius: 20px;
-  background: rgba(31, 42, 55, 0.5);
-  backdrop-filter: blur(6px);
+  background: rgba(31, 42, 55, 0.62);
   pointer-events: auto;
 }
 
@@ -171,8 +170,8 @@ body.playing #crosshair { opacity: 1; }
   padding: 16px;
   /* A panel taller than the window scrolls instead of being cut off. */
   overflow-y: auto;
-  background: rgba(31, 42, 55, 0.38);
-  backdrop-filter: blur(3px);
+  /* No blur: the live world stays visible (and cheap to draw) behind the menu. */
+  background: rgba(31, 42, 55, 0.3);
 }
 #overlay[hidden] { display: none; }
 

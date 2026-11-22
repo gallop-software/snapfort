@@ -1,7 +1,7 @@
 {
   "name": "SnapFort.io",
   "short_name": "SnapFort",
-  "description": "Build the tallest tower in one shared world, and knock down the competition with trebuchets.",
+  "description": "Build the tallest tower in one shared world, defend it from trebuchets, and keep the gold flag on top.",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "landscape",

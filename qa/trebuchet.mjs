@@ -174,7 +174,7 @@ check("…and is on the ground when their tab wakes up", (await sf(a, () => wind
 // Walking onto a trebuchet needs no jump, and the Remove tool takes it down when aimed at its frame.
 await put(a, [["trebuchet", -20, 0, -20, 0]]);
 await wait(500);
-await sf(a, () => { const s = window.snapfort; s.engine.runRenderLoop?.(() => {}); s.player.teleport(-97.5, 0.95, -105); s.rig.yaw = 0; s.rig.pitch = 0; });
+await sf(a, () => { const s = window.snapfort; s.player.teleport(-97.5, 0.95, -105); s.rig.yaw = 0; s.rig.pitch = 0; });
 await a.keyboard.down("KeyW"); await wait(1100); await a.keyboard.up("KeyW"); await wait(200);
 check("a builder walks straight onto and over a trebuchet", (await sf(a, () => window.snapfort.player.position.z)) > -95, `reached z ${(await sf(a, () => window.snapfort.player.position.z)).toFixed(1)}`);
 await sf(a, () => { const s = window.snapfort; s.player.teleport(-97.5, 0.95, -110); });

@@ -1,4 +1,5 @@
 import { CELL, LEVEL } from "./constants";
+import { piecesMeet } from "./contact";
 import { boxesTouch, gridBox, inBounds, isMaterial, isValidEdit, normalizeSpec, slotKey, type Piece, type PieceSpec } from "./pieces";
 
 /**
@@ -70,7 +71,7 @@ export class BuildState {
     return gridBox(spec)[1] === 0 || this.touching(spec).some((p) => p.type !== "trebuchet");
   }
 
-  /** Every piece that overlaps or touches the space `spec` takes up (not counting itself). */
+  /** Every piece that really meets `spec` along an edge (see contact.ts), not counting itself. */
   touching(spec: PieceSpec & { id?: string }): Piece[] {
     const box = gridBox(spec);
     const found: Piece[] = [];
@@ -82,7 +83,8 @@ export class BuildState {
           for (const id of bucket) {
             if (id === spec.id) continue;
             const other = this.pieces.get(id);
-            if (other && boxesTouch(box, gridBox(other))) found.push(other);
+            // The boxes test is a quick first filter; piecesMeet decides.
+            if (other && boxesTouch(box, gridBox(other)) && piecesMeet(spec, other)) found.push(other);
           }
         }
       }

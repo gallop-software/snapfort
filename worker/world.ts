@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { BuildState, type BuildOp } from "../src/game/buildState";
 import { LEVEL, MAX_LEVEL } from "../src/game/constants";
-import { findLooseAfterRemoval } from "../src/game/structure";
+import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
 import { checkRange, findImpact, launchPoint, planFlight, strike, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
@@ -455,6 +455,15 @@ export class World extends DurableObject<Env> {
       for (const piece of decodePieces(JSON.parse(row.data) as WirePiece[])) this.build.apply({ kind: "place", piece });
     }
     this.loading = false;
+    // Building rules change now and then: whatever no longer stands under the
+    // current ones comes down when the world loads (and is saved that way).
+    const now = Date.now();
+    for (const piece of findUnsupported(this.build)) {
+      const op: BuildOp = { kind: "remove", id: piece.id };
+      const inverse = this.build.apply(op);
+      if (inverse) this.unsavedLog.push([now, "rules", encodeOp(op), encodeOp(inverse)]);
+    }
+    this.flush();
     this.towers = this.measure();
   }
 

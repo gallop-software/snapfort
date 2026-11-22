@@ -71,8 +71,10 @@ check("…with the full animated body up close", !!seen?.full);
 
 // A renames; B's name list follows.
 await sf(a, () => { document.getElementById("player-name").value = "Captain Test"; document.getElementById("player-name").dispatchEvent(new Event("change")); });
-await new Promise((r) => setTimeout(r, 400));
-check("a new name reaches the other builder", (await sf(b, () => [...window.snapfort.remotes.remotes.values()][0]?.player.name)) === "Captain Test");
+// Allow for the server waking from sleep.
+let renamed = "";
+for (let i = 0; i < 30 && renamed !== "Captain Test"; i++) { await new Promise((r) => setTimeout(r, 100)); renamed = await sf(b, () => [...window.snapfort.remotes.remotes.values()][0]?.player.name); }
+check("a new name reaches the other builder", renamed === "Captain Test", renamed);
 
 // Both build in the same spot at the same moment: one wins, both agree.
 await Promise.all([put(a, [["floor", 8, 0, 8, 0]]), put(b, [["floor", 8, 0, 8, 0]])]);

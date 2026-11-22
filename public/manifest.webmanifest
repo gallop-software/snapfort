@@ -1,0 +1,14 @@
+{
+  "name": "SnapFort.io",
+  "short_name": "SnapFort",
+  "description": "Build the tallest tower in one shared world, and knock down the competition with trebuchets.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#fff6e4",
+  "theme_color": "#fbe9c8",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

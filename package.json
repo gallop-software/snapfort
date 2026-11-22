@@ -14,7 +14,8 @@
     "qa:multi": "node qa/multi.mjs",
     "qa:load": "node qa/load.mjs",
     "qa:trebuchet": "node qa/trebuchet.mjs",
-    "qa:chaos": "node qa/chaos.mjs"
+    "qa:chaos": "node qa/chaos.mjs",
+    "qa:mobile": "node qa/mobile.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.37.1",

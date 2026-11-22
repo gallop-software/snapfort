@@ -573,3 +573,166 @@ body.scoped #crosshair {
 .slider output { text-align: right; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 
+
+/* ───────────── Phones and tablets (body.touch): on-screen controls, compact HUD ───────────── */
+
+.mobile { display: none; }
+body.touch .mobile { display: revert; }
+body.touch .desk,
+body.touch .keys,
+body.touch #material { display: none; }
+
+/* No page zooming, scrolling, bouncing, text selection or long-press menus while playing. */
+html, body { overscroll-behavior: none; }
+body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+body.touch canvas { touch-action: none; }
+body.touch button { touch-action: manipulation; }
+
+#touch[hidden] { display: none; }
+#touch-layer { position: fixed; inset: 0; touch-action: none; }
+#joy-base {
+  position: fixed;
+  width: 112px;
+  height: 112px;
+  margin: -56px 0 0 -56px;
+  border-radius: 50%;
+  background: rgba(255, 246, 228, 0.16);
+  border: 2px solid rgba(255, 246, 228, 0.6);
+  pointer-events: none;
+}
+#joy-base[hidden] { display: none; }
+#joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 50px;
+  height: 50px;
+  margin: -25px 0 0 -25px;
+  border-radius: 50%;
+  background: rgba(255, 246, 228, 0.88);
+  box-shadow: 0 2px 6px rgba(31, 42, 55, 0.35);
+}
+
+/* Buttons: round, translucent, clear of the notch and the home bar. */
+#touch {
+  --r: calc(env(safe-area-inset-right, 0px) + 14px);
+  --l: calc(env(safe-area-inset-left, 0px) + 12px);
+  --b: calc(env(safe-area-inset-bottom, 0px) + 14px);
+}
+.touch-button {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 2px solid rgba(255, 246, 228, 0.8);
+  border-radius: 50%;
+  background: rgba(31, 42, 55, 0.5);
+  color: var(--cream);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.touch-button[hidden] { display: none; }
+.touch-button.pressed { background: rgba(240, 118, 90, 0.9); border-color: #fff; }
+#t-jump { right: var(--r); bottom: var(--b); width: 72px; height: 72px; font-size: 14px; }
+#t-place, #t-fire { right: var(--r); bottom: calc(var(--b) + 84px); width: 72px; height: 72px; font-size: 14px; background: rgba(240, 118, 90, 0.62); }
+#t-fire { width: 84px; height: 84px; bottom: calc(var(--b) + 40px); font-size: 16px; }
+#t-remove { right: calc(var(--r) + 84px); bottom: var(--b); }
+#t-edit { right: calc(var(--r) + 84px); bottom: calc(var(--b) + 60px); }
+#t-turn { right: calc(var(--r) + 84px); bottom: calc(var(--b) + 120px); }
+#t-material { left: var(--l); top: calc(env(safe-area-inset-top, 0px) + 142px); width: auto; height: 38px; padding: 0 12px 0 6px; border-radius: 19px; font-size: 12px; }
+#t-material .swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--cream); }
+#t-zoom { right: calc(var(--r) + 98px); bottom: calc(var(--b) + 40px); width: 56px; height: 56px; }
+#t-leave { right: calc(var(--r) + 98px); bottom: calc(var(--b) + 110px); width: auto; height: 38px; padding: 0 14px; border-radius: 19px; }
+#t-board { right: var(--r); bottom: calc(var(--b) + 168px); width: auto; height: 40px; padding: 0 16px; border-radius: 20px; background: rgba(240, 118, 90, 0.9); font-size: 14px; }
+#t-settings { left: var(--l); top: calc(env(safe-area-inset-top, 0px) + 10px); width: 42px; height: 42px; }
+#t-settings svg { width: 24px; height: 24px; }
+#t-undo, #t-redo { left: var(--l); width: 56px; height: 34px; border-radius: 17px; font-size: 11px; }
+#t-undo { top: calc(env(safe-area-inset-top, 0px) + 60px); }
+#t-redo { top: calc(env(safe-area-inset-top, 0px) + 100px); }
+
+/* The HUD on a phone: pieces along the top, readouts small, nothing under the thumbs. */
+body.touch:not(.playing) #hotbar-wrap { display: none; }
+#t-remove { font-size: 10.5px; }
+body.touch #hotbar-wrap { top: calc(env(safe-area-inset-top, 0px) + 8px); bottom: auto; }
+body.touch #hotbar { gap: 6px; padding: 6px; border-radius: 16px; }
+body.touch .slot { width: 50px; height: 50px; border-radius: 12px; }
+body.touch .slot .key { display: none; }
+body.touch .slot svg { width: 26px; height: 26px; }
+body.touch .slot .label { font-size: 9px; }
+@media (max-width: 640px) {
+  body.touch .slot { width: 44px; height: 44px; }
+  body.touch .slot svg { width: 22px; height: 22px; }
+  body.touch .slot .label { font-size: 8px; }
+}
+body.touch #online { top: calc(env(safe-area-inset-top, 0px) + 8px); right: var(--r, 14px); font-size: 11px; padding: 4px 8px; }
+body.touch #towers { top: calc(env(safe-area-inset-top, 0px) + 36px); right: var(--r, 14px); font-size: 11px; padding: 5px 9px; line-height: 1.35; }
+/* Tower heights on one line, title dropped: the hotbar needs the width. */
+body.touch #towers b { display: none; }
+body.touch #towers div { display: inline-block; margin-left: 8px; }
+body.touch #towers div:first-of-type { margin-left: 0; }
+body.touch #towers div:nth-child(n + 5) { display: none; }
+@media (max-width: 700px) { body.touch #towers div:nth-child(n + 3) { display: none; } }
+body.touch #stats { top: auto; bottom: 4px; left: 50%; transform: translateX(-50%); font-size: 10px; }
+body.touch #net { top: calc(env(safe-area-inset-top, 0px) + 72px); white-space: normal; max-width: 70vw; text-align: center; }
+body.touch #edit-hint { top: calc(env(safe-area-inset-top, 0px) + 72px); bottom: auto; white-space: normal; max-width: 60vw; text-align: center; }
+/* On a trebuchet the joystick is idle, so its corner holds the trebuchet panel. */
+body.touch #crew { left: var(--l, 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); transform: none; white-space: normal; max-width: 42vw; text-align: left; }
+body.touch #crew .controls { display: none; }
+body.touch.scoped #crew { bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
+body.touch #toast { max-width: 70vw; white-space: normal; text-align: center; }
+
+/* Hold the phone sideways. */
+#rotate { display: none; }
+@media (orientation: portrait) {
+  body.touch #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--cream);
+    color: var(--ink);
+    font-size: 20px;
+    font-weight: 800;
+    text-align: center;
+  }
+  body.touch #rotate svg { display: block; width: 72px; height: 72px; margin: 0 auto 16px; fill: none; stroke: var(--coral); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+}
+
+/* Menu and settings on a phone held sideways: two columns (title and button, then settings), compact. */
+#touch-help { margin: 0 0 14px; display: grid; gap: 4px; font-size: 13px; font-weight: 600; text-align: left; }
+#touch-help b { color: var(--coral); }
+body.touch #view-menu:not([hidden]) { display: block; }
+body.touch .setting input[type="text"] { font-size: 16px; } /* iOS zooms into smaller text fields */
+body.touch .setting select { font-size: 13px; padding-left: 8px; }
+@media (max-height: 560px) {
+  body.touch #overlay { padding: calc(env(safe-area-inset-top, 0px) + 8px) calc(env(safe-area-inset-right, 0px) + 8px) 8px calc(env(safe-area-inset-left, 0px) + 8px); }
+  body.touch .panel {
+    width: min(920px, calc(100vw - 16px));
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    column-gap: 20px;
+    align-items: start;
+  }
+  body.touch .panel > h1 { grid-column: 1; grid-row: 1; font-size: 30px; margin: 0; }
+  body.touch .panel > #view-menu,
+  body.touch .panel > #view-paused,
+  body.touch .panel > #view-captured { grid-column: 1; grid-row: 2; }
+  body.touch .panel > #settings { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
+  body.touch .panel p { margin: 4px 0 10px; font-size: 13px; }
+  body.touch .panel p.small { display: none; }
+  body.touch .buttons button { padding: 10px 20px; font-size: 16px; }
+  body.touch #touch-help { font-size: 12px; gap: 2px; margin-bottom: 10px; }
+  body.touch .setting { min-height: 0; padding: 6px 0; grid-template-columns: 84px minmax(0, 1fr); }
+  body.touch .setting input[type="text"], body.touch .setting select { height: 32px; }
+}

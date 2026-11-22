@@ -37,11 +37,13 @@ export class Graphics {
     private readonly world: World,
     private readonly resolution: ResolutionGovernor,
     private readonly gpuName: string,
+    /** A phone or tablet: battery saver unless chosen otherwise (they run hot and on battery). */
+    private readonly touch = false,
   ) {}
 
   /** What "auto" picks on this computer. */
   get autoMode(): Exclude<GraphicsMode, "auto"> {
-    return isModestGpu(this.gpuName) ? "saver" : "sharp";
+    return this.touch || isModestGpu(this.gpuName) ? "saver" : "sharp";
   }
 
   apply(mode: GraphicsMode): void {

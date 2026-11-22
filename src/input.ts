@@ -3,9 +3,32 @@ const WHEEL_STEP = 100;
 /** Largest mouse movement accepted from a single event, in pixels. */
 const MAX_MOUSE_JUMP = 250;
 
-/** Keyboard and mouse. The game only reacts while the pointer is locked to the canvas. */
+/**
+ * True on a phone or tablet with no mouse: the game is played with on-screen
+ * touch controls. `?touch` in the address forces it (for testing on a computer).
+ */
+export function isTouchOnly(): boolean {
+  if (new URLSearchParams(location.search).has("touch")) return true;
+  return matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+}
+
+/** Movement from the on-screen joystick: x to the right, y forward, each -1..1; run when pushed all the way. */
+export interface Axis {
+  x: number;
+  y: number;
+  run: boolean;
+}
+
+/**
+ * Keyboard and mouse, or touch. With a mouse the game only reacts while the
+ * pointer is locked to the canvas. On a touch device there is no pointer
+ * lock: `locked` simply means playing (no menu open), and the on-screen
+ * controls feed in movement (`axis`), looking (`addLook`) and button presses.
+ */
 export class Input {
   locked = false;
+  readonly touch = isTouchOnly();
+  readonly axis: Axis = { x: 0, y: 0, run: false };
   onKey: (code: string, event: KeyboardEvent) => void = () => {};
   onMouseDown: (button: number) => void = () => {};
   onMouseUp: (button: number) => void = () => {};
@@ -20,6 +43,7 @@ export class Input {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     document.addEventListener("pointerlockchange", () => {
+      if (this.touch) return;
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) this.down.clear();
       this.onLockChange(this.locked);
@@ -77,6 +101,30 @@ export class Input {
     return this.down.has(code);
   }
 
+  /** An on-screen button held down or let go (touch), as if it were a key. */
+  press(code: string, down: boolean): void {
+    if (down) this.down.add(code);
+    else this.down.delete(code);
+  }
+
+  /** Looking around by dragging (touch), in screen pixels like mouse movement. */
+  addLook(dx: number, dy: number): void {
+    if (!this.locked) return;
+    this.lookX += dx;
+    this.lookY += dy;
+  }
+
+  /** Stops playing (opens the menu): releases the mouse, or on touch just leaves play. */
+  unlock(): void {
+    if (!this.touch) return void document.exitPointerLock();
+    if (!this.locked) return;
+    this.locked = false;
+    this.down.clear();
+    this.axis.x = this.axis.y = 0;
+    this.axis.run = false;
+    this.onLockChange(false);
+  }
+
   /** Mouse movement since the last call, in pixels. */
   takeLook(): [number, number] {
     const look: [number, number] = [this.lookX, this.lookY];
@@ -91,6 +139,11 @@ export class Input {
    */
   async lock(): Promise<boolean> {
     if (this.locked) return true;
+    if (this.touch) {
+      this.locked = true;
+      this.onLockChange(true);
+      return true;
+    }
     if (await this.tryLock()) return true;
     await new Promise((resolve) => setTimeout(resolve, 1100));
     return this.locked || (await this.tryLock());

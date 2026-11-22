@@ -34,6 +34,7 @@ import { aimTarget } from "./game/aim";
 import { facingRot } from "./game/targeting";
 import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
+import { TouchControls } from "./ui/touch";
 import { NetClient, worldUrl } from "./net/client";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
@@ -108,6 +109,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const overlay = new EditOverlay(scene);
   const player = new Player(scene, world.shadows);
   const input = new Input(canvas);
+  // Phones and tablets: on-screen controls (created once the game's actions exist, below).
+  let touch: TouchControls | null = null;
   const sfx = new Sfx();
   const army = new SoldierView(scene, world.shadows);
   const remotes = new RemotePlayers(scene, world.shadows);
@@ -305,6 +308,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     shownMaterial = key;
     const note = used === chosen ? reach[chosen] : `${MATERIAL_DEFS[chosen].label} only to storey ${MATERIAL_MAX_LEVEL[chosen] + 1}`;
     hud.setMaterial(MATERIAL_DEFS[used].label, MATERIAL_DEFS[used].color, "T", note);
+    touch?.setMaterial(MATERIAL_DEFS[used].label, `rgb(${MATERIAL_DEFS[used].color.map((c) => Math.round(c * 255)).join(", ")})`);
   }
 
   function cycleMaterial(): void {
@@ -457,6 +461,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   input.onLockChange = (locked) => {
     placing = false;
+    if (touch) touch.visible = locked;
     if (locked) {
       away = false;
       hud.menuNote(null);
@@ -597,10 +602,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     const on = input.locked && !crewOn;
     // Arrow keys and WASD both move the builder.
     const key = (a: string, b: string) => (input.isDown(a) || input.isDown(b) ? 1 : 0);
+    // Touch: the on-screen joystick adds its own push (and runs when pushed all the way).
+    const clamp = (v: number) => Math.max(-1, Math.min(1, v));
     player.step(dt, {
-      strafe: on ? key("ArrowRight", "KeyD") - key("ArrowLeft", "KeyA") : 0,
-      forward: on ? key("ArrowUp", "KeyW") - key("ArrowDown", "KeyS") : 0,
-      run: on && (input.isDown("ShiftLeft") || input.isDown("ShiftRight")),
+      strafe: on ? clamp(key("ArrowRight", "KeyD") - key("ArrowLeft", "KeyA") + input.axis.x) : 0,
+      forward: on ? clamp(key("ArrowUp", "KeyW") - key("ArrowDown", "KeyS") + input.axis.y) : 0,
+      run: on && (input.isDown("ShiftLeft") || input.isDown("ShiftRight") || input.axis.run),
       jump: on && input.isDown("Space"),
       yaw: rig.yaw,
     });
@@ -964,7 +971,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         if (range === "near") status = { text: `Target ${d} m: too close (min ${TREBUCHET.minRange} m)`, ok: false };
         else if (range === "far") status = { text: `Target ${d} m: out of range (max ${Math.round(maxRange(t))} m)`, ok: false };
         else if (reload > 0) status = { text: `Target ${d} m · reloading ${reload.toFixed(1)} s`, ok: false };
-        else status = { text: `Target ${d} m · ready: click to fire`, ok: true };
+        else status = { text: `Target ${d} m · ready: ${touch ? "tap Fire" : "click to fire"}`, ok: true };
       }
       // Zoom as a magnification: how much bigger things look than without the scope.
       const magnify = Math.tan(SCOPE_ZOOMS[0] / 2) / Math.tan(SCOPE_ZOOMS[rig.zoom]! / 2);
@@ -972,9 +979,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       return;
     }
     hud.setCrew(null);
-    const near = input.locked && !solo ? trebuchetInReach() : undefined;
+    const near = input.locked && !solo && !player.knockedDown ? trebuchetInReach() : undefined;
+    const busy = !!near && crews.has(near.id) && crews.get(near.id) !== myId;
+    // Touch: a Get on button instead of the key hint.
+    touch?.setBoard(!!near && !busy);
     if (!near) return hud.setHint(null);
-    const busy = crews.has(near.id) && crews.get(near.id) !== myId;
+    if (touch && !busy) return hud.setHint(null);
     hud.setHint(busy ? "Someone is on this trebuchet" : "<kbd>H</kbd> get on the trebuchet");
   }
 
@@ -982,6 +992,23 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     tallest = list;
     hud.setTowers(list.map((t) => t[0]));
     flags.show(list);
+  }
+  if (input.touch) {
+    // A pretend key event for on-screen buttons that do a key's job.
+    const keyEvent = { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, repeat: false } as KeyboardEvent;
+    touch = new TouchControls(input, {
+      place: (down) => (down ? input.onMouseDown(0) : input.onMouseUp(0)),
+      remove: () => {
+        input.onMouseDown(2);
+        input.onMouseUp(2);
+      },
+      key: (code) => input.onKey(code, keyEvent),
+      fire: () => input.onMouseDown(0),
+      zoom: () => {
+        rig.zoom = (rig.zoom + 1) % SCOPE_ZOOMS.length;
+      },
+      settings: () => input.unlock(),
+    });
   }
   net.connect();
 
@@ -1022,7 +1049,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (siege.captured) {
         sfx.caught();
         // Leaving pointer lock brings up the captured panel.
-        document.exitPointerLock();
+        input.unlock();
       }
     }
     army.update(siege.soldiers, input.locked ? dt : 0);
@@ -1036,6 +1063,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
     remotes.update(dt, now, rig.camera.globalPosition, rig.camera.fov);
     showMaterial();
+    if (touch) touch.mode = crewOn ? "crew" : editing ? "edit" : "build";
     trebuchets.update(dt);
     debris.update(dt);
     flags.update(dt);
@@ -1057,7 +1085,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   showMaterial();
   hud.showMouseSpeed(settings.mouseSpeed);
   hud.showMuted(settings.muted);
-  const graphics = new Graphics(engine, world, resolution, gpuName);
+  const graphics = new Graphics(engine, world, resolution, gpuName, input.touch);
   graphics.apply(settings.graphics);
   debris.limit = graphics.effective === "saver" ? 40 : 140;
   hud.showGraphics(settings.graphics, graphics.autoMode);

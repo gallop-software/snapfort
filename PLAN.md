@@ -112,6 +112,15 @@ The goal is the tallest structure. There are no teams: anyone builds on any stru
 - Trebuchet frames and arms are two thin-instance meshes (`src/render/trebuchetView.ts`); the frame turns toward the target and the arm swings over on a throw and winds back during the reload.
 - Messages: protocol version 2 (an open page from before asks to reload). `npm run qa:trebuchet` checks it all with two pages.
 
+## Phones and tablets (user, 2026-11-22: "follow the conventions of Fortnite for mobile")
+
+Touch-only devices (no mouse: `(pointer: coarse)` and not `(any-pointer: fine)`; `?touch` forces it on a computer) get on-screen controls (`src/ui/touch.ts`); computers are unchanged. There is no pointer lock on touch: `Input.locked` means "playing", and the controls feed `Input.axis` (joystick), `addLook` (dragging) and the game's own mouse and key handlers (buttons).
+- Left thumb: a joystick appears where it lands (left 42% of the screen); pushed to its edge, the builder runs. Right thumb: drag to look and aim. Both at once work.
+- Buttons: Jump and Place (hold to keep placing) bottom right; Remove, Edit, Turn beside them; gear (settings), Undo, Redo and the Material button top left; the hotbar along the top picks pieces. Editing turns them into Cut / Reset / Done. Near a trebuchet a Get on button appears; on it, drag to aim, Fire, Zoom (cycles) and Get off; the trebuchet panel moves to the bottom left.
+- Landscape only: in portrait a "turn your phone sideways" screen. Phones default to battery saver. The menu and settings are two compact columns on short screens; the tower board is one line; everything respects the notch and home bar (safe areas). No page zoom, scroll, bounce, selection or long-press menus.
+- Added to the home screen it opens full screen (`public/manifest.webmanifest`, icons made from `favicon.svg`).
+- `npm run qa:mobile`: on seven phones and tablets, nothing off screen and no controls overlapping (menu, play, trebuchet, settings); portrait; and every control driven with multi-touch on an iPhone.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

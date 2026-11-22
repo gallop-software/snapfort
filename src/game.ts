@@ -8,7 +8,7 @@ import { Scene } from "@babylonjs/core/scene";
 import HavokPhysics from "@babylonjs/havok";
 import havokWasmUrl from "@babylonjs/havok/lib/esm/HavokPhysics.wasm?url";
 import { Sfx } from "./audio";
-import { BuildState, type PlaceProblem } from "./game/buildState";
+import { BuildState, type BuildOp, type PlaceProblem } from "./game/buildState";
 import { CELL, LEVEL } from "./game/constants";
 import { editTileAt } from "./game/edit";
 import { History } from "./game/history";
@@ -112,7 +112,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const army = new SoldierView(scene, world.shadows);
   const remotes = new RemotePlayers(scene, world.shadows);
   const trebuchets = new TrebuchetView(scene, state, world.shadows);
-  const debris = new Debris(scene, (piece) => view.debrisMesh(piece));
+  // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
+  const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)));
   const flags = new TowerFlags(scene);
   /** Hits taken by damaged pieces (from the server), so their cracks show. */
   const damage = new Map<string, number>();
@@ -346,10 +347,30 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   function removePiece(id: string): void {
     const piece = state.get(id);
     if (!piece || !history.do({ kind: "remove", id })) return;
-    const loose = findLooseAfterRemoval(state, [piece]);
-    for (const piece of loose) history.extend({ kind: "remove", id: piece.id });
+    const loose = findLooseAfterRemoval(state, [piece]).map((p) => ({ ...p }));
+    for (const p of loose) history.extend({ kind: "remove", id: p.id });
+    // What the removed piece held up comes down as rubble, as it does when a stone hits.
+    fallAsRubble(loose);
     if (loose.length > 0) sfx.crumble();
     else sfx.remove();
+  }
+
+  /** Pieces that lost their support tumble down as rubble (they are already gone from the build). */
+  function fallAsRubble(pieces: readonly Piece[]): void {
+    if (pieces.length === 0 || solo) return;
+    const c = pieces[0]!;
+    debris.spawn(pieces, new Set(), [(c.x + 0.5) * CELL, c.y * LEVEL, (c.z + 0.5) * CELL]);
+  }
+
+  /**
+   * Applies removals from someone else (or the server). In a batch of several,
+   * the first is the piece taken away on purpose and the rest are what it held
+   * up, which fall as rubble (as they did on the page that removed them).
+   */
+  function fallingIn(ops: readonly BuildOp[]): Piece[] {
+    const removed = ops.filter((op): op is Extract<BuildOp, { kind: "remove" }> => op.kind === "remove");
+    if (removed.length < 2) return [];
+    return removed.slice(1).flatMap((op) => (state.get(op.id) ? [{ ...state.get(op.id)! }] : []));
   }
 
   function undo(): void {
@@ -686,11 +707,17 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       history.clear();
     },
     ops(_by, ops) {
-      if (!solo) synced.remote(ops);
+      if (solo) return;
+      const falling = fallingIn(ops);
+      synced.remote(ops);
+      fallAsRubble(falling);
     },
     ack(seq, rejected, extra) {
       if (solo) return;
+      // Pieces the server found had lost their support (beyond what we removed) fall too.
+      const falling = extra.flatMap((op) => (op.kind === "remove" && state.get(op.id) ? [{ ...state.get(op.id)! }] : []));
       const refused = synced.ack(seq, rejected, extra);
+      fallAsRubble(falling);
       if (refused.some((op) => op.kind === "place")) hud.toast("Someone built there first");
     },
     join(p) {

@@ -117,7 +117,11 @@ export class Debris {
     for (let i = this.rubble.length - 1; i >= 0; i--) {
       const r = this.rubble[i]!;
       const age = (now - r.born) / 1000;
-      if (age > LIFE) r.mesh.visibility = Math.max(0, 1 - (age - LIFE) / FADE);
+      if (age > LIFE) {
+        const v = Math.max(0, 1 - (age - LIFE) / FADE);
+        r.mesh.visibility = v;
+        for (const child of r.mesh.getChildMeshes()) child.visibility = v;
+      }
       // Gone after fading, or fallen out of the world.
       if (age > LIFE + FADE || r.mesh.position.y < -20) {
         r.body.dispose();

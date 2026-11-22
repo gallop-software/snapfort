@@ -58,7 +58,12 @@ function paint(mesh: Mesh, r: number, g: number, b: number): Mesh {
  */
 export class TrebuchetView {
   private readonly engines = new Map<string, Engine>();
+  /** Trebuchets just removed (for their rubble). */
+  private readonly recent = new Map<string, Engine>();
   private readonly frame: Mesh;
+  /** Plain copies of the frame and arm (no thin instances), for a trebuchet that falls as rubble. */
+  private readonly frameTemplate: Mesh;
+  private readonly armTemplate: Mesh;
   private readonly arm: Mesh;
   private readonly frameMatrices = new Float32Array(MAX_ENGINES * 16);
   private readonly armMatrices = new Float32Array(MAX_ENGINES * 16);
@@ -103,6 +108,7 @@ export class TrebuchetView {
     axle.rotation.z = Math.PI / 2;
     frameParts.push(part(axle, iron, 0, PIVOT, 0));
     this.frame = this.host(Mesh.MergeMeshes(frameParts, true, true)!, "trebuchet-frame");
+    this.frameTemplate = this.template(this.frame, "trebuchet-frame-template");
 
     // Arm, drawn upright from the pivot: the long beam and sling up, the counterweight below.
     const armParts: Mesh[] = [
@@ -112,6 +118,7 @@ export class TrebuchetView {
       part(CreateBox("t-sling", { width: 0.05, height: 0.05, depth: 1.2 }, scene), dark, 0, 4.6, -0.55),
     ];
     this.arm = this.host(Mesh.MergeMeshes(armParts, true, true)!, "trebuchet-arm");
+    this.armTemplate = this.template(this.arm, "trebuchet-arm-template");
 
     this.stoneMaterial = new StandardMaterial("stone", scene);
     this.stoneMaterial.diffuseColor = new Color3(0.38, 0.37, 0.36);
@@ -133,8 +140,34 @@ export class TrebuchetView {
     state.subscribe((op, piece) => {
       if (piece.type !== "trebuchet") return;
       if (op.kind === "place") this.add(piece);
-      else if (op.kind === "remove") this.engines.delete(piece.id);
+      else if (op.kind === "remove") {
+        // Remembered a moment, so its rubble can show it as it stood.
+        const engine = this.engines.get(piece.id);
+        if (engine) this.recent.set(piece.id, engine);
+        this.engines.delete(piece.id);
+      }
     });
+  }
+
+  /**
+   * The whole trebuchet as one loose mesh for rubble: `base` (its turntable,
+   * from PieceView) with the frame and arm on it, as they stood. The caller owns it.
+   */
+  debrisMesh(piece: Piece, base: Mesh): Mesh {
+    const engine = this.engines.get(piece.id) ?? this.recent.get(piece.id);
+    this.recent.delete(piece.id);
+    const yaw = engine?.yaw ?? 0;
+    const frame = this.frameTemplate.clone(`debris-frame-${piece.id}`, base)!;
+    frame.setEnabled(true);
+    frame.position.set(0, TREBUCHET_BASE, 0);
+    frame.rotationQuaternion = null;
+    // The base mesh is already turned by the piece's yaw (0 for trebuchets): turn the frame to where it aimed.
+    frame.rotation.set(0, yaw, 0);
+    const arm = this.armTemplate.clone(`debris-arm-${piece.id}`, frame)!;
+    arm.setEnabled(true);
+    arm.position.set(0, PIVOT, 0);
+    arm.rotation.set(this.armAngle(engine ? (performance.now() - engine.thrownAt) / 1000 : Infinity), 0, 0);
+    return base;
   }
 
   /** Turns trebuchet `id` toward a point. */
@@ -253,6 +286,15 @@ export class TrebuchetView {
 
   private add(piece: Piece): void {
     this.engines.set(piece.id, { piece, yaw: 0, aimYaw: 0, thrownAt: -Infinity });
+  }
+
+  /** A plain, hidden copy of a host mesh's shape and look (taken before it gets thin instances). */
+  private template(host: Mesh, name: string): Mesh {
+    const copy = host.clone(name)!;
+    copy.setEnabled(false);
+    copy.isPickable = false;
+    copy.alwaysSelectAsActiveMesh = false;
+    return copy;
   }
 
   private host(mesh: Mesh, name: string): Mesh {

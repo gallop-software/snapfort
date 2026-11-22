@@ -52,7 +52,7 @@ const layoutProblems = (p, ids) => p.evaluate((ids) => {
   return problems;
 }, ids);
 
-const controlIds = ["hotbar-wrap", "online", "t-settings", "t-undo", "t-redo", "t-jump", "t-place", "t-remove", "t-edit", "t-turn", "t-material", "t-board", "t-fire", "t-zoom", "t-leave", "crew", "edit-hint"];
+const controlIds = ["hotbar-wrap", "online", "t-chat", "t-ping", "t-settings", "t-undo", "t-redo", "t-jump", "t-place", "t-remove", "t-edit", "t-turn", "t-material", "t-board", "t-fire", "t-zoom", "t-leave", "crew", "edit-hint"];
 
 // ── 1. Fit on many screens ───────────────────────────────────────────────
 const screens = [
@@ -76,6 +76,13 @@ for (const [name, device] of screens) {
   await wait(2200);
   const play = await layoutProblems(p, controlIds);
   check(`${name}: playing, every control on screen and none overlapping`, play.length === 0, play.slice(0, 4).join("; "));
+  // The chat line open, with a line for everyone showing.
+  await p.evaluate(() => { const s = window.snapfort; s.chat.show({ by: "x", name: "Somebody Long Named", color: "#55aaff", text: "a long message to everyone that goes on and on to the limit of eighty chars", to: "all" }, s.myId, [0, 0, 0], 80, performance.now()); });
+  await p.tap("#t-chat"); await wait(300);
+  const chatting = await layoutProblems(p, [...controlIds.filter((id) => !["t-undo", "t-redo"].includes(id)), "chat-box", "chat-feed"]);
+  const focused = await p.evaluate(() => document.activeElement?.id === "chat-input" && !document.getElementById("chat-box").hidden);
+  check(`${name}: the chat line opens focused, and it and the lines fit with the controls`, focused && chatting.length === 0, chatting.slice(0, 4).join("; ") || (focused ? "" : "not open or not focused"));
+  await p.tap("#chat-close"); await wait(200);
   // On a trebuchet.
   await p.evaluate(() => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "trebuchet", x: 0, y: 0, z: 0, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); s.player.teleport(2.5, 0.95, -3); });
   await wait(400);
@@ -266,6 +273,34 @@ r = await rush("wobbly", 0, 0.25);
 check("ramp rushing with a wobbly thumb (±14°) still climbs", r.n >= 12 && r.top > 40 && r.mixed === 0, `${r.n} ramps, feet at ${r.top.toFixed(0)} m, mixed ${r.mixed}`);
 r = await rush("near diagonal", 0.72, 0.12);
 check("near a diagonal with a wobbly thumb, the staircase never mixes directions", r.mixed === 0 && r.n >= 3, `${r.n} ramps, feet at ${r.top.toFixed(0)} m, mixed ${r.mixed}`);
+
+// Chat with real touches: open, type, switch to everyone and back, send; ping.
+await sf(() => { const s = window.snapfort; s.player.teleport(2.5, 0.95, -40); s.rig.yaw = 0; s.rig.pitch = 0.1; }); await wait(300);
+await tap("#t-chat"); await wait(200);
+check("the Chat button opens the line, focused for the keyboard", await sf(() => !document.getElementById("chat-box").hidden && document.activeElement?.id === "chat-input"));
+const chatFont = await sf(() => parseFloat(getComputedStyle(document.getElementById("chat-input")).fontSize));
+check("…with text big enough that iPhones do not zoom into it", chatFont >= 16, `${chatFont}px`);
+check("…and no keyboard hints (they are for computers)", await sf(() => document.getElementById("chat-note").hidden));
+await p.keyboard.type("hi from my phone");
+await tap("#chat-to");
+check("tapping Nearby switches to Everyone and keeps the keyboard up", (await p.textContent("#chat-to")) === "Everyone" && (await sf(() => document.activeElement?.id === "chat-input")));
+await tap("#chat-to");
+check("…and back to Nearby", (await p.textContent("#chat-to")) === "Nearby");
+await tap("#chat-send"); await wait(500);
+const ownBubble = await sf(() => [...document.querySelectorAll(".chat-bubble.mine span")].map((x) => x.textContent));
+check("Send sends: the message shows over the builder's own head, and the line closes", ownBubble.includes("hi from my phone") && (await sf(() => document.getElementById("chat-box").hidden && document.activeElement?.id !== "chat-input")), JSON.stringify(ownBubble));
+check("…and the touch controls work again", await sf(() => !window.snapfort.input.typing));
+check("…and the bubble stays clear of the pieces bar at the top", await sf(() => { const b = document.querySelector(".chat-bubble.mine")?.getBoundingClientRect(); const bar = document.getElementById("hotbar-wrap").getBoundingClientRect(); return !!b && b.top >= bar.bottom - 1; }));
+await tap("#t-chat"); await wait(200);
+await p.keyboard.type("draft");
+await tap("#chat-close"); await wait(200);
+check("✕ closes the line", await sf(() => document.getElementById("chat-box").hidden));
+await wait(1800);
+await sf(() => { window.snapfort.rig.pitch = 0.5; }); await frames(3);
+await tap("#t-ping"); await wait(500);
+check("Ping marks the spot the crosshair is on", await sf(() => document.querySelectorAll(".chat-pin").length === 1), await p.textContent("#toast"));
+await p.screenshot({ path: "qa/shots/mobile-chat.png" });
+check("chatting never scrolled or zoomed the page", await sf(() => scrollX === 0 && scrollY === 0 && (visualViewport?.scale ?? 1) === 1));
 
 // Settings and back.
 await tap("#t-settings"); await wait(500);

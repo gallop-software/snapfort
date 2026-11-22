@@ -1,5 +1,6 @@
 import type { BuildOp } from "../game/buildState";
 import { MATERIALS, PIECE_TYPES, type Piece, type Rot } from "../game/pieces";
+import type { ChatTo } from "./chat";
 
 /**
  * Messages between the game and the shared world (the World Durable Object).
@@ -37,6 +38,21 @@ export type WireVec = [number, number, number];
 /** A standing structure: [height m, top x, top y, top z, pieces]. */
 export type WireTower = [number, number, number, number, number];
 
+/**
+ * Something a builder said (already filtered by the server): to builders near
+ * them or to everyone, and for nearby messages perhaps pinned to a spot `at`.
+ * An empty `text` with a spot is a ping. Name and colour travel with it, so a
+ * line still reads right after the speaker has left.
+ */
+export interface WireSaid {
+  by: string;
+  name: string;
+  color: string;
+  text: string;
+  to: ChatTo;
+  at?: WireVec;
+}
+
 export type ClientMessage =
   /** Get on trebuchet `id`, standing at `at`. */
   | { t: "board"; id: string; at: WireVec }
@@ -49,7 +65,9 @@ export type ClientMessage =
   | { t: "move"; m: [number, number, number, number, number] }
   | { t: "name"; name: string; color: string }
   /** Asks for the whole world again (after the game lost track of it). */
-  | { t: "sync" };
+  | { t: "sync" }
+  /** Says something (see WireSaid); an empty text with a spot `at` is a ping. */
+  | { t: "say"; text: string; to: ChatTo; at?: WireVec };
 
 export type ServerMessage =
   /** You joined: your id (also the prefix for ids of pieces you make), the whole world and who is here. */
@@ -64,6 +82,8 @@ export type ServerMessage =
       /** Hits taken by damaged pieces: [piece id, hits]. */
       damage: [string, number][];
       towers: WireTower[];
+      /** World-wide lines from the last few seconds, oldest first. */
+      chat?: WireSaid[];
     }
   /** Trebuchet `id` now has builder `by` on it (null: nobody). */
   | { t: "crew"; id: string; by: string | null }
@@ -94,6 +114,10 @@ export type ServerMessage =
    * it refused, `extra` what it also did (pieces that fell).
    */
   | { t: "ack"; seq: number; rejected: number[]; extra: WireOp[] }
+  /** Someone said something (you too: your own message comes back filtered). */
+  | ({ t: "said" } & WireSaid)
+  /** Your message was not passed on: too soon after your last (`wait` seconds), the world chat is busy, or you just said it. */
+  | { t: "hush"; reason: "wait" | "busy" | "repeat"; wait?: number }
   | { t: "join"; player: WirePlayer }
   | { t: "leave"; id: string }
   | { t: "moves"; m: WireMove[] }

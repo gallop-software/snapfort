@@ -128,6 +128,18 @@ Touch-only devices (no mouse: `(pointer: coarse)` and not `(any-pointer: fine)`;
 - Added to the home screen it opens full screen (`public/manifest.webmanifest`, icons made from `favicon.svg`).
 - `npm run qa:mobile`: on seven phones and tablets, nothing off screen and no controls overlapping (menu, play, trebuchet, settings); portrait; and every control driven with multi-touch on an iPhone.
 
+## Chat (user, 2026-11-22)
+
+Decided with the user: typed messages only (no quick-chat wheel, no voice for now), no groups (everyone builds in one world, so there is no side to talk to privately), no muting, no admin silencing for now, and nothing ever saved. Talking works like building: aim, then say.
+
+- Enter (or the Chat button on phones) opens one text line, Nearby or Everyone (Tab or a tap switches; it starts Nearby). At most 80 characters. There is no message list and nothing scrolls.
+- Nearby: a bubble over the speaker's head for 8 s, for builders within 80 m; off screen it waits at the edge with an arrow (behind you: along the bottom). Said while the crosshair is on a built piece within 60 m, the message is also pinned there.
+- Ping: middle click (Ping button on phones) marks the spot under the crosshair for builders nearby, with the pinger's name and distance, for 8 s. One pin per builder.
+- Everyone: up to three lines at the top that fade after 8 s (a newer one pushes the oldest out), plus the bubble for builders nearby. Someone arriving sees the lines from the last 30 s.
+- Limits on the server: nearby once per 2 s (pings too), everyone once per 10 s per builder, at most one line to everyone per second in the whole world ("Chat is busy" otherwise, and the message waits in the line), the same text twice within 30 s refused. The page checks the same limits first so the line can say when.
+- Filter on the server (`src/net/chat.ts`, unit tested): swear words and slurs (with look-alike characters, stretched letters and dots between letters folded), links, email addresses and phone numbers become ♥♥♥; control characters, invisible formatting and stacked accents are stripped.
+- Architecture: no new Durable Object. The World object already has every connection and every builder's position, so chat is two more messages (`say` in, `said` / `hush` out) on the same socket. It keeps only in memory when each builder last talked and the last three lines to everyone; nothing touches SQLite.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

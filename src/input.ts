@@ -36,6 +36,7 @@ export class Input {
   onLockChange: (locked: boolean) => void = () => {};
 
   private readonly down = new Set<string>();
+  private _typing = false;
   private wheelSum = 0;
   private wheelAt = 0;
   private lookX = 0;
@@ -51,7 +52,8 @@ export class Input {
     window.addEventListener("blur", () => this.down.clear());
 
     window.addEventListener("keydown", (e) => {
-      if (!this.locked) return;
+      // Typing a chat message: keys are letters, not moves or build keys.
+      if (!this.locked || this._typing) return;
       // Keep the browser from scrolling, tabbing away or opening menus mid-build.
       // F1 to F4 are build keys; the other function keys keep their browser jobs.
       const browserKey = /^F([5-9]|1[0-2])$/.test(e.code);
@@ -72,7 +74,7 @@ export class Input {
       this.lookY += e.movementY;
     });
     canvas.addEventListener("mousedown", (e) => {
-      if (this.locked) this.onMouseDown(e.button);
+      if (this.locked && !this._typing) this.onMouseDown(e.button);
     });
     window.addEventListener("mouseup", (e) => this.onMouseUp(e.button));
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -95,6 +97,21 @@ export class Input {
       },
       { passive: false },
     );
+  }
+
+  /**
+   * True while a chat message is being typed: the keyboard goes to the text
+   * line, and clicks do nothing, but the mouse (or a thumb) still looks
+   * around, so the crosshair can point at what the message is about.
+   */
+  get typing(): boolean {
+    return this._typing;
+  }
+
+  set typing(on: boolean) {
+    this._typing = on;
+    // Keys held when the line opened would otherwise stay down.
+    if (on) this.down.clear();
   }
 
   isDown(code: string): boolean {

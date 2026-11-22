@@ -16,6 +16,8 @@ const wsUrl = `${base.protocol === "https:" ? "wss" : "ws"}://${base.host}/ws?wo
 
 const latencies = [];
 let received = 0, closed = 0, rejected = 0, placed = 0;
+/** Chat: messages the bots heard, and how often the server held one back (too fast, or the world chat busy). */
+let heard = 0, hushed = 0, said = 0;
 
 function bot(n) {
   return new Promise((resolve) => {
@@ -53,7 +55,21 @@ function bot(n) {
           sentAt.set(seq, performance.now());
           ws.send(JSON.stringify({ t: "act", seq, ops }));
         }, 700 + Math.random() * 600));
+        // Talk: nearby every few seconds, now and then to everyone, sometimes a ping.
+        let line = 0;
+        timers.push(setInterval(() => {
+          said++;
+          const r = Math.random();
+          const x = cx + Math.cos(t) * radius, z = cz + Math.sin(t) * radius;
+          if (r < 0.08) ws.send(JSON.stringify({ t: "say", text: `bot ${n} to everyone #${line++}`, to: "all" }));
+          else if (r < 0.3) ws.send(JSON.stringify({ t: "say", text: "", to: "near", at: [x + 3, 0, z + 3] }));
+          else ws.send(JSON.stringify({ t: "say", text: `bot ${n} building here #${line++}`, to: "near" }));
+        }, 3000 + Math.random() * 3000));
         resolve(ws);
+      } else if (msg.t === "said") {
+        heard++;
+      } else if (msg.t === "hush") {
+        hushed++;
       } else if (msg.t === "ack") {
         const at = sentAt.get(msg.seq);
         if (at !== undefined) latencies.push(performance.now() - at);
@@ -86,9 +102,21 @@ await page.evaluate(() => { const s = window.snapfort; s.player.teleport(0, 0.95
 const start = Date.now();
 const fps = [];
 let lastReceived = received;
+let mostLines = 0, mostBubbles = 0, mostPins = 0;
+let edgeOverlaps = 0;
 while (Date.now() - start < SECONDS * 1000) {
   await new Promise((r) => setTimeout(r, 5000));
-  const now = await page.evaluate(() => ({ fps: window.snapfort.engine.getFps(), online: document.getElementById("online").textContent, remotes: window.snapfort.remotes.count, pieces: window.snapfort.state.size }));
+  const now = await page.evaluate(() => ({ fps: window.snapfort.engine.getFps(), online: document.getElementById("online").textContent, remotes: window.snapfort.remotes.count, pieces: window.snapfort.state.size, lines: document.querySelectorAll(".chat-line").length, bubbles: document.querySelectorAll(".chat-bubble").length, pins: document.querySelectorAll(".chat-pin").length }));
+  mostLines = Math.max(mostLines, now.lines);
+  mostBubbles = Math.max(mostBubbles, now.bubbles);
+  mostPins = Math.max(mostPins, now.pins);
+  // Off-screen bubbles and pins never sit on top of each other.
+  edgeOverlaps = Math.max(edgeOverlaps, await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll(".chat-bubble.edge, .chat-pin.edge")].filter((e) => getComputedStyle(e).visibility !== "hidden").map((e) => e.getBoundingClientRect());
+    let n = 0;
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i], b = boxes[j]; if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) n++; }
+    return n;
+  }));
   fps.push(now.fps);
   const sorted = [...latencies].sort((a, b) => a - b);
   const pct = (p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))].toFixed(0) : "-");
@@ -109,8 +137,12 @@ const checks = [
   ["the page saw every bot", pageCount === BOTS, `${pageCount}`],
   ["actions answered quickly (p95 under 100 ms locally)", p95 < 100, `p95 ${p95.toFixed(0)} ms over ${sorted.length} actions`],
   ["the page stayed smooth with the crowd around (over 30 fps)", minFps > 30, `lowest ${minFps.toFixed(0)} fps`],
+  ["the page showed the crowd's chat: bubbles, pins and lines for everyone", mostBubbles > 0 && mostPins > 0 && mostLines > 0, `up to ${mostBubbles} bubbles, ${mostPins} pins, ${mostLines} lines`],
+  ["never more than 8 bubbles, 8 pins and 3 lines at once, however busy", mostBubbles <= 8 && mostPins <= 8 && mostLines <= 3, `${mostBubbles}, ${mostPins}, ${mostLines}`],
+  ["off-screen bubbles and pins never sit on top of each other", edgeOverlaps === 0, `${edgeOverlaps} overlaps`],
   ["no page errors", errors.length === 0, errors.slice(0, 3).join(" | ")],
 ];
 for (const [name, ok, detail] of checks) console.log(`${ok ? "PASS" : "FAIL"}  ${name}  — ${detail}`);
 console.log(`(${placed} actions taken, ${rejected} operations refused: bots building in the same spot)`);
+console.log(`(chat: ${said} messages sent, ${heard} delivered to bots, ${hushed} held back by the limits)`);
 process.exit(checks.every(([, ok]) => ok) ? 0 : 1);

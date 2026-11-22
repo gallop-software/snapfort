@@ -10,6 +10,10 @@ export interface TouchActions {
   fire(): void;
   zoom(): void;
   settings(): void;
+  /** Opens the chat line (on the finger lifting, so the phone shows its keyboard). */
+  chat(): void;
+  /** Marks the spot under the crosshair. */
+  ping(): void;
 }
 
 /** What the controls are showing: building, editing a piece, or on a trebuchet. */
@@ -100,6 +104,9 @@ export class TouchControls {
     add("t-zoom", "Zoom", ["crew"], () => actions.zoom());
     add("t-leave", "Get off", ["crew"], () => actions.key("KeyH"));
     this.boardButton = add("t-board", "Get on", ["build"], () => actions.key("KeyH"));
+    // Phones only show the keyboard for a text field focused as a finger lifts.
+    add("t-chat", chatIcon, always, () => {}, () => actions.chat());
+    add("t-ping", pingIcon, always, () => actions.ping());
     this.boardButton.hidden = true;
 
     // Thumbs on the open screen: the left one moves, the others look.
@@ -232,6 +239,11 @@ function div(id: string, html: string): HTMLDivElement {
   el.innerHTML = html;
   return el;
 }
+
+const chatIcon =
+  '<svg viewBox="0 0 24 24" aria-label="Chat"><path fill="currentColor" d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-4.6 3.7c-.5.4-1.4.1-1.4-.6V16h-.5A2.5 2.5 0 0 1 2 13.5Z" transform="translate(1 1)"/></svg>';
+const pingIcon =
+  '<svg viewBox="0 0 24 24" aria-label="Ping"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z"/></svg>';
 
 const gear =
   '<svg viewBox="0 0 24 24" aria-label="Settings"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.9 2.3-1.9-.3a7 7 0 0 0-.7-1.7l1.1-1.6-1.6-1.6-1.6 1.1a7 7 0 0 0-1.7-.7L14.2 4h-2.4l-.3 1.9a7 7 0 0 0-1.7.7L8.2 5.5 6.6 7.1l1.1 1.6a7 7 0 0 0-.7 1.7l-1.9.3v2.4l1.9.3c.2.6.4 1.2.7 1.7l-1.1 1.6 1.6 1.6 1.6-1.1c.5.3 1.1.5 1.7.7l.3 1.9h2.4l.3-1.9c.6-.2 1.2-.4 1.7-.7l1.6 1.1 1.6-1.6-1.1-1.6c.3-.5.5-1.1.7-1.7l1.9-.3Z"/></svg>';

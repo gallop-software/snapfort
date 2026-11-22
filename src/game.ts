@@ -37,6 +37,8 @@ import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
 import { TouchControls } from "./ui/touch";
 import { NetClient, worldUrl } from "./net/client";
+import { NEAR_EVERY, ALL_EVERY, NEAR_RANGE, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
+import { ChatView } from "./ui/chat";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
 import { CameraRig, SCOPE_ZOOMS } from "./render/cameraRig";
@@ -485,6 +487,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.menuNote(null);
       return hud.show("playing");
     }
+    chat.close();
     finishEdit(false);
     if (siege.captured) return hud.showCaptured({ seconds: siege.elapsed, waves: siege.wave, placed: placedCount });
     if (mode === "menu") return hud.show("menu");
@@ -535,6 +538,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   });
   input.onMouseDown = (button) => {
     sfx.unlock();
+    // Middle click pings the spot under the crosshair.
+    if (button === 1) return ping();
     // Flying through the air, or flat on the ground: hands are busy.
     if (player.knockedDown) return;
     if (crewOn) {
@@ -587,6 +592,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (command && code === "KeyZ") return event.shiftKey ? redo() : undo();
     if (command && code === "KeyY") return redo();
     if (command) return;
+    // Enter talks (while editing it still confirms the cut).
+    if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
     if (code === "KeyH") return toggleCrew();
     // On a trebuchet the hands are busy: no building until getting off.
     if (crewOn) return;
@@ -739,6 +746,68 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     touch?.setTurn(turn, TURN_NAMES[turn]!);
   }
 
+  // ── Chat ─────────────────────────────────────────────────────────────
+  const chat = new ChatView(scene, input.touch, (id) => remotes.positionOf(id));
+  const here = (): Vec => [player.position.x, player.position.y, player.position.z];
+  /** When this builder last talked nearby (pings too) and to everyone (performance.now() ms). */
+  let lastNearAt = -Infinity;
+  let lastAllAt = -Infinity;
+  /** The last message sent, put back in the line if the server could not pass it on. */
+  let lastSent: { text: string; to: ChatTo } | null = null;
+  chat.onOpenChange = (open) => {
+    input.typing = open;
+    if (open) placing = false;
+  };
+  chat.onSend = (text, to) => {
+    if (solo || !net.online) return "Not connected to the world right now";
+    const now = performance.now();
+    const wait = to === "all" ? lastAllAt + ALL_EVERY - now : lastNearAt + NEAR_EVERY - now;
+    if (wait > 0) return to === "all" ? `You can talk to everyone again in ${Math.ceil(wait / 1000)} s` : "Wait a moment";
+    lastNearAt = now;
+    if (to === "all") lastAllAt = now;
+    lastSent = { text, to };
+    // Nearby messages are pinned to the piece the crosshair is on, when it is close.
+    net.say(text, to, to === "near" ? aimPoint(PIN_AIM_RANGE, true) : null);
+    return null;
+  };
+
+  /**
+   * The spot under the crosshair within `range` metres (the target on a
+   * trebuchet), or null. With `piecesOnly`, only a spot on a built piece.
+   */
+  function aimPoint(range: number, piecesOnly = false): Vec | null {
+    if (crewOn) return piecesOnly ? null : target;
+    rig.pivot.addToRef(rig.forward.scale(range), rayEnd);
+    physics.raycastToRef(rig.pivot, rayEnd, ray, IGNORE_BUILDER);
+    if (ray.hasHit && (!piecesOnly || view.pieceIdOf(ray.body) !== undefined)) return [ray.hitPointWorld.x, ray.hitPointWorld.y, ray.hitPointWorld.z];
+    if (piecesOnly) return null;
+    const f = rig.forward;
+    if (f.y < -0.01) {
+      const t = -rig.pivot.y / f.y;
+      if (t <= range) return [rig.pivot.x + f.x * t, 0, rig.pivot.z + f.z * t];
+    }
+    return null;
+  }
+
+  /** Marks the spot under the crosshair for builders nearby. */
+  function ping(): void {
+    if (solo || !net.online) return;
+    const now = performance.now();
+    if (now - lastNearAt < NEAR_EVERY) {
+      hud.toast("Wait a moment to ping again");
+      return;
+    }
+    const at = aimPoint(PIN_RANGE);
+    const p = here();
+    if (!at || Math.hypot(at[0] - p[0], at[1] - p[1], at[2] - p[2]) > PIN_RANGE) {
+      hud.toast(at ? "Too far away to ping" : "Aim at something to ping it");
+      return sfx.deny();
+    }
+    lastNearAt = now;
+    lastSent = null;
+    net.say("", "near", at);
+  }
+
   // ── The shared world ─────────────────────────────────────────────────
   const identity = loadIdentity();
   player.avatar.setColor(identity.color);
@@ -772,6 +841,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         tint(id);
       }
       showTowers(extras.towers);
+      chat.clear();
+      for (const said of extras.chat) chat.show(said, myId, here(), NEAR_RANGE, now);
     },
     snapshot(pieces) {
       if (solo) return;
@@ -877,6 +948,20 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       };
       hud.toast(text[reason] ?? "Not now");
       sfx.deny();
+    },
+    said(said) {
+      chat.show(said, myId, here(), NEAR_RANGE, performance.now());
+      if (said.at && !said.text) sfx.ping();
+      else if (said.by !== myId) sfx.chat();
+    },
+    hush(reason, wait) {
+      const forAll = lastSent?.to === "all";
+      hud.toast(
+        reason === "busy" ? "Chat is busy: try again in a moment" : reason === "repeat" ? "You just said that" : forAll ? `You can talk to everyone again in ${wait} s` : "Wait a moment",
+      );
+      sfx.deny();
+      // Not lost: it is back in the line for next time.
+      if (reason !== "repeat" && lastSent) chat.restore(lastSent.text, lastSent.to);
     },
   });
 
@@ -1073,6 +1158,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         rig.zoom = (rig.zoom + 1) % SCOPE_ZOOMS.length;
       },
       settings: () => input.unlock(),
+      chat: () => chat.open(),
+      ping: () => ping(),
     });
   }
   net.connect();
@@ -1132,6 +1219,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     trebuchets.update(dt);
     debris.update(dt);
     flag.update(dt);
+    chat.update(now, here());
     updateCrewHud(now);
     view.flush();
 
@@ -1165,7 +1253,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, flag, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, flag, chat, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

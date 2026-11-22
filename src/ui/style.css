@@ -716,3 +716,91 @@ body.touch .setting select { font-size: 13px; padding-left: 8px; }
   body.touch .setting { min-height: 0; padding: 6px 0; grid-template-columns: 84px minmax(0, 1fr); }
   body.touch .setting input[type="text"], body.touch .setting select { height: 32px; }
 }
+
+/* ───────────── Chat: bubbles over builders, pins on spots, three lines for everyone, one text line ───────────── */
+#chat-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.chat-bubble, .chat-pin { position: absolute; left: 0; top: 0; pointer-events: none; transition: opacity 0.8s; will-change: transform; }
+.chat-bubble.fading, .chat-pin.fading, .chat-line.fading { opacity: 0; }
+.chat-bubble {
+  translate: -50% -100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 6px 11px 7px;
+  border-radius: 13px;
+  background: rgba(31, 42, 55, 0.88);
+  color: var(--cream);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 8px rgba(31, 42, 55, 0.25);
+}
+.chat-bubble b { display: block; font-size: 11px; font-weight: 800; letter-spacing: 0.02em; }
+/* A tail pointing down at the builder. */
+.chat-bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: rgba(31, 42, 55, 0.88); }
+.chat-bubble.all { box-shadow: 0 0 0 2px var(--sun), 0 2px 8px rgba(31, 42, 55, 0.25); }
+.chat-bubble .arrow, .chat-pin .arrow { display: none; }
+/* Off screen: at the edge, centred on its spot there, with an arrow pointing the way. */
+.chat-bubble.edge, .chat-pin.edge { translate: -50% -50%; }
+.chat-bubble.edge::after { display: none; }
+.chat-bubble.edge .arrow, .chat-pin.edge .arrow { display: inline-block; flex: none; font-style: normal; font-size: 13px; transform: rotate(var(--angle, 0rad)); }
+.chat-bubble.edge .arrow::before, .chat-pin.edge .arrow::before { content: "➜"; }
+
+.chat-pin { translate: -50% -100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.chat-pin .tag { display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: rgba(31, 42, 55, 0.85); color: var(--cream); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.chat-pin .tag em { font-style: normal; font-weight: 600; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.chat-pin .dot { position: relative; width: 16px; height: 16px; border-radius: 50%; background: var(--who); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(31, 42, 55, 0.5); }
+.chat-pin .dot::after { content: ""; position: absolute; inset: -9px; border-radius: 50%; border: 2px solid var(--who); animation: ping-ring 1.4s ease-out infinite; }
+.chat-pin.edge .dot { display: none; }
+@keyframes ping-ring { from { transform: scale(0.4); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+
+#chat-feed { position: absolute; top: 48px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+.chat-line { display: flex; gap: 5px; max-width: min(640px, 90vw); padding: 4px 13px; border-radius: 999px; background: rgba(31, 42, 55, 0.74); color: var(--cream); font-size: 14px; font-weight: 600; white-space: nowrap; transition: opacity 0.8s; }
+.chat-line b { flex: none; font-weight: 800; }
+.chat-line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+#chat-box {
+  position: absolute;
+  left: 50%;
+  bottom: 112px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 24px));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(31, 42, 55, 0.9);
+  box-shadow: 0 6px 20px rgba(31, 42, 55, 0.3);
+  pointer-events: auto;
+}
+#chat-box[hidden] { display: none; }
+#chat-box button { height: 36px; padding: 0 12px; border: 0; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+#chat-to { background: var(--teal); color: #fff; min-width: 84px; }
+#chat-to.all { background: var(--sun); color: var(--ink); }
+#chat-send { background: var(--coral); color: #fff; }
+#chat-close { background: rgba(255, 246, 228, 0.16); color: var(--cream); width: 36px; padding: 0; }
+#chat-input { height: 36px; min-width: 0; padding: 0 12px; border: 0; border-radius: 10px; background: var(--cream); color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; outline: none; -webkit-user-select: text; user-select: text; }
+#chat-note { grid-column: 1 / -1; color: rgba(255, 246, 228, 0.75); font-size: 11px; font-weight: 600; text-align: center; }
+#chat-note[hidden] { display: none; }
+#chat-note.bad { color: #ffb4a3; font-size: 13px; font-weight: 800; }
+#chat-note kbd { padding: 0 5px; border-radius: 5px; background: rgba(255, 246, 228, 0.9); color: var(--ink); font: inherit; font-size: 10px; font-weight: 800; }
+/* On a trebuchet the panel sits low, so the line goes up a little. */
+body.scoped #chat-box { bottom: 96px; }
+
+/* Phones: the line at the top (the keyboard takes the bottom), text big enough that iPhones do not zoom. */
+#t-chat, #t-ping { top: calc(env(safe-area-inset-top, 0px) + 38px); width: 42px; height: 42px; }
+#t-chat { right: var(--r); }
+#t-ping { right: calc(var(--r) + 50px); }
+#t-chat svg, #t-ping svg { width: 22px; height: 22px; }
+/* While typing, the line has its own close button: Chat and Ping step aside to give it the width. */
+body.chatting #t-chat, body.chatting #t-ping { display: none; }
+body.touch #chat-feed { top: calc(env(safe-area-inset-top, 0px) + 72px); }
+body.touch .chat-line { max-width: 56vw; font-size: 12px; padding: 3px 10px; }
+body.touch.chatting #chat-feed { top: calc(env(safe-area-inset-top, 0px) + 126px); }
+body.touch .chat-bubble { max-width: 200px; font-size: 13px; }
+body.touch #chat-box { top: calc(env(safe-area-inset-top, 0px) + 70px); bottom: auto; width: min(540px, calc(100vw - 2 * (env(safe-area-inset-left, 0px) + 74px))); padding: 6px; }
+body.touch #chat-input { font-size: 16px; }
+body.touch #chat-box button { height: 38px; }

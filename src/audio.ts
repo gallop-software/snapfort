@@ -69,6 +69,17 @@ export class Sfx {
     this.tone("sine", 660, 700, 0.04, 0.14);
   }
 
+  /** Someone said something: a soft pop. */
+  chat(): void {
+    this.tone("sine", 820, 980, 0.06, 0.1);
+  }
+
+  /** A spot was pinged: two bright notes. */
+  ping(): void {
+    this.tone("sine", 990, 990, 0.07, 0.14);
+    this.tone("sine", 1320, 1320, 0.09, 0.12, 0.08);
+  }
+
   rotate(): void {
     this.tone("sine", 440, 587, 0.06, 0.16);
   }

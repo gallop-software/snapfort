@@ -2,6 +2,7 @@ import type { BuildOp } from "../game/buildState";
 import type { Fall } from "../game/fall";
 import type { Piece } from "../game/pieces";
 import type { Identity } from "../identity";
+import type { ChatTo } from "./chat";
 import {
   decodeOps,
   decodePieces,
@@ -11,6 +12,7 @@ import {
   type ServerMessage,
   type WireMove,
   type WirePlayer,
+  type WireSaid,
   type WireTower,
   type WireVec,
 } from "./protocol";
@@ -19,6 +21,8 @@ export interface WelcomeExtras {
   crews: [string, string][];
   damage: [string, number][];
   towers: WireTower[];
+  /** World-wide chat lines from the last few seconds. */
+  chat: WireSaid[];
 }
 
 export type NetStatus = "connecting" | "online" | "offline" | "full" | "outdated";
@@ -42,6 +46,10 @@ export interface NetHandlers {
   /** Builder `id` is thrown or falls along a planned flight. */
   thrown(id: string, fall: Fall): void;
   denied(reason: string): void;
+  /** Someone (perhaps you) said something. */
+  said(said: WireSaid): void;
+  /** Your message was not passed on. */
+  hush(reason: "wait" | "busy" | "repeat", wait: number): void;
 }
 
 /** How often this builder's position goes out while they move, ms. */
@@ -174,6 +182,11 @@ export class NetClient {
     this.raw({ t: "fire", id, to });
   }
 
+  /** Says something to builders nearby or to everyone; an empty text with a spot is a ping. */
+  say(text: string, to: ChatTo, at: WireVec | null): void {
+    this.raw(at ? { t: "say", text, to, at } : { t: "say", text, to });
+  }
+
   requestSnapshot(): void {
     this.raw({ t: "sync" });
   }
@@ -200,7 +213,7 @@ export class NetClient {
         this.retry = 500;
         this.lastMove = "";
         this.setStatus("online");
-        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [] });
+        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [], chat: msg.chat ?? [] });
       case "snap":
         return h.snapshot(decodePieces(msg.pieces));
       case "ops":
@@ -225,6 +238,12 @@ export class NetClient {
         return h.thrown(msg.id, { from: msg.path[0] ?? msg.land, v: [0, 0, 0], time: msg.time, land: msg.land, path: msg.path });
       case "denied":
         return h.denied(msg.reason);
+      case "said": {
+        const { t: _t, ...said } = msg;
+        return h.said(said);
+      }
+      case "hush":
+        return h.hush(msg.reason, msg.wait ?? 0);
       case "error":
         if (msg.reason === "full") this.setStatus("full");
         else if (msg.reason === "version") this.setStatus("outdated");

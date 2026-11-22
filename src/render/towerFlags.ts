@@ -75,7 +75,8 @@ export class TowerFlag {
   /** Moves the flag to the tallest tower (the first in the list), or hides it. */
   show(towers: readonly WireTower[]): void {
     const tower = towers[0];
-    if (!tower) {
+    // Floors laid flat on the ground are no tower to fly a flag over.
+    if (!tower || tower[0] <= 0) {
       this.text = "";
       return this.root.setEnabled(false);
     }

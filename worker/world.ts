@@ -7,6 +7,7 @@ import { DOWN_TIME, planFall, RISE_TIME } from "../src/game/fall";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import { applyAction } from "../src/net/authority";
+import { ALL_EVERY, cleanChat, FEED_LINES, NEAR_EVERY, NEAR_RANGE, PIN_RANGE, RECENT_MS, REPEAT_MS, WORLD_ALL_EVERY } from "../src/net/chat";
 import {
   chunkOf,
   cleanColor,
@@ -21,6 +22,7 @@ import {
   type WireOp,
   type WirePiece,
   type WirePlayer,
+  type WireSaid,
   type WireTower,
 } from "../src/net/protocol";
 
@@ -121,6 +123,15 @@ export class World extends DurableObject<Env> {
   /** How long the last tower measurement took (ms). */
   private towersCost = 0;
 
+  /**
+   * Chat, in memory only (nothing said is ever saved): when each builder last
+   * talked and what they said, when anyone last talked to everyone, and the
+   * last few world-wide lines for builders who just arrived.
+   */
+  private readonly talk = new Map<string, { near: number; all: number; text: string; at: number }>();
+  private lastWorldLine = 0;
+  private recentLines: { at: number; said: WireSaid }[] = [];
+
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private quietTicks = 0;
@@ -209,6 +220,8 @@ export class World extends DurableObject<Env> {
         return this.release(player.id);
       case "fire":
         return this.fire(ws, player, msg.id, msg.to);
+      case "say":
+        return this.say(ws, player, msg.text, msg.to, msg.at);
     }
   }
 
@@ -245,6 +258,7 @@ export class World extends DurableObject<Env> {
       crews: [...this.crews],
       damage: [...this.damage],
       towers: this.towers,
+      chat: this.recent(),
     });
     this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
   }
@@ -257,6 +271,7 @@ export class World extends DurableObject<Env> {
     if (!player) return;
     this.moves.delete(player.id);
     this.downUntil.delete(player.id);
+    this.talk.delete(player.id);
     this.release(player.id);
     this.broadcast({ t: "leave", id: player.id });
     if (this.players.size === 0) this.flush();
@@ -348,6 +363,65 @@ export class World extends DurableObject<Env> {
       }
     }
     return this.applyAsAdmin(undo);
+  }
+
+  // ── Chat ───────────────────────────────────────────────────────────────
+
+  /**
+   * Passes a message on, filtered: to builders within NEAR_RANGE of the
+   * speaker, or to everyone. The speaker gets it back too, as others see it.
+   * An empty text with a spot is a ping. Nothing is saved.
+   */
+  private say(ws: WebSocket, player: Attachment, rawText: unknown, rawTo: unknown, rawAt: unknown): void {
+    const to = rawTo === "all" ? "all" : "near";
+    const text = cleanChat(rawText);
+    const from = player.move ? ([player.move[1] / 100, player.move[2] / 100, player.move[3] / 100] as Vec) : null;
+    // A spot only for nearby messages, and not too far from the speaker.
+    let at = to === "near" ? readVec(rawAt) : null;
+    if (at && (!from || Math.hypot(at[0] - from[0], at[1] - from[1], at[2] - from[2]) > PIN_RANGE)) at = null;
+    if (!text && !at) return;
+
+    const now = Date.now();
+    const talk = this.talk.get(player.id) ?? { near: 0, all: 0, text: "", at: 0 };
+    const wait = (to === "all" ? talk.all + ALL_EVERY : talk.near + NEAR_EVERY) - now;
+    if (wait > 0) return send(ws, { t: "hush", reason: "wait", wait: Math.ceil(wait / 1000) });
+    if (text && text === talk.text && now - talk.at < REPEAT_MS) return send(ws, { t: "hush", reason: "repeat" });
+    if (to === "all" && now - this.lastWorldLine < WORLD_ALL_EVERY) return send(ws, { t: "hush", reason: "busy" });
+
+    talk.near = now;
+    if (to === "all") {
+      talk.all = now;
+      this.lastWorldLine = now;
+    }
+    if (text) {
+      talk.text = text;
+      talk.at = now;
+    }
+    this.talk.set(player.id, talk);
+
+    const said: WireSaid = { by: player.id, name: player.name, color: player.color, text, to };
+    if (at) said.at = round(at);
+    const message = JSON.stringify({ t: "said", ...said } satisfies ServerMessage);
+    if (to === "all") {
+      this.recentLines = [...this.recentLines.filter((l) => now - l.at < RECENT_MS), { at: now, said }].slice(-FEED_LINES);
+    }
+    for (const [other, p] of this.players) {
+      if (to === "near" && other !== ws) {
+        const m = p.move;
+        if (!from || !m || Math.hypot(m[1] / 100 - from[0], m[2] / 100 - from[1], m[3] / 100 - from[2]) > NEAR_RANGE) continue;
+      }
+      try {
+        other.send(message);
+      } catch {
+        // Closing; webSocketClose tidies up.
+      }
+    }
+  }
+
+  /** World-wide lines from the last RECENT_MS, oldest first. */
+  private recent(): WireSaid[] {
+    const now = Date.now();
+    return this.recentLines.filter((l) => now - l.at < RECENT_MS).map((l) => l.said);
   }
 
   // ── Trebuchets ─────────────────────────────────────────────────────────

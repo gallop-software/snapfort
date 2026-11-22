@@ -88,6 +88,12 @@ export class RemotePlayers {
     return this.remotes.size;
   }
 
+  /** Where builder `id` is drawn (their body's centre), or null when unknown. */
+  positionOf(id: string): [number, number, number] | null {
+    const r = this.remotes.get(id);
+    return r && r.y > -50 ? [r.x, r.y, r.z] : null;
+  }
+
   /** Adds a builder, or updates their name and colour. */
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);

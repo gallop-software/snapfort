@@ -15,7 +15,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import { CELL, LEVEL, THICK } from "../game/constants";
 import { MATERIAL_DEFS, MATERIALS, PIECE_TYPES, pieceTransform, type MaterialId, type Piece, type PieceSpec, type PieceType } from "../game/pieces";
-import { editedGeometry, pieceGeometry } from "./geometry";
+import { editedGeometry, pieceGeometry, TREBUCHET_BASE } from "./geometry";
 import { pieceTexture } from "./textures";
 
 const UP = Vector3.Up();
@@ -207,8 +207,9 @@ export class PieceView {
 
     this.shapes.wall = new PhysicsShapeBox(new Vector3(0, LEVEL / 2, 0), Quaternion.Identity(), new Vector3(CELL, LEVEL, THICK), scene);
     this.shapes.floor = new PhysicsShapeBox(Vector3.Zero(), Quaternion.Identity(), new Vector3(CELL, THICK, CELL), scene);
-    // A trebuchet is solid up to its arm's pivot, so builders walk around it, not through it.
-    this.shapes.trebuchet = new PhysicsShapeBox(new Vector3(0, 1.6, 0), Quaternion.Identity(), new Vector3(CELL * 0.84, 3.2, CELL * 0.84), scene);
+    // A trebuchet's turntable base is solid, so its crew stands on it; the frame
+    // above turns to aim and is not (it would shove the crew off).
+    this.shapes.trebuchet = new PhysicsShapeBox(new Vector3(0, TREBUCHET_BASE / 2, 0), Quaternion.Identity(), new Vector3(CELL * 0.84, TREBUCHET_BASE, CELL * 0.84), scene);
     for (const type of ["ramp", "roof"] as const) {
       const hull = makeMesh(pieceGeometry(type), scene, `hull-${type}`);
       this.shapes[type] = new PhysicsShapeConvexHull(hull, scene);

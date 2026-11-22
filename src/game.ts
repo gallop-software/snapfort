@@ -46,6 +46,7 @@ import { Debris } from "./render/debris";
 import { RemotePlayers } from "./render/remotePlayers";
 import { TowerFlags } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
+import { TREBUCHET_BASE } from "./render/geometry";
 import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
 import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
@@ -779,11 +780,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     ghost.hide();
     crewOn = id;
     target = null;
-    // Stand at its side, a little back, with the trebuchet on the left: the camera looks
-    // over the right shoulder, so the view toward the target stays clear.
+    // Stand on its turntable, on its own floor: to the right of the frame and a
+    // little back, so the camera over the right shoulder looks past it at the target.
     const [x, y, z] = trebuchetBase(t);
     const fx = Math.sin(rig.yaw), fz = Math.cos(rig.yaw);
-    player.teleport(x + fz * 3.2 - fx * 1.2, y + 0.95, z - fx * 3.2 - fz * 1.2);
+    player.teleport(x + fz * 1.55 - fx * 0.8, y + TREBUCHET_BASE + 0.95, z - fx * 1.55 - fz * 0.8);
     sfx.select();
   }
 
@@ -842,6 +843,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** Keeps the trebuchet panel and the get-on hint up to date. */
   function updateCrewHud(now: number): void {
     const t = crewOn ? state.get(crewOn) : undefined;
+    // Off it somehow (thrown, or its floor gave way): let go of it.
+    if (t && !player.knockedDown) {
+      const [x, y, z] = trebuchetBase(t);
+      if (Math.hypot(player.position.x - x, player.position.z - z) > TREBUCHET.boardReach || Math.abs(player.feetY - y) > 3) {
+        net.leaveTrebuchet();
+        leaveCrew();
+        return;
+      }
+    }
     if (t) {
       hud.setHint(null);
       const reload = Math.max(0, (readyAt - now) / 1000);

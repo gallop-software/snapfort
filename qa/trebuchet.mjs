@@ -125,6 +125,19 @@ await sf(a, () => { const s = window.snapfort; const t = [...s.state.all()].find
 await wait(800);
 check("removing a manned trebuchet takes its crew off", !(await sf(b, () => window.snapfort.crewOn)) && !(await b.isVisible("#crew")));
 
+// B builds a ramp run up four storeys, one floor at the top and a trebuchet on it, then gets on with H.
+await put(b, [["ramp", -10, 0, 0, 0], ["ramp", -10, 1, 1, 0], ["ramp", -10, 2, 2, 0], ["ramp", -10, 3, 3, 0], ["floor", -10, 4, 4, 0], ["trebuchet", -10, 4, 4, 0]]);
+await wait(600);
+const towerTop = 4 * 3.75 + 0.15;
+await sf(b, (y) => { const s = window.snapfort; s.player.teleport(-47.5, y + 0.95, 18.5); s.rig.yaw = 0; }, towerTop);
+await wait(500);
+await b.keyboard.press("KeyH");
+await wait(1800);
+const onTop = await sf(b, () => ({ crew: !!window.snapfort.crewOn, feet: window.snapfort.player.feetY }));
+check("H on a lone floor up a ramp tower puts the builder on the trebuchet, up there", onTop.crew && Math.abs(onTop.feet - (towerTop + 0.5)) < 0.6, `crew ${onTop.crew}, feet at ${onTop.feet.toFixed(1)} m (floor ${towerTop.toFixed(1)} m)`);
+await b.keyboard.press("KeyH");
+await wait(300);
+
 // A stands on a raised floor; B knocks out the wall holding it up. A falls to the ground, tab asleep or not.
 await put(a, [["wall", 20, 0, 20, 0], ["wall", 20, 1, 20, 0], ["floor", 20, 2, 20, 0]]);
 await wait(600);

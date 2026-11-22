@@ -116,6 +116,8 @@ export class World extends DurableObject<Env> {
   private readonly downUntil = new Map<string, number>();
   private towers: WireTower[] = [];
   private towersTimer: ReturnType<typeof setTimeout> | null = null;
+  /** How long the last tower measurement took (ms). */
+  private towersCost = 0;
 
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -478,14 +480,22 @@ export class World extends DurableObject<Env> {
 
   // ── Towers ─────────────────────────────────────────────────────────────
 
+  /**
+   * Measures the towers a moment after the build changes. Measuring searches
+   * the whole world, so in a huge world it waits longer between measurements
+   * (about 20 times as long as the last one took): the tower board then
+   * updates less often instead of slowing everything else down.
+   */
   private scheduleTowers(): void {
     this.towersTimer ??= setTimeout(() => {
       this.towersTimer = null;
+      const started = Date.now();
       const next = this.measure();
+      this.towersCost = Date.now() - started;
       if (JSON.stringify(next) === JSON.stringify(this.towers)) return;
       this.towers = next;
       this.broadcast({ t: "towers", list: next });
-    }, TOWERS_MS);
+    }, Math.max(TOWERS_MS, this.towersCost * 20));
   }
 
   private measure(): WireTower[] {

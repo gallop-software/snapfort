@@ -72,8 +72,8 @@ describe("what a stone hits", () => {
 });
 
 describe("damage", () => {
-  it("breaks wood in one hit, brick in two and metal in three", () => {
-    for (const [material, hits] of [["wood", 1], ["brick", 2], ["metal", 3]] as const) {
+  it("breaks wood in two hits, brick in four and metal in six", () => {
+    for (const [material, hits] of [["wood", 2], ["brick", 4], ["metal", 6]] as const) {
       const state = new BuildState();
       place(state, piece({ type: "wall", x: 0, y: 0, z: 0, rot: 0 }, "w", { material }));
       const damage = new Map<string, number>();
@@ -98,8 +98,10 @@ describe("damage", () => {
     const state = new BuildState();
     place(state, piece({ type: "wall", x: 0, y: 0, z: 0, rot: 0 }, "near"));
     place(state, piece({ type: "wall", x: 3, y: 0, z: 0, rot: 0 }, "far"));
-    const { broken } = strike(state, [2.5, 1.8, 0], new Map());
+    const damage = new Map([["near", 1], ["far", 1]]);
+    const { broken } = strike(state, [2.5, 1.8, 0], damage);
     expect(broken.map((p) => p.id)).toEqual(["near"]);
+    expect(damage.get("far")).toBe(1);
     expect(TREBUCHET.blastRadius).toBeLessThan(CELL);
   });
 });

@@ -74,6 +74,17 @@ check("aiming at the tower makes it the target (no right click needed)", !!targe
 check("the panel says it is in range and ready", (await b.textContent("#crew")).includes("ready"), await b.textContent("#crew"));
 await b.screenshot({ path: "qa/shots/trebuchet-aim.png" });
 
+// Wood takes two hits: a first stone cracks the bottom wall and nothing falls.
+await sf(a, () => window.snapfort.player.teleport(-40, 0.95, 20));
+await wait(300);
+const beforeSoften = (await ids(a)).split(",").length;
+await b.mouse.down(); await b.mouse.up();
+await wait(6800); // the flight, then the reload
+check("one stone only cracks a wood wall: nothing falls yet", (await ids(a)).split(",").length === beforeSoften && (await ids(a)) === (await ids(b)), `${beforeSoften} → ${(await ids(a)).split(",").length} pieces`);
+await aimAt(2.5, 1.5, 60);
+await frames(b, 3);
+check("…and the trebuchet is ready again after the reload", (await b.textContent("#crew")).includes("ready"), await b.textContent("#crew"));
+
 // A stands right in front of the target wall, then their tab "goes to sleep" (the game stops drawing, as in a background tab).
 await sf(a, () => { const s = window.snapfort; s.player.teleport(2.5, 0.95, 57.5); s.rig.yaw = Math.PI; });
 await wait(400);
@@ -112,7 +123,7 @@ const thrownFar = Math.hypot(endA.x - startA.x, endA.z - startA.z);
 check("…and on waking up, their own page has them where they landed, back on their feet", thrownFar > 30 && Math.hypot(endA.x - seenByB.x, endA.z - seenByB.z) < 1.5 && !endA.down, `${thrownFar.toFixed(0)} m away; B sees them ${Math.hypot(endA.x - seenByB.x, endA.z - seenByB.z).toFixed(1)} m from there`);
 await frames(a, 3);
 const after = (await ids(a)).split(",").length;
-check("the stone breaks the bottom of the tower, and what it held falls", after <= before - 9, `${before} → ${after} pieces`);
+check("the second stone breaks the bottom of the tower, and what it held falls", after <= before - 9, `${before} → ${after} pieces`);
 check("both pages agree on what is left", (await ids(a)) === (await ids(b)));
 check("rubble falls on the watching page", rubbleOnB > 0, `${rubbleOnB} pieces of rubble`);
 await a.screenshot({ path: "qa/shots/trebuchet-collapse.png" });

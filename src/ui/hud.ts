@@ -1,3 +1,5 @@
+import type { Identity } from "../identity";
+import type { NetStatus } from "../net/client";
 import "./style.css";
 
 export interface HotbarItem {
@@ -10,11 +12,11 @@ export interface HudActions {
   selectTool(index: number): void;
   play(mode: "siege" | "free"): void;
   resume(): void;
-  /** Clears the build (after asking) and starts again. */
-  startOver(): void;
   menu(): void;
   /** The mouse speed slider moved. */
   setMouseSpeed(speed: number): void;
+  /** The name or colour was changed on the menu. */
+  setIdentity(identity: Identity): void;
 }
 
 export interface CapturedStats {
@@ -75,7 +77,6 @@ export class Hud {
     el("play-free").addEventListener("click", () => actions.play("free"));
     el("retry").addEventListener("click", () => actions.play("siege"));
     el("resume").addEventListener("click", () => actions.resume());
-    el("start-over").addEventListener("click", () => actions.startOver());
     el("captured-menu").addEventListener("click", () => actions.menu());
     const slider = el<HTMLInputElement>("mouse-speed");
     slider.addEventListener("input", () => {
@@ -84,13 +85,75 @@ export class Hud {
       actions.setMouseSpeed(speed);
     });
     if (!import.meta.env.DEV) this.stats.hidden = true;
+    this.actions = actions;
+    const name = el<HTMLInputElement>("player-name");
+    name.addEventListener("change", () => this.changeIdentity());
+    // Typing a name must not steer the builder or pick tools.
+    name.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") name.blur();
+    });
   }
 
-  ready(): void {
+  private readonly actions: HudActions;
+  private identity: Identity = { name: "", color: "" };
+
+  /** Shows the player's name and colour on the menu, with the colours to choose from. */
+  showIdentity(identity: Identity, colors: readonly string[]): void {
+    this.identity = { ...identity };
+    el<HTMLInputElement>("player-name").value = identity.name;
+    const box = el("player-colors");
+    box.replaceChildren(
+      ...colors.map((color) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.style.background = color;
+        button.title = color;
+        button.dataset.color = color;
+        button.classList.toggle("selected", color === identity.color);
+        button.addEventListener("click", () => {
+          this.identity.color = color;
+          for (const b of box.children) b.classList.toggle("selected", b === button);
+          this.changeIdentity();
+        });
+        return button;
+      }),
+    );
+  }
+
+  private changeIdentity(): void {
+    const input = el<HTMLInputElement>("player-name");
+    const name = input.value.trim();
+    if (name) this.identity.name = name;
+    input.value = this.identity.name;
+    this.actions.setIdentity({ ...this.identity });
+  }
+
+  /** How many builders are in the world, this player included; null hides it. */
+  setOnline(count: number | null): void {
+    const node = el("online");
+    node.hidden = count === null;
+    if (count !== null) node.textContent = `${count} ${count === 1 ? "builder" : "builders"} online`;
+  }
+
+  /** Shows connection trouble at the top of the screen. */
+  setNetStatus(status: NetStatus): void {
+    const node = el("net");
+    const text: Partial<Record<NetStatus, string>> = {
+      offline: "Reconnecting… changes made now may be lost",
+      full: "The world is full. Waiting for a spot…",
+      outdated: "SnapFort was updated. Reload the page to keep building.",
+    };
+    node.hidden = !text[status];
+    node.textContent = text[status] ?? "";
+  }
+
+  /** The game can start. `online` false: the world could not be reached yet (building works, but is not shared). */
+  ready(online = true): void {
     document.body.classList.add("ready");
     const free = el<HTMLButtonElement>("play-free");
     free.disabled = false;
-    free.textContent = "Start building";
+    free.textContent = online ? "Start building" : "Build offline for now";
     el<HTMLButtonElement>("play-siege").disabled = false;
   }
 

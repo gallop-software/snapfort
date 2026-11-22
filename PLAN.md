@@ -78,6 +78,25 @@ Built:
 
 Siege mode is still in the code (`src/game/siege.ts`, tested) but its menu button is hidden until the user asks for it again.
 
+## Phase 4 as built: one shared world (user, 2026-11-22)
+
+The user asked for the whole build to live on Cloudflare, so anyone opening snapfort.io sees what has been built and builds with everyone else in real time: one large world, sized for 100 builders online at once. Decided with the user:
+- Anyone can remove or edit any piece. Vandalism is undone with the admin rollback.
+- Each browser gets a random name and jacket colour (saved in localStorage, `src/identity.ts`), changeable on the menu and pause panel. Name tags float over nearby builders.
+- No Start over button; the world is only wiped through the admin endpoint.
+- Siege (still hidden) is played alone on a private copy of the world and never touches the shared one.
+
+How it works:
+- `worker/index.ts` serves the game files and sends `/ws` to the one `World` Durable Object (`worker/world.ts`, `idFromName("main")`). On a local dev server, `?world=<name>` opens a separate test world (QA uses this); elsewhere it is ignored.
+- The World holds the build in memory with the same `BuildState` rules as the game. Each action is checked by `applyAction` (`src/net/authority.ts`): every op in order, then new pieces must be supported once the whole action is in, then whatever lost its connection to the ground falls (`findLooseAfterRemoval`, which only searches near the removed pieces).
+- Saving: one SQLite row per 16×16-cell chunk, written 5 s after the first unsaved change and when the last builder leaves; a change log (with inverses, kept 7 days) is written the same way. The pending save timer keeps the object from hibernating with unsaved changes. Rows are capped (8,000 pieces per chunk, 4,000 log entries per row) to stay under SQLite's 2 MB limit.
+- Movement: each page sends its position at most every 100 ms and only when it changed; the World sends one combined message of everyone who moved 10 times a second, and stops the timer when nobody moves (so it can hibernate).
+- Limits: 120 connections, 60,000 pieces, 5,000 ops per action, 40 placements/edits per second per builder with a burst of 2,000 (removes cost 0.1), 60 messages per second, 64 KB per message.
+- In the page, `SyncedState` (`src/net/sync.ts`) applies own changes at once (building never waits for the network) and sends each frame's changes as one action. When a change from someone else, or the server's answer, clashes with own changes still in flight, those are rolled back, the server's version applied, and they are applied again on top, so every page ends up with the server's order. Undo history stays per player. Joining or reconnecting replaces the build with the server's, changing only what differs.
+- Other builders (`src/render/remotePlayers.ts`) are shown 200 ms behind, blended between position updates. The nearest 24 within 70 m get the full animated body (`src/render/avatar.ts`, shared with the local builder) and a name tag within 45 m; the rest are simple figures in their colour, all one thin-instance mesh.
+- Admin (needs the `ADMIN_SECRET` Worker secret, sent as an `x-admin-secret` header): `POST /admin/reset` clears the world, `POST /admin/rollback?minutes=N` undoes every change of the last N minutes (up to 7 days), `GET /admin/stats` shows pieces and builders.
+- Measured locally (2026-11-22): 100 bot builders walking and building for a minute, with no dropped connections, actions answered in 19 ms at p95, and a real page at 60 fps among them (`npm run qa:load`). An 18,000-piece world joins in about 0.6 s and draws at 60 fps.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)
@@ -85,7 +104,7 @@ Siege mode is still in the code (`src/game/siege.ts`, tested) but its menu butto
 - [x] Fortnite-style build mode: build-in-front placement, ramp rushing, editing, materials, collapse (built 2026-11-21, waiting for the user to try it)
 - [ ] Phase 2 — castle kit
 - [ ] Phase 3 — save and share
-- [ ] Phase 4 — building together (only when asked)
+- [x] Phase 4 — one shared world for up to 100 builders (user asked 2026-11-22; built 2026-11-22, not deployed yet)
 
 ## Notes for whoever picks this up
 
@@ -103,6 +122,8 @@ Siege mode is still in the code (`src/game/siege.ts`, tested) but its menu butto
 - Switching windows (user, 2026-11-22): the browser always releases the mouse, but the game shows no pause panel then, only a small "Click to keep building" note; one click on the canvas captures the mouse again without placing a piece. Esc (mouse released while the window keeps focus) still opens the pause panel. The resume click listens for `pointerdown`, because Babylon cancels pointerdown while the mouse is free and no `mousedown` follows.
 - Camera in tight spaces (user report, 2026-11-22, `src/render/cameraRig.ts`): five collision lines around the view instead of one, snap in at once but ease back out only after the view has been clear for 0.35 s, and the over-the-shoulder point slides toward the head when a wall is beside the builder. Mouse events reporting a jump over 250 px are ignored (a known pointer-lock glitch). The character controller adds the builder's capsule to the physics world, so it is in its own collision group (`src/render/physicsGroups.ts`) and every camera and crosshair raycast skips it; before that fix the camera zoomed into the builder's head when running sideways.
 - `?gl` in the address forces WebGL instead of WebGPU.
+- Multiplayer QA: `npm run qa:multi` (two pages building in one fresh world must always agree: races, collapse, undo, random play, reload) and `npm run qa:load -- <bots> <seconds>` (bot builders over WebSockets plus a real page). The dev server runs the Worker and the World Durable Object through `@cloudflare/vite-plugin`, so `/ws` works locally; local world data lives in `.wrangler/`.
 - Browser QA: with the Gallop dev server running, `npm run qa` drives the game in headless Chrome with real keyboard and mouse input (71 checks, including an on-screen pixel check that every placed piece is visible, and 1,500 random actions with a draw/collision audit). `npm run qa -- "http://localhost:5173/?gl"` runs it on WebGL. In development, `snapfort.audit()` in the browser console lists any piece that is recorded but not drawn or not solid.
 - Thin instances: set `thinInstanceCount` before `thinInstanceBufferUpdated`, because Babylon uploads only the first `thinInstanceCount` entries. Getting this backwards made newly placed pieces invisible while still blocking their spot (fixed 2026-11-21).
+- Deploying the shared world: `npm run build` writes `dist/client` (the game) and `dist/snapfort` (the Worker and its generated wrangler config), and `wrangler deploy` picks that up. Before the first deploy with the World, set the admin secret with `npx wrangler secret put ADMIN_SECRET`.
 - Deployed (user asked, 2026-11-22) to Cloudflare Workers static assets on the webplant.media Cloudflare account: https://snapfort.webplantmedia.workers.dev. `npm run deploy` builds and publishes. Once the user owns snapfort.io and its zone is on that account, add it as a Workers custom domain (`routes` with `custom_domain: true` in `wrangler.jsonc`) and redeploy.

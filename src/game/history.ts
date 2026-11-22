@@ -1,4 +1,9 @@
-import type { BuildOp, BuildState } from "./buildState";
+import type { BuildOp } from "./buildState";
+
+/** Anything operations can be applied to: the build state, or a wrapper that also sends them to the server. */
+export interface OpTarget {
+  apply(op: BuildOp): BuildOp | null;
+}
 
 /** One player action: the operations it applied and, in the same order, what undoes each. */
 interface Entry {
@@ -12,7 +17,7 @@ export class History {
   private redoStack: Entry[] = [];
 
   constructor(
-    private readonly state: BuildState,
+    private readonly state: OpTarget,
     private readonly limit = 1000,
   ) {}
 

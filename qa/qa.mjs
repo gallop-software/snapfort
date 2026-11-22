@@ -8,7 +8,10 @@
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { PNG } from "pngjs";
-const URL_ = process.argv[2] ?? "http://localhost:5173/";
+// Each run builds in a fresh world of its own, so it neither sees nor changes the shared dev world.
+const QA_WORLD = `qa-${Date.now().toString(36)}`;
+const withWorld = (u) => { const url = new URL(u); url.searchParams.set("world", QA_WORLD); return url.toString(); };
+const URL_ = withWorld(process.argv[2] ?? "http://localhost:5173/");
 mkdirSync("qa/shots", { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
@@ -43,7 +46,10 @@ const ghostLookNow = () => sf(() => window.snapfort.scene.meshes.find((m) => m.n
 /** Selects a piece with its key (a second press puts a selected piece away, so press again if needed). */
 const pick = async (key) => { await page.keyboard.press(key); await frames(1); if (!(await selected())) { await page.keyboard.press(key); await frames(1); } };
 const click = async (button = "left") => { await page.mouse.down({ button }); await frames(1); await page.mouse.up({ button }); await frames(2); };
-const clear = () => sf(() => { const s = window.snapfort; for (const p of [...s.state.all()]) s.state.apply({ kind: "remove", id: p.id }); s.history.clear(); });
+/** Clears the build, in the shared world too. */
+const clear = async () => { await sf(() => { const s = window.snapfort; for (const p of [...s.state.all()]) s.synced.apply({ kind: "remove", id: p.id }); s.history.clear(); }); await frames(2); };
+/** Clears pieces that were only ever added on this page (not sent to the world). */
+const clearLocal = () => sf(() => { const s = window.snapfort; for (const p of [...s.state.all()]) s.state.apply({ kind: "remove", id: p.id }); s.history.clear(); });
 const shot = (n) => page.screenshot({ path: `qa/shots/qa-${n}.png` });
 
 // ---------- Boot and menu ----------
@@ -105,7 +111,7 @@ check("12 walls placed one click at a time", walls === 12, `${walls}`);
 await auditCheck("12 walls in a row");
 await pose(30, 0, -22, 0, 0.05); await frames(4); await shot("row");
 // Look at the real screen: where each wall should be, the pixel must be wood-coloured, not grass or sky.
-await page.evaluate(() => { document.getElementById("hud").style.visibility = "hidden"; window.snapfort.player.root.setEnabled(false); window.snapfort.input.locked = false; });
+await page.evaluate(() => { document.getElementById("hud").style.visibility = "hidden"; window.snapfort.player.avatar.setEnabled(false); window.snapfort.input.locked = false; });
 await pose(32.5, 0, -40, 0, 0.0); await frames(6);
 const spots = await sf(() => {
   const s = window.snapfort; const V = s.rig.pivot.constructor; const cam = s.rig.camera; const eng = s.engine;
@@ -118,7 +124,7 @@ const png = PNG.sync.read(pngBuf);
 
 const missing = spots.filter(({ x, y }) => { const i = (y * png.width + x) * 4; const [r, g] = [png.data[i], png.data[i + 1]]; return !(r > g + 10); });
 check("every wall is actually visible on screen", missing.length === 0 && spots.length === 12, `${spots.length - missing.length}/${spots.length} visible; missing at x=${missing.map((m) => m.id).join(",")}`);
-await page.evaluate(() => { document.getElementById("hud").style.visibility = ""; window.snapfort.player.root.setEnabled(true); window.snapfort.input.locked = true; });
+await page.evaluate(() => { document.getElementById("hud").style.visibility = ""; window.snapfort.player.avatar.setEnabled(true); window.snapfort.input.locked = true; });
 
 // ---------- The crosshair rule: on a piece = it exists; on an empty slot = build there ----------
 // Recreates the reported screenshots: one wall, crosshair just past its right end, then on it.
@@ -312,11 +318,9 @@ await wait(1200);
 await page.click("#resume"); await wait(600);
 check("Keep playing captures the mouse again", await sf(() => window.snapfort.input.locked));
 await page.evaluate(() => document.exitPointerLock()); await wait(1200);
-dialogs = [];
-const before = (await pieces()).length;
-await page.click("#start-over"); await wait(800);
-check("Start over asks before clearing", dialogs.length === 1 && dialogs[0].includes(`${before} pieces`), dialogs.join(" | "));
-check("…then clears the build and plays", (await pieces()).length === 0 && (await sf(() => window.snapfort.input.locked)));
+check("no Start over button in the shared world", (await page.$("#start-over")) === null);
+await page.click("#resume"); await wait(600);
+await clear();
 
 // ---------- Switching to another window does not pause ----------
 await sf(() => { const s = window.snapfort; const put = (type, x, y, z) => s.history.do({ kind: "place", piece: { type, x, y, z, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); put("wall", 0, 0, 1); });
@@ -386,7 +390,7 @@ check(`${many} pieces stay smooth`, /^(5\d|6\d|1\d\d) fps/.test(await page.textC
 await auditCheck("many pieces");
 
 // ---------- Roofs two storeys up ----------
-await clear();
+await clearLocal();
 await sf(() => { const s = window.snapfort; const put = (type, x, y, z, rot = 0) => s.history.do({ kind: "place", piece: { type, x, y, z, rot, id: s.nextId(), material: "wood", edit: 0 } }); for (const y of [0, 1]) for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1]]) put("wall", x, y, z, rot); });
 await pose(2.5, 0, 2.5, 0, -1); await pick("KeyC");
 await aimPoint(2.6, 9, 2.9);

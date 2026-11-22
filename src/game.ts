@@ -25,10 +25,13 @@ import {
   type PieceType,
 } from "./game/pieces";
 import { Siege } from "./game/siege";
-import { findUnsupported } from "./game/structure";
+import { findLooseAfterRemoval } from "./game/structure";
 import { aimTarget } from "./game/aim";
 import { facingRot } from "./game/targeting";
+import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
+import { NetClient, worldUrl } from "./net/client";
+import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
 import { CameraRig } from "./render/cameraRig";
 import { EditOverlay } from "./render/editOverlay";
@@ -36,6 +39,7 @@ import type { GraphicsApi } from "./render/engine";
 import { Ghost, PieceView, PlaceFlash } from "./render/pieceView";
 import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
+import { RemotePlayers } from "./render/remotePlayers";
 import { SoldierView } from "./render/soldierView";
 import { createWorld } from "./render/world";
 import { clock, Hud, type HotbarItem } from "./ui/hud";
@@ -78,8 +82,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   // Game logic: plain modules that know nothing about rendering.
   const state = new BuildState();
-  const history = new History(state);
-  const nextId = createIdSource();
+  // Own changes go through `synced`, which applies them at once and sends them to the shared world.
+  const synced = new SyncedState(state);
+  const history = new History(synced);
+  /** Makes ids for new pieces; the prefix comes from the server on joining, so ids never clash. */
+  let idSource = createIdSource();
+  const nextId = () => idSource();
 
   const rig = new CameraRig(scene);
   const world = createWorld(scene, rig.camera);
@@ -91,11 +99,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const input = new Input(canvas);
   const sfx = new Sfx();
   const army = new SoldierView(scene, world.shadows);
+  const remotes = new RemotePlayers(scene, world.shadows);
 
   const settings = loadSettings();
   rig.sensitivity = settings.mouseSpeed;
 
   let mode: Mode = "menu";
+  /** Siege (hidden for now) is played alone: the build is local and nothing is sent or received. */
+  let solo = false;
   let placedCount = 0;
   let lastKnock = 0;
   let lastCrumble = 0;
@@ -151,16 +162,17 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       sfx.unlock();
       void input.lock();
     },
-    startOver() {
-      if (state.size > 0 && !window.confirm(`Clear all ${state.size} pieces and start over?`)) return;
-      sfx.unlock();
-      startMode(mode === "menu" ? "free" : mode);
-      void input.lock();
-    },
     setMouseSpeed(speed) {
       settings.mouseSpeed = speed;
       rig.sensitivity = speed;
       saveSettings(settings);
+    },
+    setIdentity(next) {
+      identity.name = next.name;
+      identity.color = next.color;
+      saveIdentity(identity);
+      net.setIdentity(identity);
+      player.avatar.setColor(identity.color);
     },
     menu() {
       mode = "menu";
@@ -170,10 +182,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     },
   });
 
-  /** Clears the world and begins a fresh game in the given mode. */
+  /**
+   * Begins a game in the given mode. Free build joins the shared world as it is;
+   * siege clears a private copy of the world, and leaving it fetches the shared one again.
+   */
   function startMode(next: Mode): void {
     finishEdit(false);
-    for (const piece of [...state.all()]) state.apply({ kind: "remove", id: piece.id });
+    const wasSolo = solo;
+    solo = next === "siege";
+    if (solo) {
+      for (const piece of [...state.all()]) state.apply({ kind: "remove", id: piece.id });
+      synced.reset([...state.all()]);
+    } else if (wasSolo) net.requestSnapshot();
     history.clear();
     placedCount = 0;
     mode = next;
@@ -242,8 +262,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** Removes a piece and, in the same undo step, everything that no longer connects to the ground. */
   function removePiece(id: string): void {
-    if (!history.do({ kind: "remove", id })) return;
-    const loose = findUnsupported(state);
+    const piece = state.get(id);
+    if (!piece || !history.do({ kind: "remove", id })) return;
+    const loose = findLooseAfterRemoval(state, [piece]);
     for (const piece of loose) history.extend({ kind: "remove", id: piece.id });
     if (loose.length > 0) sfx.crumble();
     else sfx.remove();
@@ -499,6 +520,61 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     ghost.show(aimSpec, check.ok ? "ok" : "bad");
   }
 
+  // ── The shared world ─────────────────────────────────────────────────
+  const identity = loadIdentity();
+  player.avatar.setColor(identity.color);
+  let joined = false;
+  /** This builder's id in the shared world. */
+  let myId = "";
+  const showOnline = () => hud.setOnline(net.online ? remotes.count + 1 : null);
+  const net = new NetClient(worldUrl(), identity, {
+    status(status) {
+      hud.setNetStatus(status);
+      showOnline();
+    },
+    welcome(you, pieces, players, moves) {
+      joined = true;
+      myId = you;
+      idSource = createIdSource(you);
+      finishEdit(false);
+      if (!solo) synced.reset(pieces);
+      history.clear();
+      remotes.clear();
+      for (const p of players) remotes.join(p);
+      const now = performance.now();
+      for (const m of moves) remotes.move(m, now);
+      showOnline();
+    },
+    snapshot(pieces) {
+      if (solo) return;
+      finishEdit(false);
+      synced.reset(pieces);
+      history.clear();
+    },
+    ops(_by, ops) {
+      if (!solo) synced.remote(ops);
+    },
+    ack(seq, rejected, extra) {
+      if (solo) return;
+      const refused = synced.ack(seq, rejected, extra);
+      if (refused.some((op) => op.kind === "place")) hud.toast("Someone built there first");
+    },
+    join(p) {
+      if (p.id === myId) return;
+      remotes.join(p);
+      showOnline();
+    },
+    leave(id) {
+      remotes.leave(id);
+      showOnline();
+    },
+    moves(list) {
+      const now = performance.now();
+      for (const m of list) remotes.move(m, now);
+    },
+  });
+  net.connect();
+
   let statsTimer = 0;
   let lastCount = -1;
 
@@ -530,6 +606,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       }
     }
     army.update(siege.soldiers, input.locked ? dt : 0);
+
+    // Send this frame's changes as one action, and where the builder is.
+    const now = performance.now();
+    if (!solo && net.online) {
+      const action = synced.takeAction();
+      if (action) net.sendAction(action.seq, action.ops);
+      net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now);
+    }
+    remotes.update(dt, now, player.position);
     view.flush();
 
     if (state.size !== lastCount) hud.setCount((lastCount = state.size));
@@ -550,12 +635,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   window.addEventListener("resize", () => engine.resize());
   engine.runRenderLoop(() => scene.render());
   await scene.whenReadyAsync();
-  hud.ready();
+  // Wait a moment for the shared world, so the first pieces placed are not lost when it arrives.
+  for (let waited = 0; !joined && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+  hud.showIdentity(identity, COLORS);
+  hud.ready(joined);
 
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, state, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

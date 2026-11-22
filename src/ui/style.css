@@ -51,7 +51,7 @@ html, body {
 }
 body.playing #crosshair { opacity: 1; }
 
-#stats, #count {
+#stats, #count, #online {
   position: absolute;
   top: 12px;
   padding: 5px 10px;
@@ -65,6 +65,24 @@ body.playing #crosshair { opacity: 1; }
 }
 #stats { left: 12px; }
 #count { right: 12px; }
+#online { right: 12px; top: 44px; }
+#online[hidden] { display: none; }
+
+/* Connection trouble, at the top of the screen. */
+#net {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+#net[hidden] { display: none; }
 
 #toast {
   position: absolute;
@@ -320,6 +338,25 @@ body.playing #crosshair { opacity: 1; }
 }
 .setting[hidden] { display: none; }
 .setting input { width: 180px; accent-color: var(--coral); cursor: pointer; }
+.setting input[type="text"] {
+  padding: 6px 10px;
+  border: 2px solid rgba(31, 42, 55, 0.25);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  cursor: text;
+}
+.colors { display: flex; gap: 6px; width: 180px; flex-wrap: wrap; }
+.colors button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid rgba(31, 42, 55, 0.3);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.colors button.selected { border-color: var(--ink); box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink); }
 .setting output { min-width: 44px; text-align: left; font-variant-numeric: tabular-nums; }
 
 /* Shown instead of the pause panel after switching to another window. */

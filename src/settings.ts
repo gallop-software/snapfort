@@ -1,4 +1,5 @@
 /** Player preferences, kept in this browser between visits. */
+
 export interface Settings {
   /** Mouse look speed, as a multiple of the default. */
   mouseSpeed: number;
@@ -10,14 +11,15 @@ export const MOUSE_SPEED_MIN = 0.25;
 export const MOUSE_SPEED_MAX = 3;
 
 export function loadSettings(): Settings {
+  const settings = { ...DEFAULTS };
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(KEY) ?? "null");
-    const speed = (raw as Partial<Settings> | null)?.mouseSpeed;
-    if (typeof speed === "number" && speed >= MOUSE_SPEED_MIN && speed <= MOUSE_SPEED_MAX) return { mouseSpeed: speed };
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<Settings> | null;
+    const speed = raw?.mouseSpeed;
+    if (typeof speed === "number" && speed >= MOUSE_SPEED_MIN && speed <= MOUSE_SPEED_MAX) settings.mouseSpeed = speed;
   } catch {
     // Unreadable or blocked storage: use the defaults.
   }
-  return { ...DEFAULTS };
+  return settings;
 }
 
 export function saveSettings(settings: Settings): void {

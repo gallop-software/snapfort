@@ -413,9 +413,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
     if (dt <= 0) return;
     const on = input.locked;
+    // Arrow keys and WASD both move the builder.
+    const key = (a: string, b: string) => (input.isDown(a) || input.isDown(b) ? 1 : 0);
     player.step(dt, {
-      strafe: on ? Number(input.isDown("KeyD")) - Number(input.isDown("KeyA")) : 0,
-      forward: on ? Number(input.isDown("KeyW")) - Number(input.isDown("KeyS")) : 0,
+      strafe: on ? key("ArrowRight", "KeyD") - key("ArrowLeft", "KeyA") : 0,
+      forward: on ? key("ArrowUp", "KeyW") - key("ArrowDown", "KeyS") : 0,
       run: on && (input.isDown("ShiftLeft") || input.isDown("ShiftRight")),
       jump: on && input.isDown("Space"),
       yaw: rig.yaw,

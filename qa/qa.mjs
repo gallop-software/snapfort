@@ -199,7 +199,7 @@ for (const [key, type] of [["KeyZ", "wall"], ["KeyF", "floor"]]) {
 await clear();
 await pose(2.5, 0, -7.5, 0, 0.05);
 await page.keyboard.press("KeyX");
-await page.keyboard.down("KeyW"); await page.mouse.down(); await wait(3500); await page.mouse.up(); await page.keyboard.up("KeyW");
+await page.keyboard.down("ArrowUp"); await page.mouse.down(); await wait(3500); await page.mouse.up(); await page.keyboard.up("ArrowUp");
 const rush = await pieces();
 const height = await sf(() => window.snapfort.player.feetY);
 check("ramp rush: running and holding click climbs", rush.length >= 4 && height > 9, `${rush.length} ramps, feet at ${height.toFixed(1)} m`);
@@ -270,7 +270,7 @@ await auditCheck("after edit");
 const doorOpen = await sf(() => { const s = window.snapfort; const V = s.rig.pivot.constructor; return !s.scene.getPhysicsEngine().raycast(new V(7.5, 1, 3), new V(7.5, 1, 7)).hasHit; });
 const wallSolid = await sf(() => { const s = window.snapfort; const V = s.rig.pivot.constructor; return s.scene.getPhysicsEngine().raycast(new V(5.8, 1, 3), new V(5.8, 1, 7)).hasHit; });
 check("the doorway is open and the rest of the wall still solid", doorOpen && wallSolid, `door open ${doorOpen}, wall solid ${wallSolid}`);
-await pose(7.5, 0, 2, 0, 0); await page.keyboard.down("KeyW"); await wait(900); await page.keyboard.up("KeyW");
+await pose(7.5, 0, 2, 0, 0); await page.keyboard.down("ArrowUp"); await wait(900); await page.keyboard.up("ArrowUp");
 check("the builder can walk through the door", (await sf(() => window.snapfort.player.position.z)) > 6, `z ${(await sf(() => window.snapfort.player.position.z)).toFixed(2)}`);
 // remove highlight follows the edited shape
 await pose(6.6, 0, -3, 0, 0); await aimAt(5.8, 1.9); await page.keyboard.press("KeyV"); await frames(3);
@@ -381,6 +381,17 @@ const many = await sf(() => { const s = window.snapfort; let n = 0; const mats =
 await wait(2500);
 check(`${many} pieces stay smooth`, /^(5\d|6\d|1\d\d) fps/.test(await page.textContent("#stats")), await page.textContent("#stats"));
 await auditCheck("many pieces");
+
+// ---------- Arrow keys and WASD both move ----------
+await clear();
+const moved = async (key, axis = "z") => { await pose(2.5, 0, -60, 0, 0.1); const a0 = await sf((axis) => window.snapfort.player.position[axis], axis); await page.keyboard.down(key); await wait(400); await page.keyboard.up(key); await frames(2); return (await sf((axis) => window.snapfort.player.position[axis], axis)) - a0; };
+let moveFails = [];
+for (const [key, axis, sign] of [["ArrowUp", "z", 1], ["ArrowDown", "z", -1], ["ArrowLeft", "x", -1], ["ArrowRight", "x", 1], ["KeyW", "z", 1], ["KeyS", "z", -1], ["KeyA", "x", -1], ["KeyD", "x", 1]]) {
+  const d = await moved(key, axis);
+  if (!(d * sign > 3)) moveFails.push(`${key} moved ${d.toFixed(1)} on ${axis}`);
+}
+check("arrow keys and W A S D all move the builder the right way", moveFails.length === 0, moveFails.join(", "));
+check("the key list shows both", (await page.textContent("#view-menu .keys")).includes("Arrows / W A S D"));
 
 // ---------- Console ----------
 const relevant = errors.filter((e) => !e.includes("Download the React") );

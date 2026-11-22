@@ -44,7 +44,7 @@ Friends building in the same world in real time, using Cloudflare Durable Object
 ## Other facts
 
 - The name is SnapFort.io.
-- The domain snapfort.io was unregistered when checked on 2026-11-21 and the user has not bought it yet, so do not assume it is connected; do not deploy or buy anything without asking.
+- The domain snapfort.io was unregistered when checked on 2026-11-21 and again on 2026-11-22 (no whois record, no zone in the Cloudflare account), so do not assume it is connected; do not buy anything without asking.
 - Work phase by phase, show the user each phase running in the dev server before starting the next, and ask before any choice that changes the design picks above.
 
 ## Change of direction (user, 2026-11-21, after trying phase 1)
@@ -94,7 +94,7 @@ Siege mode is still in the code (`src/game/siege.ts`, tested) but its menu butto
 - `src/render/` draws that state: one thin-instance mesh per piece type, one static Havok body per piece, the ghost, the character and the camera. `src/game.ts` wires input, logic and rendering together.
 - All art and sound are generated in code (canvas textures, Web Audio); there are no asset files.
 - Placement rule: slot free, inside the building area, and on the ground or touching an existing piece. Removing a piece makes anything no longer connected to the ground fall.
-- Keys: WASD, Shift run, Space jump, Z/F1 wall, F/F2 floor, X/F3 ramp, C/F4 roof, V remove tool (1-5 also work), click place (hold to keep placing), right click remove, G edit, T material, R turn ramp, Q/E undo/redo, mouse wheel cycles the hotbar, Esc pause.
+- Keys: arrow keys or WASD (both always work, user 2026-11-22), Shift run, Space jump, Z/F1 wall, F/F2 floor, X/F3 ramp, C/F4 roof, V remove tool (1-5 also work), click place (hold to keep placing), right click remove, G edit, T material, R turn ramp, Q/E undo/redo, mouse wheel cycles the hotbar, Esc pause.
 - The army is drawn by `src/render/soldierView.ts` as one thin-instance mesh; soldiers are plain data in the siege logic, not physics bodies.
 - Movement is fast on purpose (user, 2026-11-21): walk 16 m/s, Shift run 26 m/s, jump 2.6 m (`src/render/player.ts`). The character controller's `maxCharacterSpeedForSolver` must stay above the run speed or running gets capped at 10 m/s.
 - Mouse look: 0.0045 rad per pixel at speed 1 (`src/render/cameraRig.ts`), with a Mouse speed slider (0.25× to 3×) on the menu and pause panel, saved in localStorage (`src/settings.ts`). Raw mouse input is requested, so the operating system's mouse acceleration does not apply.
@@ -104,4 +104,4 @@ Siege mode is still in the code (`src/game/siege.ts`, tested) but its menu butto
 - `?gl` in the address forces WebGL instead of WebGPU.
 - Browser QA: with the Gallop dev server running, `npm run qa` drives the game in headless Chrome with real keyboard and mouse input (71 checks, including an on-screen pixel check that every placed piece is visible, and 1,500 random actions with a draw/collision audit). `npm run qa -- "http://localhost:5173/?gl"` runs it on WebGL. In development, `snapfort.audit()` in the browser console lists any piece that is recorded but not drawn or not solid.
 - Thin instances: set `thinInstanceCount` before `thinInstanceBufferUpdated`, because Babylon uploads only the first `thinInstanceCount` entries. Getting this backwards made newly placed pieces invisible while still blocking their spot (fixed 2026-11-21).
-- Nothing is deployed. `wrangler.jsonc` is ready, but ask before `npm run deploy`.
+- Deployed (user asked, 2026-11-22) to Cloudflare Workers static assets on the webplant.media Cloudflare account: https://snapfort.webplantmedia.workers.dev. `npm run deploy` builds and publishes. Once the user owns snapfort.io and its zone is on that account, add it as a Workers custom domain (`routes` with `custom_domain: true` in `wrangler.jsonc`) and redeploy.

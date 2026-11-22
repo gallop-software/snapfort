@@ -40,6 +40,8 @@ const aimPoint = async (x, y, z) => {
   }
 };
 const ghostLookNow = () => sf(() => window.snapfort.scene.meshes.find((m) => m.name.startsWith("ghost-") && m.isEnabled())?.material?.name);
+/** Selects a piece with its key (a second press puts a selected piece away, so press again if needed). */
+const pick = async (key) => { await page.keyboard.press(key); await frames(1); if (!(await selected())) { await page.keyboard.press(key); await frames(1); } };
 const click = async (button = "left") => { await page.mouse.down({ button }); await frames(1); await page.mouse.up({ button }); await frames(2); };
 const clear = () => sf(() => { const s = window.snapfort; for (const p of [...s.state.all()]) s.state.apply({ kind: "remove", id: p.id }); s.history.clear(); });
 const shot = (n) => page.screenshot({ path: `qa/shots/qa-${n}.png` });
@@ -68,19 +70,20 @@ const y1 = await sf(() => window.snapfort.rig.yaw);
 check("mouse movement turns the camera", Math.abs(y1 - y0) > 0.01, `yaw ${y0.toFixed(3)} → ${y1.toFixed(3)}`);
 
 // ---------- Tool keys ----------
-const keyTests = [["KeyZ", "Wall"], ["KeyF", "Floor"], ["KeyX", "Ramp"], ["KeyC", "Roof"], ["KeyV", "Remove"], ["F1", "Wall"], ["F2", "Floor"], ["F3", "Ramp"], ["F4", "Roof"], ["Digit5", "Remove"], ["Digit1", "Wall"]];
+// Wall is selected at the start, so begin with another piece (pressing Z now would put Wall away).
+const keyTests = [["KeyF", "Floor"], ["KeyZ", "Wall"], ["KeyF", "Floor"], ["KeyX", "Ramp"], ["KeyC", "Roof"], ["KeyV", "Remove"], ["F1", "Wall"], ["F2", "Floor"], ["F3", "Ramp"], ["F4", "Roof"], ["Digit5", "Remove"], ["Digit1", "Wall"]];
 let keyFails = [];
 for (const [key, label] of keyTests) { await page.keyboard.press(key); await frames(1); const s = await selected(); if (s !== label) keyFails.push(`${key}→${s}`); }
 check("every piece key selects its piece", keyFails.length === 0, keyFails.join(", "));
 await page.mouse.wheel(0, 120); await frames(2);
 check("mouse wheel moves along the hotbar", (await selected()) === "Floor", await selected());
-await page.keyboard.press("KeyZ");
+await pick("KeyZ");
 
 // ---------- Placing each piece where the crosshair points ----------
 await clear();
 await pose(2.5, 0, 2.5, 0, 0.3);
 const placed = async (key, type, aim, expect) => {
-  await page.keyboard.press(key); await aimPoint(...aim); await click();
+  await pick(key); await aimPoint(...aim); await click();
   const p = (await pieces()).find((q) => q.type === type);
   check(`a ${type} goes where the crosshair points`, !!p && Object.entries(expect).every(([k, v]) => p[k] === v), p ? `${p.x},${p.y},${p.z} r${p.rot}` : `none placed (${await toast()})`);
 };
@@ -95,7 +98,7 @@ check("placement pop effect cleans up", await sf(() => window.snapfort.scene.mes
 // ---------- The reported bug: pieces placed one after another must all show ----------
 await clear();
 await pose(-20, 0, -20, 0, 0.1);
-await page.keyboard.press("KeyZ");
+await pick("KeyZ");
 for (let i = 0; i < 12; i++) { await pose(2.5 + i * 5, 0, -7.5, 0, 0.15); await frames(2); await click(); }
 const walls = (await pieces()).filter((p) => p.type === "wall").length;
 check("12 walls placed one click at a time", walls === 12, `${walls}`);
@@ -121,7 +124,7 @@ await page.evaluate(() => { document.getElementById("hud").style.visibility = ""
 // Recreates the reported screenshots: one wall, crosshair just past its right end, then on it.
 await clear();
 await sf(() => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "wall", x: 0, y: 0, z: 1, rot: 0, id: "first-wall", material: "wood", edit: 0 } }); });
-await pose(4.5, 0, 1.5, 0, 0.1); await page.keyboard.press("KeyZ");
+await pose(4.5, 0, 1.5, 0, 0.1); await pick("KeyZ");
 await aimPoint(6.5, 1.9, 5);
 check("crosshair just past the end of a wall: the empty slot beside it is green", (await ghostLookNow()) === "ghost-ok", await ghostLookNow());
 await clearToast(); await click();
@@ -136,7 +139,7 @@ check("crosshair on the top edge of the wall still counts as the wall", (await g
 // Standing on a raised platform with the floor selected.
 await clear();
 await sf(() => { const s = window.snapfort; const put = (type, x, y, z, rot = 0) => s.history.do({ kind: "place", piece: { type, x, y, z, rot, id: s.nextId(), material: "wood", edit: 0 } }); put("wall", 0, 0, 0, 0); put("floor", 0, 1, 0); put("floor", 1, 1, 0); put("floor", -1, 1, 0); });
-await pose(2.5, 3.9, 2.5, 0, 0.6); await page.keyboard.press("KeyF");
+await pose(2.5, 3.9, 2.5, 0, 0.6); await pick("KeyF");
 await aimPoint(2.5, 3.75, 7.5);
 check("on a platform, crosshair past its edge: the empty floor slot there is green", (await ghostLookNow()) === "ghost-ok", await ghostLookNow());
 await clearToast(); await click();
@@ -166,19 +169,19 @@ check("a ghost preview shows for every pose", ghostMismatch.length === 0, ghostM
 
 // ---------- Unsupported and out of bounds ----------
 await clear();
-await pose(2.5, 0, 2.5, 0, -0.9); await page.keyboard.press("KeyF"); await frames(2); await click();
+await pose(2.5, 0, 2.5, 0, -0.9); await pick("KeyF"); await frames(2); await click();
 check("a floor up in the air with nothing under it is refused", (await toast()) === "Needs something to attach to" && (await pieces()).length === 0, await toast());
 await clearToast();
-await pose(242.5, 0, 2.5, Math.PI / 2, 0.15); await page.keyboard.press("KeyF"); await frames(2); await click();
+await pose(242.5, 0, 2.5, Math.PI / 2, 0.15); await pick("KeyF"); await frames(2); await click();
 check("building past the edge of the world is refused", (await toast()) === "Outside the building area" && (await pieces()).length === 0, await toast());
 await clearToast();
-await pose(237.5, 0, 2.5, Math.PI / 2, 0.15); await page.keyboard.press("KeyZ"); await frames(2); await click();
+await pose(237.5, 0, 2.5, Math.PI / 2, 0.15); await pick("KeyZ"); await frames(2); await click();
 check("a wall on the very edge of the building area is allowed", (await pieces()).some((p) => p.x === 48 && p.rot === 1), await toast());
 
 // ---------- Hold to keep placing (turbo build) ----------
 await clear();
 await pose(2.5, 0, 2.5, 0, 0.15);
-await page.keyboard.press("KeyZ");
+await pick("KeyZ");
 await page.mouse.down();
 for (let i = 0; i < 25; i++) { await sf((i) => { window.snapfort.rig.yaw = -Math.PI / 2 + (i / 24) * Math.PI * 1.5; }, i); await frames(2); }
 await page.mouse.up();
@@ -189,7 +192,7 @@ await auditCheck("turbo build");
 await clear();
 await pose(2.5, 0, 2.5, 0, 0.15);
 for (const [key, type] of [["KeyZ", "wall"], ["KeyF", "floor"]]) {
-  await page.keyboard.press(key);
+  await pick(key);
   await page.mouse.down(); await wait(1000); await page.mouse.up(); await frames(2);
   const n = (await pieces()).filter((p) => p.type === type).length;
   check(`holding the button while standing still places one ${type}, not a stack`, n === 1, `${n} placed`);
@@ -198,7 +201,7 @@ for (const [key, type] of [["KeyZ", "wall"], ["KeyF", "floor"]]) {
 // ---------- Ramp rush with real keys ----------
 await clear();
 await pose(2.5, 0, -7.5, 0, 0.05);
-await page.keyboard.press("KeyX");
+await pick("KeyX");
 await page.keyboard.down("ArrowUp"); await page.mouse.down(); await wait(3500); await page.mouse.up(); await page.keyboard.up("ArrowUp");
 const rush = await pieces();
 const height = await sf(() => window.snapfort.player.feetY);
@@ -228,7 +231,7 @@ check("undo with nothing to undo says so", (await toast()) === "Nothing to undo"
 
 // remove tool
 await sf(() => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "wall", x: 0, y: 0, z: 1, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); });
-await pose(2.5, 0, -2, 0, -0.05); await page.keyboard.press("KeyV"); await frames(3);
+await pose(2.5, 0, -2, 0, -0.05); await pick("KeyV"); await frames(3);
 const removeGhost = await sf(() => window.snapfort.scene.meshes.some((m) => m.isEnabled() && m.material?.name === "ghost-remove"));
 check("remove tool highlights the piece under the crosshair", removeGhost);
 await click();
@@ -239,7 +242,7 @@ await clear();
 const chip0 = await page.textContent("#material");
 await page.keyboard.press("KeyT"); await frames(1);
 const chip1 = await page.textContent("#material");
-await pose(2.5, 0, 2.5, 0, 0.15); await page.keyboard.press("KeyZ"); await frames(2); await click();
+await pose(2.5, 0, 2.5, 0, 0.15); await pick("KeyZ"); await frames(2); await click();
 const mat1 = (await pieces())[0]?.material;
 await page.keyboard.press("KeyT"); await page.keyboard.press("KeyT"); await frames(1);
 check("T cycles wood → brick → metal → wood", chip0.startsWith("Wood") && chip1.startsWith("Brick") && (await page.textContent("#material")).startsWith("Wood"), `${chip0} / ${chip1}`);
@@ -247,7 +250,7 @@ check("new pieces use the chosen material", mat1 === "brick", mat1);
 
 // ---------- Ramp rotation ----------
 await clear();
-await pose(2.5, 0, 2.5, 0, 0.15); await page.keyboard.press("KeyX"); await page.keyboard.press("KeyR"); await frames(2); await click();
+await pose(2.5, 0, 2.5, 0, 0.15); await pick("KeyX"); await page.keyboard.press("KeyR"); await frames(2); await click();
 check("R turns the ramp a quarter", (await pieces())[0]?.rot === 1, `rot ${(await pieces())[0]?.rot}`);
 await page.keyboard.press("KeyR"); await page.keyboard.press("KeyR"); await page.keyboard.press("KeyR");
 
@@ -273,9 +276,9 @@ check("the doorway is open and the rest of the wall still solid", doorOpen && wa
 await pose(7.5, 0, 2, 0, 0); await page.keyboard.down("ArrowUp"); await wait(900); await page.keyboard.up("ArrowUp");
 check("the builder can walk through the door", (await sf(() => window.snapfort.player.position.z)) > 6, `z ${(await sf(() => window.snapfort.player.position.z)).toFixed(2)}`);
 // remove highlight follows the edited shape
-await pose(6.6, 0, -3, 0, 0); await aimAt(5.8, 1.9); await page.keyboard.press("KeyV"); await frames(3);
+await pose(6.6, 0, -3, 0, 0); await aimAt(5.8, 1.9); await pick("KeyV"); await frames(3);
 check("remove highlight uses the edited shape", await sf(() => window.snapfort.scene.meshes.some((m) => m.isEnabled() && m.name.startsWith("ghost-wall|"))));
-await page.keyboard.press("KeyZ");
+await pick("KeyZ");
 // right click in edit resets
 await aimAt(5.8, 1.9); await frames(2); await page.keyboard.press("KeyG"); await frames(2);
 await page.mouse.down({ button: "right" }); await frames(1); await page.mouse.up({ button: "right" }); await frames(2);
@@ -295,7 +298,7 @@ check("G on a ramp explains only walls and floors edit", (await toast()) === "On
 // selecting a piece while editing confirms
 await aimAt(5.8, 1.9); await frames(2); await page.keyboard.press("KeyG"); await frames(2);
 await sf(() => { window.snapfort.editing.cut = 0b000000010 | 0b000010010 | 0b001000000; });
-await page.keyboard.press("KeyF"); await frames(2);
+await pick("KeyF"); await frames(2);
 check("picking a piece while editing confirms the edit", (await pieces()).find((p) => p.id === "edit-me")?.edit === 0b001010010 && !(await page.isVisible("#edit-hint")));
 // pausing during an edit cancels it
 await aimAt(5.8, 1.9); await frames(2); await page.keyboard.press("KeyG"); await frames(2);
@@ -334,7 +337,7 @@ await clear();
 
 // ---------- Keys do nothing while paused ----------
 await page.evaluate(() => document.exitPointerLock()); await wait(300);
-await page.keyboard.press("KeyX"); await page.keyboard.press("KeyQ");
+await pick("KeyX"); await page.keyboard.press("KeyQ");
 check("keys are ignored while paused", (await selected()) !== "Ramp" || true);
 const lockedNow = await sf(() => window.snapfort.input.locked);
 await page.mouse.click(640, 300); await wait(200);
@@ -385,7 +388,7 @@ await auditCheck("many pieces");
 // ---------- Roofs two storeys up ----------
 await clear();
 await sf(() => { const s = window.snapfort; const put = (type, x, y, z, rot = 0) => s.history.do({ kind: "place", piece: { type, x, y, z, rot, id: s.nextId(), material: "wood", edit: 0 } }); for (const y of [0, 1]) for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1]]) put("wall", x, y, z, rot); });
-await pose(2.5, 0, 2.5, 0, -1); await page.keyboard.press("KeyC");
+await pose(2.5, 0, 2.5, 0, -1); await pick("KeyC");
 await aimPoint(2.6, 9, 2.9);
 check("inside a two-storey tower, looking up: the roof preview is green", (await ghostLookNow()) === "ghost-ok", await ghostLookNow());
 await clearToast(); await click();
@@ -418,6 +421,25 @@ const camStats = await sf(async () => {
   return { maxJump, reversals };
 });
 check("turning all the way round in a tight corner, the camera does not bounce in and out", camStats.reversals <= 8 && camStats.maxJump < 2.5, `${camStats.reversals} in/out reversals, biggest jump ${camStats.maxJump.toFixed(2)} m`);
+
+// ---------- Putting the piece away to just run around ----------
+await clear();
+await pose(2.5, 0, 2.5, 0, 0.3); await pick("KeyZ"); await frames(2);
+await page.keyboard.press("KeyZ"); await frames(2);
+check("pressing the selected piece's key again puts it away (nothing highlighted)", (await selected()) === undefined || (await selected()) === null, `${await selected()}`);
+check("…no preview shows", !(await ghostLookNow()), `${await ghostLookNow()}`);
+await click(); await page.mouse.down(); await wait(300); await page.mouse.up(); await frames(2);
+check("…and clicking builds nothing", (await pieces()).length === 0, `${(await pieces()).length} pieces`);
+check("…and it says so", (await toast()).startsWith("Building off"), await toast());
+await page.keyboard.press("KeyZ"); await frames(2);
+check("pressing the key once more selects it again", (await selected()) === "Wall" && (await ghostLookNow()) === "ghost-ok");
+await page.keyboard.press("KeyZ"); await frames(1); await page.keyboard.press("KeyF"); await frames(2);
+check("from nothing selected, another piece key selects that piece", (await selected()) === "Floor");
+await page.keyboard.press("KeyF"); await frames(1); await page.mouse.wheel(0, 120); await frames(2);
+check("from nothing selected, the mouse wheel starts at the first piece", (await selected()) === "Wall");
+
+// ---------- Default mouse speed ----------
+check("mouse speed starts at 2× for a new player", (await sf(() => window.snapfort.rig.sensitivity)) === 2 && (await page.inputValue("#mouse-speed")) === "2");
 
 // ---------- Arrow keys and WASD both move ----------
 await clear();

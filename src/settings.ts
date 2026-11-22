@@ -6,7 +6,7 @@ export interface Settings {
 }
 
 const KEY = "snapfort.settings";
-const DEFAULTS: Settings = { mouseSpeed: 1 };
+const DEFAULTS: Settings = { mouseSpeed: 2 };
 export const MOUSE_SPEED_MIN = 0.25;
 export const MOUSE_SPEED_MAX = 3;
 

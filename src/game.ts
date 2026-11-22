@@ -120,6 +120,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     },
   });
 
+  /** The selected hotbar slot, or -1 when nothing is selected (just running around). */
   let toolIndex = 0;
   let materialIndex = 0;
   let rotation = 0;
@@ -139,7 +140,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     key: TOOL_KEYS[tool],
   }));
   const hud = new Hud(items, {
-    selectTool: (i) => selectTool(i),
+    selectTool: (i) => toggleTool(i),
     play(next) {
       sfx.unlock();
       startMode(next);
@@ -189,6 +190,24 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     hud.select(toolIndex);
     lastTriedSlot = "";
     sfx.select();
+  }
+
+  /** Puts the selected piece away: no preview, and clicks build nothing. */
+  function deselectTool(): void {
+    finishEdit(true);
+    toolIndex = -1;
+    placing = false;
+    hud.select(-1);
+    ghost.hide();
+    aimSpec = null;
+    hud.toast("Building off: press a piece key to build");
+    sfx.select();
+  }
+
+  /** A piece key or hotbar click: selects that piece, or puts it away if it is already selected. */
+  function toggleTool(index: number): void {
+    if (index === toolIndex && !editing) deselectTool();
+    else selectTool(index);
   }
 
   function showMaterial(): void {
@@ -366,6 +385,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     // moment before the click already counts.
     updateAim();
     if (button === 0) {
+      if (toolIndex < 0) return;
       if (TOOLS[toolIndex] === "remove") {
         if (aimPieceId) removePiece(aimPieceId);
       } else {
@@ -380,17 +400,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (editing) editing.paint = null;
     }
   };
-  input.onWheel = (direction) => selectTool(toolIndex + direction);
+  // The wheel moves along the hotbar; from nothing selected it starts at either end.
+  input.onWheel = (direction) => selectTool(toolIndex < 0 ? (direction > 0 ? 0 : TOOLS.length - 1) : toolIndex + direction);
   input.onKey = (code, event) => {
     const command = event.ctrlKey || event.metaKey;
     if (command && code === "KeyZ") return event.shiftKey ? redo() : undo();
     if (command && code === "KeyY") return redo();
     if (command) return;
     const fnTool = FUNCTION_KEYS[code];
-    if (fnTool) return selectTool(TOOLS.indexOf(fnTool));
+    if (fnTool) return toggleTool(TOOLS.indexOf(fnTool));
     if (code.startsWith("Digit")) {
       const n = Number(code.slice(5));
-      if (n >= 1 && n <= TOOLS.length) selectTool(n - 1);
+      if (n >= 1 && n <= TOOLS.length) toggleTool(n - 1);
     } else if (code === "KeyG") {
       if (editing) finishEdit(true);
       else startEdit();
@@ -404,7 +425,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     else if (code === "KeyE") redo();
     else {
       const index = TOOLS.findIndex((tool) => `Key${TOOL_KEYS[tool]}` === code);
-      if (index >= 0) selectTool(index);
+      if (index >= 0) toggleTool(index);
     }
   };
 
@@ -445,12 +466,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
 
   function updateAim(): void {
-    const tool = TOOLS[toolIndex]!;
     rig.pivot.addToRef(rig.forward.scale(REMOVE_REACH), rayEnd);
     physics.raycastToRef(rig.pivot, rayEnd, ray);
     aimPieceId = ray.hasHit ? view.pieceIdOf(ray.body) : undefined;
     aimSpec = null;
     aimProblem = null;
+    // Nothing selected: just running around, no preview. (G can still edit what the crosshair is on.)
+    if (toolIndex < 0) return ghost.hide();
+    const tool = TOOLS[toolIndex]!;
 
     if (tool === "remove") {
       const piece = aimPieceId ? state.get(aimPieceId) : undefined;

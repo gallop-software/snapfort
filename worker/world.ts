@@ -72,6 +72,8 @@ const LOG_MS = 7 * 24 * 3600_000;
 /** Positions accepted, in centimetres: the building area plus a margin. */
 const MAX_COORD = 60_000;
 
+/** A fall (not a throw) shorter than this many metres does not knock a builder down. */
+const MIN_KNOCKDOWN_DROP = 2;
 /** Tower heights go out this long after the build changes (they take a full search to work out). */
 const TOWERS_MS = 1_500;
 
@@ -463,8 +465,9 @@ export class World extends DurableObject<Env> {
       if (!v && !gone.some((p) => wasStandingOn(p, centre))) continue;
       let fall = v ? planFall(this.build, centre, v) : planFall(this.build, centre, [0, 0, 0]);
       // Still standing on something: no fall.
-      if (!v && fall.time < 0.12) continue;
-      if (!v && fall.land[1] > centre[1] - 0.3) continue;
+      // A small drop (a step, a trebuchet's base) is left to the builder's own physics:
+      // only a real fall knocks them down.
+      if (!v && centre[1] - fall.land[1] < MIN_KNOCKDOWN_DROP) continue;
       fall = { ...fall, path: fall.path.map(round), land: round(fall.land) };
       this.release(player.id);
       this.downUntil.set(player.id, now + (fall.time + DOWN_TIME + RISE_TIME) * 1000);

@@ -87,6 +87,13 @@ describe("damage", () => {
     }
   });
 
+  it("breaks a trebuchet with one hit, whatever it is made of", () => {
+    const state = new BuildState();
+    place(state, piece({ type: "trebuchet", x: 0, y: 0, z: 0, rot: 0 }, "t", { material: "metal" }));
+    const { broken } = strike(state, [2.5, 2, 2.5], new Map());
+    expect(broken.map((p) => p.id)).toEqual(["t"]);
+  });
+
   it("only reaches pieces within the blast radius", () => {
     const state = new BuildState();
     place(state, piece({ type: "wall", x: 0, y: 0, z: 0, rot: 0 }, "near"));

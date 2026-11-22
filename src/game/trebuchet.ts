@@ -38,7 +38,8 @@ export const TREBUCHET_BASE = 0.35;
 
 /** Hits a piece takes before it breaks. */
 export const MATERIAL_HP: Record<MaterialId, number> = { wood: 1, brick: 2, metal: 3 };
-export const TREBUCHET_HP = 2;
+/** A trebuchet breaks with one hit (user, 2026-11-22). */
+export const TREBUCHET_HP = 1;
 
 export const hitPoints = (p: Piece) => (p.type === "trebuchet" ? TREBUCHET_HP : MATERIAL_HP[p.material]);
 

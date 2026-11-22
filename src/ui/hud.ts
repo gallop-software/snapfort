@@ -86,6 +86,10 @@ export class Hud {
     el("play-free").addEventListener("click", () => actions.play("free"));
     el("retry").addEventListener("click", () => actions.play("siege"));
     el("resume").addEventListener("click", () => actions.resume());
+    // A click beside the settings panel (on the dimmed world) also goes back to building.
+    this.overlay.addEventListener("click", (e) => {
+      if (e.target === this.overlay && this.view === "paused") actions.resume();
+    });
     el("captured-menu").addEventListener("click", () => actions.menu());
     const slider = el<HTMLInputElement>("mouse-speed");
     slider.addEventListener("input", () => {
@@ -105,6 +109,8 @@ export class Hud {
   }
 
   private readonly actions: HudActions;
+  /** What the overlay shows right now. */
+  view: View | "playing" | "away" = "menu";
   private identity: Identity = { name: "", color: "" };
 
   /** Shows the player's name and colour on the menu, with the colours to choose from. */
@@ -219,6 +225,7 @@ export class Hud {
    * a click picks up where they left off.
    */
   show(view: View | "playing" | "away"): void {
+    this.view = view;
     const playing = view === "playing";
     const away = view === "away";
     el("settings").hidden = view === "captured";

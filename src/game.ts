@@ -163,8 +163,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       void input.lock();
     },
     resume() {
-      sfx.unlock();
-      void input.lock();
+      backToBuilding();
     },
     setMouseSpeed(speed) {
       settings.mouseSpeed = speed;
@@ -406,12 +405,24 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       void input.lock();
     }
   });
-  // Esc while stepped away opens the pause menu.
+  /**
+   * Closes the settings panel and carries on building. The panel goes at once;
+   * if the browser will not capture the mouse from this key or click (it
+   * refuses for Esc, and for a moment after the mouse was released), the small
+   * click-to-continue note stays until one click on the game.
+   */
+  function backToBuilding(): void {
+    sfx.unlock();
+    showAway();
+    void input.lock();
+  }
+  // Esc toggles the settings: opens them while stepped away, closes them while open.
   window.addEventListener("keydown", (e) => {
-    if (e.code === "Escape" && away && !input.locked) {
+    if (e.code !== "Escape" || input.locked) return;
+    if (away) {
       away = false;
       hud.show("paused");
-    }
+    } else if (hud.view === "paused") backToBuilding();
   });
   input.onMouseDown = (button) => {
     sfx.unlock();

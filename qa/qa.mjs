@@ -344,9 +344,19 @@ await page.evaluate(() => document.exitPointerLock()); await wait(300);
 await pick("KeyX"); await page.keyboard.press("KeyQ");
 check("keys are ignored while paused", (await selected()) !== "Ramp" || true);
 const lockedNow = await sf(() => window.snapfort.input.locked);
-await page.mouse.click(40, 380); await wait(200);
-check("clicking the paused panel's backdrop does not place pieces", (await pieces()).length === 0 && !lockedNow);
-await wait(1200); await page.click("#resume"); await wait(500);
+await wait(1200);
+await page.mouse.click(40, 380); await wait(300);
+check("clicking beside the settings panel closes it", !lockedNow && !(await page.isVisible("#overlay")));
+await wait(1300);
+if (!(await sf(() => window.snapfort.input.locked))) { await page.mouse.click(640, 380); await wait(400); }
+check("…back to building, without placing a piece", (await sf(() => window.snapfort.input.locked)) && (await pieces()).length === 0);
+await page.evaluate(() => document.exitPointerLock()); await wait(1300);
+check("Esc out of play opens the settings", await page.isVisible("#view-paused"));
+await page.keyboard.press("Escape"); await wait(300);
+check("Esc again closes them", !(await page.isVisible("#overlay")));
+await wait(1300);
+if (!(await sf(() => window.snapfort.input.locked))) { await page.mouse.click(640, 380); await wait(400); }
+check("…back to building, without placing a piece", (await sf(() => window.snapfort.input.locked)) && (await pieces()).length === 0);
 
 // ---------- Falling off / world limits ----------
 await pose(0, -40, 0, 0, 0); await frames(4);

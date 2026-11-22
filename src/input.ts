@@ -1,3 +1,5 @@
+/** Scroll distance (pixels) that counts as one wheel step. */
+const WHEEL_STEP = 100;
 /** Largest mouse movement accepted from a single event, in pixels. */
 const MAX_MOUSE_JUMP = 250;
 
@@ -11,6 +13,8 @@ export class Input {
   onLockChange: (locked: boolean) => void = () => {};
 
   private readonly down = new Set<string>();
+  private wheelSum = 0;
+  private wheelAt = 0;
   private lookX = 0;
   private lookY = 0;
 
@@ -52,7 +56,18 @@ export class Input {
       "wheel",
       (e) => {
         e.preventDefault();
-        if (this.locked && e.deltaY !== 0) this.onWheel(e.deltaY > 0 ? 1 : -1);
+        if (!this.locked || e.deltaY === 0) return;
+        // A mouse wheel click is one step; a trackpad swipe sends many small
+        // deltas, so add them up and step once per wheel-click's worth.
+        const px = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY;
+        if (Math.sign(px) !== Math.sign(this.wheelSum)) this.wheelSum = 0;
+        this.wheelSum += px;
+        const now = performance.now();
+        if (Math.abs(this.wheelSum) >= WHEEL_STEP || (Math.abs(px) >= 50 && now - this.wheelAt > 60)) {
+          this.onWheel(this.wheelSum > 0 ? 1 : -1);
+          this.wheelSum = 0;
+          this.wheelAt = now;
+        }
       },
       { passive: false },
     );

@@ -152,3 +152,28 @@ describe("crosshair aiming: roofs two storeys up", () => {
     expect(aimTarget("roof", r, null, here, 0, can(state)).spec).toMatchObject({ x: 0, y: 0, z: 1 });
   });
 });
+
+describe("crosshair aiming: a roof just placed high up", () => {
+  it("looking up at a roof on top of a three-storey tower sees that roof, not the storey below (reported bug)", () => {
+    const state = new BuildState();
+    let n = 0;
+    for (const y of [0, 1, 2]) {
+      for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1]] as const) {
+        state.apply({ kind: "place", piece: piece({ type: "wall", x, y, z, rot }, `w${n++}`) });
+      }
+    }
+    const score = (s: PieceSpec) => (state.canPlace(s).ok ? state.touching(s).length : null);
+    const inside: Viewer = { ...viewer, x: 2.5, z: 2.5 };
+    const r = ray(3.4, 1.7, 2.5, 2.8, 14, 3);
+    // First the roof goes on top, three storeys up.
+    const first = aimTarget("roof", r, null, inside, 0, score).spec;
+    expect(first).toEqual({ type: "roof", x: 0, y: 3, z: 0, rot: 0 });
+    const roof = piece(first, "top-roof");
+    state.apply({ kind: "place", piece: roof });
+    // Next frame the crosshair hits that roof's underside (11.25 m up, about 9.6 m away).
+    const dist = (3 * LEVEL - 1.7) / r.dy;
+    expect(dist).toBeGreaterThan(8);
+    const next = aimTarget("roof", r, { dist, piece: roof }, inside, 0, score).spec;
+    expect(next).toEqual({ type: "roof", x: 0, y: 3, z: 0, rot: 0 });
+  });
+});

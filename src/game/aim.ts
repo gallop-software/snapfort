@@ -159,7 +159,9 @@ export function aimTarget(
   const front = (): AimResult => ({ spec: buildTarget(type, viewer, rotation), source: "front" });
   // A piece of the same kind under the crosshair is the target: it is already there.
   if (hit?.piece && sameKind(hit.piece.type, type)) {
-    const reach = type === "wall" || type === "floor" ? PANE_REACH : CELL_REACH;
+    // Roofs: an existing roof (or ramp) under the crosshair counts at any distance,
+    // so a roof just built high up is never mistaken for room to build beneath it.
+    const reach = type === "wall" || type === "floor" ? PANE_REACH : type === "roof" ? Infinity : CELL_REACH;
     if (hit.dist <= reach) {
       const p = hit.piece;
       return { spec: { type, x: p.x, y: p.y, z: p.z, rot: type === "wall" ? p.rot : type === "ramp" ? rampRot(viewer.yaw, rotation) : 0 }, source: "crosshair" };

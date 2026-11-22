@@ -401,6 +401,16 @@ const outsideRoof = (await pieces()).find((p) => p.type === "roof");
 check("from outside, looking just over the top of the tower: the roof goes on top", outsideRoof?.y === 2 && outsideRoof?.x === 0 && outsideRoof?.z === 0, outsideRoof ? `${outsideRoof.x},${outsideRoof.y},${outsideRoof.z}` : `none (${await toast()})`);
 await shot("tower-roof");
 
+// Reported bug: a roof on a three-storey tower also added one on the second storey.
+await clear();
+await sf(() => { const s = window.snapfort; const put = (type, x, y, z, rot = 0) => s.history.do({ kind: "place", piece: { type, x, y, z, rot, id: s.nextId(), material: "wood", edit: 0 } }); for (const y of [0, 1, 2]) for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1]]) put("wall", x, y, z, rot); });
+await pose(2.5, 0, 2.5, 0, -1.2); await pick("KeyC");
+await aimPoint(2.7, 14, 2.9);
+await page.mouse.down(); await wait(1000); await page.mouse.up(); await frames(3);
+const roofs3 = (await pieces()).filter((p) => p.type === "roof");
+check("inside a three-storey tower, one click (held a second) adds exactly one roof, on top", roofs3.length === 1 && roofs3[0].y === 3, roofs3.map((r) => `${r.x},${r.y},${r.z}`).join(" ") || "none");
+check("…and looking at that roof shows it as already there", (await ghostLookNow()) === "ghost-bad", await ghostLookNow());
+
 // ---------- The camera stays steady in tight spaces ----------
 await clear();
 const camStats = await sf(async () => {

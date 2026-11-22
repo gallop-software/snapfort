@@ -344,7 +344,7 @@ await page.evaluate(() => document.exitPointerLock()); await wait(300);
 await pick("KeyX"); await page.keyboard.press("KeyQ");
 check("keys are ignored while paused", (await selected()) !== "Ramp" || true);
 const lockedNow = await sf(() => window.snapfort.input.locked);
-await page.mouse.click(640, 300); await wait(200);
+await page.mouse.click(40, 380); await wait(200);
 check("clicking the paused panel's backdrop does not place pieces", (await pieces()).length === 0 && !lockedNow);
 await wait(1200); await page.click("#resume"); await wait(500);
 

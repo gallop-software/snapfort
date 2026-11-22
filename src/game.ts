@@ -106,6 +106,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   const settings = loadSettings();
   rig.sensitivity = settings.mouseSpeed;
+  sfx.muted = settings.muted;
 
   let mode: Mode = "menu";
   /** Siege (hidden for now) is played alone: the build is local and nothing is sent or received. */
@@ -169,6 +170,16 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       settings.mouseSpeed = speed;
       rig.sensitivity = speed;
       saveSettings(settings);
+    },
+    setMuted(muted) {
+      settings.muted = muted;
+      sfx.muted = muted;
+      saveSettings(settings);
+      // A little blip confirms sound is back (the click counts as permission to play it).
+      if (!muted) {
+        sfx.unlock();
+        sfx.select();
+      }
     },
     setGraphics(mode) {
       settings.graphics = mode;
@@ -645,6 +656,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   selectTool(0);
   showMaterial();
   hud.showMouseSpeed(settings.mouseSpeed);
+  hud.showMuted(settings.muted);
   const graphics = new Graphics(engine, world, resolution, gpuName);
   graphics.apply(settings.graphics);
   hud.showGraphics(settings.graphics, graphics.autoMode);

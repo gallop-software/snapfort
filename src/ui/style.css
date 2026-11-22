@@ -384,6 +384,8 @@ body.playing #crosshair { opacity: 1; }
   font: inherit;
   cursor: pointer;
 }
+.toggle { display: flex; align-items: center; gap: 8px; width: 180px; }
+.setting .toggle input { width: 18px; height: 18px; margin: 0; }
 .colors { display: flex; gap: 6px; width: 180px; flex-wrap: wrap; }
 .colors button {
   width: 22px;

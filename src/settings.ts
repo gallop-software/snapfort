@@ -5,10 +5,12 @@ export interface Settings {
   /** Mouse look speed, as a multiple of the default. */
   mouseSpeed: number;
   graphics: GraphicsMode;
+  /** All game sounds off. */
+  muted: boolean;
 }
 
 const KEY = "snapfort.settings";
-const DEFAULTS: Settings = { mouseSpeed: 2, graphics: "auto" };
+const DEFAULTS: Settings = { mouseSpeed: 2, graphics: "auto", muted: false };
 export const MOUSE_SPEED_MIN = 0.25;
 export const MOUSE_SPEED_MAX = 3;
 
@@ -18,6 +20,7 @@ export function loadSettings(): Settings {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<Settings> | null;
     const speed = raw?.mouseSpeed;
     if (typeof speed === "number" && speed >= MOUSE_SPEED_MIN && speed <= MOUSE_SPEED_MAX) settings.mouseSpeed = speed;
+    if (typeof raw?.muted === "boolean") settings.muted = raw.muted;
     if (GRAPHICS_MODES.includes(raw?.graphics as GraphicsMode)) settings.graphics = raw!.graphics!;
   } catch {
     // Unreadable or blocked storage: use the defaults.

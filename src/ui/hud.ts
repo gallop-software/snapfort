@@ -16,6 +16,8 @@ export interface HudActions {
   menu(): void;
   /** The mouse speed slider moved. */
   setMouseSpeed(speed: number): void;
+  /** Sound was muted or unmuted on the menu. */
+  setMuted(muted: boolean): void;
   /** The graphics setting was changed on the menu. */
   setGraphics(mode: GraphicsMode): void;
   /** The name or colour was changed on the menu. */
@@ -134,6 +136,12 @@ export class Hud {
     if (name) this.identity.name = name;
     input.value = this.identity.name;
     this.actions.setIdentity({ ...this.identity });
+  }
+
+  showMuted(muted: boolean): void {
+    const box = el<HTMLInputElement>("mute");
+    box.checked = muted;
+    box.onchange = () => this.actions.setMuted(box.checked);
   }
 
   /** Fills the graphics setting. `auto` says what Auto picked on this computer. */

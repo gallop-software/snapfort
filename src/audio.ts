@@ -3,6 +3,8 @@ export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   volume = 0.5;
+  /** No sound at all while true. */
+  muted = false;
 
   /** Browsers only allow sound after a click or key press; call this from one. */
   unlock(): void {
@@ -80,7 +82,7 @@ export class Sfx {
 
   private tone(type: OscillatorType, from: number, to: number, duration: number, gain: number, delay = 0): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master) return;
+    if (!ctx || !this.master || this.muted) return;
     const now = ctx.currentTime + delay;
     const osc = ctx.createOscillator();
     const amp = ctx.createGain();
@@ -96,7 +98,7 @@ export class Sfx {
 
   private noise(duration: number, gain: number, cutoff: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master) return;
+    if (!ctx || !this.master || this.muted) return;
     const length = Math.ceil(ctx.sampleRate * duration);
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = buffer.getChannelData(0);

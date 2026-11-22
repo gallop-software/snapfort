@@ -112,6 +112,13 @@ The goal is the tallest structure. There are no teams: anyone builds on any stru
 - Trebuchet frames and arms are two thin-instance meshes (`src/render/trebuchetView.ts`); the frame turns toward the target and the arm swings over on a throw and winds back during the reload.
 - Messages: protocol version 2 (an open page from before asks to reload). `npm run qa:trebuchet` checks it all with two pages.
 
+## Ramp rushing and Turn (user reports, 2026-11-22)
+
+Reported: sometimes a ramp could not be built up the way you ran (on the phone, and at times on desktop); a refresh fixed it. Confirmed two causes: the Turn setting (R / the Turn button) stayed on across pieces and menus with no sign of it, so ramps went sideways or backwards and could not join; and near a diagonal the ramp direction flipped between two ways, which (ramps joining only ramps that climb the same way) broke the staircase.
+- Turn is used once: it goes back to straight after a turned ramp is placed, and when switching pieces. R shows "Ramp turned: right/back/left"; the phone's Turn button lights up with the direction, and sits in the top-left column, away from Place.
+- Standing on a ramp and facing within about 60 degrees up it, the next ramp continues that staircase (one cell on, one storey up, same way) when it fits there. While ramps keep being placed (within 1.5 s), the next keeps the last one's direction if the builder still faces within 60 degrees of it. A deliberate bigger turn, or Turn, still changes it.
+- Touch buttons lose their pressed look when the controls hide (the gear used to stay orange).
+
 ## Phones and tablets (user, 2026-11-22: "follow the conventions of Fortnite for mobile")
 
 Touch-only devices (no mouse: `(pointer: coarse)` and not `(any-pointer: fine)`; `?touch` forces it on a computer) get on-screen controls (`src/ui/touch.ts`); computers are unchanged. There is no pointer lock on touch: `Input.locked` means "playing", and the controls feed `Input.axis` (joystick), `addLook` (dragging) and the game's own mouse and key handlers (buttons).

@@ -79,6 +79,7 @@ export class TouchControls {
       };
       el.addEventListener("pointerup", release);
       el.addEventListener("pointercancel", release);
+      el.addEventListener("lostpointercapture", release);
       el.addEventListener("contextmenu", (e) => e.preventDefault());
       this.root.appendChild(el);
       this.buttons.set(id, { el, modes });
@@ -138,6 +139,8 @@ export class TouchControls {
   set visible(on: boolean) {
     this.root.hidden = !on;
     if (!on) {
+      // A button pressed to open the menu never sees the finger lift: clear its look.
+      for (const { el } of this.buttons.values()) el.classList.remove("pressed");
       this.releaseStick();
       this.lookers.clear();
     }
@@ -154,6 +157,13 @@ export class TouchControls {
     this.label("t-place", mode === "edit" ? "Cut" : "Place");
     this.label("t-remove", mode === "edit" ? "Reset" : "Remove");
     this.label("t-edit", mode === "edit" ? "Done" : "Edit");
+  }
+
+  /** The Turn button: lit, with the direction, while the next ramp is turned. */
+  setTurn(turn: number, name: string): void {
+    const el = this.buttons.get("t-turn")!.el;
+    el.classList.toggle("on", turn !== 0);
+    el.textContent = turn === 0 ? "Turn" : `↻ ${name[0]!.toUpperCase()}${name.slice(1)}`;
   }
 
   /** The Get on button, shown when a trebuchet is in reach. */

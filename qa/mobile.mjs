@@ -230,11 +230,49 @@ check("Fire throws a stone", (await p.textContent("#crew")).includes("reloading"
 await tap("#t-leave"); await wait(300);
 check("Get off returns to building", !(await sf(() => window.snapfort.crewOn)) && (await p.isVisible("#t-place")));
 
+// ── Ramps ──
+const ramps = () => sf(() => [...window.snapfort.state.all()].filter((q) => q.type === "ramp").map((q) => ({ x: q.x, y: q.y, z: q.z, rot: q.rot })));
+const clearAll = () => sf(() => { const s = window.snapfort; for (const q of [...s.state.all()]) s.synced.apply({ kind: "remove", id: q.id }); s.history.clear(); });
+await tap("#hotbar .slot:nth-child(3)"); await wait(150); // Ramp
+// Turn lights up, shows the way, and is used once.
+await clearAll(); await wait(300);
+await sf(() => { const s = window.snapfort; s.player.teleport(2.5, 0.95, -60); s.rig.yaw = 0; s.rig.pitch = 0.1; }); await wait(300);
+await tap("#t-turn");
+check("Turn lights up and says which way", (await p.evaluate(() => document.getElementById("t-turn").classList.contains("on"))) && (await p.textContent("#t-turn")).includes("Right"), await p.textContent("#t-turn"));
+await tap("#t-place"); await wait(300);
+const first = (await ramps())[0];
+check("…the next ramp is turned", first?.rot === 1, `rot ${first?.rot}`);
+check("…and Turn goes back to straight after it is placed", !(await p.evaluate(() => document.getElementById("t-turn").classList.contains("on"))) && (await p.textContent("#t-turn")) === "Turn");
+await tap("#t-turn"); await tap("#hotbar .slot:nth-child(1)"); await tap("#hotbar .slot:nth-child(3)");
+check("switching pieces also puts Turn back to straight", (await p.textContent("#t-turn")) === "Turn");
+// Ramp rush: hold Place and run, with the view held, wobbling, or near a diagonal.
+const rush = async (label, yaw, wobble, seconds = 4) => {
+  await clearAll(); await wait(400);
+  await sf(([yaw]) => { const s = window.snapfort; s.player.teleport(2.5, 0.95, -60); s.rig.yaw = yaw; s.rig.pitch = 0.1; }, [yaw]); await wait(300);
+  if (wobble) await sf(([yaw, w]) => { let t = 0; window.__wob = setInterval(() => { t += 0.05; window.snapfort.rig.yaw = yaw + Math.sin(t * 6) * w; }, 50); }, [yaw, wobble]);
+  const [qx, qy] = await centre("#t-place");
+  await down(3, qx, qy); await down(1, 120, 230); await move(1, 120, 168);
+  let top = 0; for (let i = 0; i < seconds * 10; i++) { await wait(100); top = Math.max(top, await sf(() => window.snapfort.player.feetY)); }
+  await up(1); await up(3);
+  await sf(() => clearInterval(window.__wob)); await wait(300);
+  const list = await ramps();
+  // In the staircase, each ramp a storey up from another next to it climbs the same way.
+  const mixed = list.filter((r) => list.some((o) => o.y === r.y - 1 && Math.abs(o.x - r.x) + Math.abs(o.z - r.z) === 1 && o.rot !== r.rot)).length;
+  return { n: list.length, top, mixed };
+};
+let r = await rush("straight", 0, 0);
+check("ramp rushing straight up: a tall staircase", r.n >= 12 && r.top > 40, `${r.n} ramps, feet at ${r.top.toFixed(0)} m`);
+r = await rush("wobbly", 0, 0.25);
+check("ramp rushing with a wobbly thumb (±14°) still climbs", r.n >= 12 && r.top > 40 && r.mixed === 0, `${r.n} ramps, feet at ${r.top.toFixed(0)} m, mixed ${r.mixed}`);
+r = await rush("near diagonal", 0.72, 0.12);
+check("near a diagonal with a wobbly thumb, the staircase never mixes directions", r.mixed === 0 && r.n >= 3, `${r.n} ramps, feet at ${r.top.toFixed(0)} m, mixed ${r.mixed}`);
+
 // Settings and back.
 await tap("#t-settings"); await wait(500);
 check("the gear opens the settings, and the controls hide", await p.isVisible("#view-paused") && !(await p.isVisible("#t-place")));
 await tap("#resume"); await wait(500);
 check("Back to building returns to play", await sf(() => window.snapfort.input.locked) && (await p.isVisible("#t-place")));
+check("the gear does not stay stuck looking pressed", !(await p.evaluate(() => document.getElementById("t-settings").classList.contains("pressed"))));
 // Nothing scrolled or zoomed the page.
 check("the page never scrolled or zoomed", await sf(() => scrollX === 0 && scrollY === 0 && (visualViewport?.scale ?? 1) === 1));
 

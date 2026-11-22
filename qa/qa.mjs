@@ -258,7 +258,18 @@ check("new pieces use the chosen material", mat1 === "brick", mat1);
 await clear();
 await pose(2.5, 0, 2.5, 0, 0.15); await pick("KeyX"); await page.keyboard.press("KeyR"); await frames(2); await click();
 check("R turns the ramp a quarter", (await pieces())[0]?.rot === 1, `rot ${(await pieces())[0]?.rot}`);
-await page.keyboard.press("KeyR"); await page.keyboard.press("KeyR"); await page.keyboard.press("KeyR");
+await page.keyboard.press("KeyR"); await frames(1);
+check("R says which way the ramp is turned", (await toast()).includes("Ramp turned: right"), await toast());
+// The turn just set (right) is used once: place it, then place another elsewhere.
+await clear();
+await pose(2.5, 0, 2.5, 0, 0.15); await click();
+await pose(22.5, 0, 2.5, 0, 0.15); await click();
+const turned = (await pieces()).sort((p, q) => p.x - q.x).map((p) => p.rot);
+check("a turned ramp is used once; the next climbs straight ahead again", turned.join(",") === "1,0", `rots ${turned.join(",")}`);
+await clear();
+await page.keyboard.press("KeyR"); await frames(1); await page.keyboard.press("KeyZ"); await frames(1); await page.keyboard.press("KeyX"); await frames(1);
+await pose(2.5, 0, 2.5, 0, 0.15); await click();
+check("switching pieces also puts the turn back to straight", (await pieces())[0]?.rot === 0, `rot ${(await pieces())[0]?.rot}`);
 
 // ---------- Editing ----------
 await clear();

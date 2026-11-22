@@ -26,6 +26,7 @@ import {
   slotKey,
   type Piece,
   type PieceSpec,
+  type Rot,
   type PieceType,
 } from "./game/pieces";
 import { Siege } from "./game/siege";
@@ -61,6 +62,13 @@ const TOOLS: readonly Tool[] = ["wall", "floor", "ramp", "roof", "remove", "treb
 /** Quick keys beside WASD, one per piece. F1 to F4 and the number keys work too. */
 const TOOL_KEYS: Record<Tool, string> = { wall: "Z", floor: "F", ramp: "X", roof: "C", remove: "V", trebuchet: "B" };
 const FUNCTION_KEYS: Record<string, Tool> = { F1: "wall", F2: "floor", F3: "ramp", F4: "roof" };
+
+/** Which way a ramp climbs for each rotation: rot 0 toward +z, 1 toward +x, 2 toward -z, 3 toward -x. */
+const RAMP_DIR: Record<number, [number, number]> = { 0: [0, 1], 1: [1, 0], 2: [0, -1], 3: [-1, 0] };
+/** How long a ramp just placed keeps setting the direction of the next (ms). */
+const RUSH_MEMORY = 1500;
+/** The Turn setting, as seen by the builder. */
+const TURN_NAMES = ["straight", "right", "back", "left"];
 
 /** "free": building only. "siege": the army comes (not on the menu for now). "menu": nothing chosen yet. */
 type Mode = "menu" | "siege" | "free";
@@ -170,6 +178,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   let toolIndex = 0;
   let materialIndex = 0;
   let rotation = 0;
+  /** The direction of the last ramp placed straight ahead, and when (for ramp rushing). */
+  let rushRot: number | null = null;
+  let rushAt = 0;
   let placing = false;
   /** The slot of the last placement tried; holding the button places again when the target moves on. */
   let lastTriedSlot = "";
@@ -270,6 +281,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     finishEdit(true);
     toolIndex = ((index % TOOLS.length) + TOOLS.length) % TOOLS.length;
     hud.select(toolIndex);
+    setTurn(0);
     lastTriedSlot = "";
     sfx.select();
   }
@@ -341,6 +353,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     // Too high for the chosen material: the strongest one allowed there.
     const piece = { ...aimSpec, id: nextId(), material: materialFor(aimSpec.type, MATERIALS[materialIndex]!, aimSpec.y), edit: 0 };
     if (history.do({ kind: "place", piece })) {
+      // A turned ramp is a one-off: the next one climbs straight ahead again.
+      if (piece.type === "ramp" && rotation !== 0) setTurn(0);
+      else if (piece.type === "ramp") {
+        rushRot = piece.rot;
+        rushAt = performance.now();
+      }
       placedCount++;
       flash.play(aimSpec);
       sfx.place();
@@ -583,8 +601,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     } else if (code === "Enter") finishEdit(true);
     else if (code === "KeyT") cycleMaterial();
     else if (code === "KeyR") {
-      rotation = (rotation + 1) % 4;
-      lastTriedSlot = "";
+      setTurn((rotation + 1) % 4);
+      hud.toast(`Ramp turned: ${TURN_NAMES[rotation]}`);
       sfx.rotate();
     } else if (code === "KeyQ") undo();
     else if (code === "KeyE") redo();
@@ -668,9 +686,57 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       rotation,
       (spec) => (state.canPlace(spec).ok ? state.touching(spec).length : null),
     ).spec;
+    // Ramp rushing: standing on a ramp and facing up it, the next ramp continues the
+    // staircase (same line, same direction), whatever a wobbly view or an angled run says.
+    if (tool === "ramp" && rotation === 0) {
+      // Still building the same staircase (a ramp placed a moment ago, facing roughly
+      // its way): keep its direction, so a view near a diagonal does not flip it.
+      if (rushRot !== null && performance.now() - rushAt < RUSH_MEMORY && aimSpec.type === "ramp" && aimSpec.rot !== rushRot && facingAlong(rushRot)) {
+        aimSpec = { ...aimSpec, rot: rushRot as Rot };
+      }
+      const next = rampAhead();
+      if (next && state.canPlace(next).ok) aimSpec = next;
+    }
     const check = state.canPlace(aimSpec);
     aimProblem = check.ok ? null : check.problem;
     ghost.show(aimSpec, check.ok ? "ok" : "bad");
+  }
+
+  /** The ramp the builder is standing on, if any. */
+  function rampUnderfoot(): Piece | undefined {
+    if (!player.onGround) return undefined;
+    const cx = Math.floor(player.position.x / CELL), cz = Math.floor(player.position.z / CELL);
+    for (const y of [Math.floor(player.feetY / LEVEL), Math.floor((player.feetY - 0.2) / LEVEL)]) {
+      const p = state.occupant({ type: "ramp", x: cx, y, z: cz, rot: 0 });
+      if (p?.type === "ramp") return p;
+    }
+    return undefined;
+  }
+
+  /**
+   * The next ramp of the staircase underfoot: one cell on and one storey up, the
+   * same way, while the builder faces within about 60 degrees of up the ramp.
+   */
+  function rampAhead(): PieceSpec | null {
+    const under = rampUnderfoot();
+    if (!under) return null;
+    const [dx, dz] = RAMP_DIR[under.rot];
+    if (!facingAlong(under.rot)) return null;
+    return { type: "ramp", x: under.x + dx, y: under.y + 1, z: under.z + dz, rot: under.rot };
+  }
+
+  /** True when the builder faces within about 60 degrees of the way a ramp with rotation `rot` climbs. */
+  function facingAlong(rot: number): boolean {
+    const [dx, dz] = RAMP_DIR[rot]!;
+    return Math.sin(rig.yaw) * dx + Math.cos(rig.yaw) * dz >= 0.5;
+  }
+
+  /** Sets which way the next ramp turns from straight ahead (0 = straight), and shows it. */
+  function setTurn(turn: number): void {
+    if (turn === rotation) return;
+    rotation = turn;
+    lastTriedSlot = "";
+    touch?.setTurn(turn, TURN_NAMES[turn]!);
   }
 
   // ── The shared world ─────────────────────────────────────────────────

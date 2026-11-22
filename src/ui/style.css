@@ -646,7 +646,9 @@ body.touch button { touch-action: manipulation; }
 #t-fire { width: 84px; height: 84px; bottom: calc(var(--b) + 40px); font-size: 16px; }
 #t-remove { right: calc(var(--r) + 84px); bottom: var(--b); }
 #t-edit { right: calc(var(--r) + 84px); bottom: calc(var(--b) + 60px); }
-#t-turn { right: calc(var(--r) + 84px); bottom: calc(var(--b) + 120px); }
+/* Turn sits with the other settings-like buttons, well away from Place. */
+#t-turn { left: var(--l); top: calc(env(safe-area-inset-top, 0px) + 190px); width: auto; min-width: 56px; height: 34px; padding: 0 12px; border-radius: 17px; font-size: 11px; }
+#t-turn.on { background: rgba(240, 118, 90, 0.9); border-color: #fff; }
 #t-material { left: var(--l); top: calc(env(safe-area-inset-top, 0px) + 142px); width: auto; height: 38px; padding: 0 12px 0 6px; border-radius: 19px; font-size: 12px; }
 #t-material .swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--cream); }
 #t-zoom { right: calc(var(--r) + 98px); bottom: calc(var(--b) + 40px); width: 56px; height: 56px; }

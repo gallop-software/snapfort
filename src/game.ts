@@ -47,7 +47,7 @@ import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
 import { Debris } from "./render/debris";
 import { RemotePlayers } from "./render/remotePlayers";
-import { TowerFlags } from "./render/towerFlags";
+import { TowerFlag } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
 import { TREBUCHET_BASE } from "./render/geometry";
 import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
@@ -125,7 +125,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const trebuchets = new TrebuchetView(scene, state, world.shadows);
   // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
   const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)));
-  const flags = new TowerFlags(scene);
+  const flag = new TowerFlag(scene);
   /** Hits taken by damaged pieces (from the server), so their cracks show. */
   const damage = new Map<string, number>();
   const tint = (id: string) => {
@@ -1056,8 +1056,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   function showTowers(list: readonly [number, number, number, number, number][]): void {
     tallest = list;
-    hud.setTowers(list.map((t) => t[0]));
-    flags.show(list);
+    flag.show(list);
   }
   if (input.touch) {
     // A pretend key event for on-screen buttons that do a key's job.
@@ -1132,7 +1131,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (touch) touch.mode = crewOn ? "crew" : editing ? "edit" : "build";
     trebuchets.update(dt);
     debris.update(dt);
-    flags.update(dt);
+    flag.update(dt);
     updateCrewHud(now);
     view.flush();
 
@@ -1166,7 +1165,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, flag, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

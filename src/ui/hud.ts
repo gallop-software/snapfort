@@ -195,14 +195,6 @@ export class Hud {
     if (count !== null) node.textContent = `${count} ${count === 1 ? "builder" : "builders"} online`;
   }
 
-  /** The tallest towers: [height m, ...] tallest first; empty hides the board. */
-  setTowers(heights: readonly number[]): void {
-    const node = el("towers");
-    node.hidden = heights.length === 0;
-    const colors = ["#f2b134", "#c9d2dc", "#d48a52", "#8fa3b8", "#8fa3b8"];
-    node.innerHTML = `<b>Tallest towers</b>` + heights.map((h, i) => `<div><i style="background:${colors[i]}"></i>${Math.round(h)} m</div>`).join("");
-  }
-
   /** The trebuchet panel: a status line and the controls; null hides it. */
   setCrew(status: { text: string; ok: boolean; zoom?: string } | null): void {
     const node = el("crew");

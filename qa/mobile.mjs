@@ -52,7 +52,7 @@ const layoutProblems = (p, ids) => p.evaluate((ids) => {
   return problems;
 }, ids);
 
-const controlIds = ["hotbar-wrap", "online", "towers", "t-settings", "t-undo", "t-redo", "t-jump", "t-place", "t-remove", "t-edit", "t-turn", "t-material", "t-board", "t-fire", "t-zoom", "t-leave", "crew", "edit-hint"];
+const controlIds = ["hotbar-wrap", "online", "t-settings", "t-undo", "t-redo", "t-jump", "t-place", "t-remove", "t-edit", "t-turn", "t-material", "t-board", "t-fire", "t-zoom", "t-leave", "crew", "edit-hint"];
 
 // ── 1. Fit on many screens ───────────────────────────────────────────────
 const screens = [
@@ -71,7 +71,7 @@ for (const [name, device] of screens) {
   const menuFits = await p.evaluate(() => { const o = document.getElementById("overlay"); return o.scrollHeight <= o.clientHeight + 1; });
   check(`${name} ${size}: the menu fits, nothing off screen`, menu.length === 0 && menuFits, [...menu, menuFits ? "" : "menu needs scrolling"].filter(Boolean).slice(0, 4).join("; "));
   await p.tap("#play-free"); await wait(800);
-  // A tower in the world, so the tallest-towers board shows too.
+  // A tower in the world, so its flag is up too.
   await p.evaluate(() => { const s = window.snapfort; for (let y = 0; y < 4; y++) s.history.do({ kind: "place", piece: { type: "wall", x: 8, y, z: 8, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); });
   await wait(2200);
   const play = await layoutProblems(p, controlIds);

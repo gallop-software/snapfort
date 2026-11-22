@@ -44,7 +44,9 @@ for (let y = 0; y < 6; y++) {
 const built = await put(a, towerPieces);
 await wait(2200); // towers are measured 1.5 s after changes
 check(`A's ${built}-piece tower is on B's page`, (await ids(a)) === (await ids(b)));
-check("both see it as the tallest tower", (await a.textContent("#towers")).includes("23 m") && (await b.textContent("#towers")).includes("23 m"), (await b.textContent("#towers")).replace(/\s+/g, " "));
+const flagOf = (p) => sf(p, () => ({ text: window.snapfort.flag.text, at: window.snapfort.flag.at, n: window.snapfort.scene.meshes.filter((m) => m.name === "flag-banner").length, board: !!document.getElementById("towers") }));
+const flagA = await flagOf(a), flagB = await flagOf(b);
+check("both see the one flag on it, with its height, and no tower board", flagA.text === "Tallest · 23 m" && flagB.text === flagA.text && flagA.n === 1 && !flagA.board && Math.abs(flagB.at[1] - 23) < 1, JSON.stringify(flagB));
 
 // B: a trebuchet on the ground 60 m south of the tower.
 await sf(b, () => { const s = window.snapfort; s.player.teleport(2.5, 0.95, 12 * 5 - 60 - 4); s.rig.yaw = 0; s.rig.pitch = 0.1; });
@@ -130,7 +132,7 @@ await a.screenshot({ path: "qa/shots/trebuchet-collapse.png" });
 await wait(6000);
 check("the rubble is gone after a few seconds, also on the page that slept through it", (await sf(a, () => window.snapfort.debris.count)) === 0 && (await sf(b, () => window.snapfort.debris.count)) === 0);
 await wait(1000);
-check("the tower board drops the fallen tower", !(await a.textContent("#towers")).includes("23 m"), (await a.textContent("#towers")).replace(/\s+/g, " ") || "(empty)");
+check("the flag leaves the fallen tower", (await flagOf(a)).text !== "Tallest · 23 m", JSON.stringify(await flagOf(a)));
 
 // B fires at open ground, and their tab sleeps right away; it wakes after the reload.
 await aimAt(-30, 0, 30);

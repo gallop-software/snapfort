@@ -208,13 +208,12 @@ export class TrebuchetView {
    * target and the stone's arc, green when in range, red when not. null hides it.
    */
   showTarget(from: Vec | null, to: Vec | null, ok: boolean): void {
-    this.arc?.dispose();
-    this.arc = null;
     if (!from || !to) {
       this.marker.setEnabled(false);
+      this.arc?.setEnabled(false);
       return;
     }
-    this.markerMaterial.emissiveColor = ok ? new Color3(0.2, 0.9, 0.4) : new Color3(0.95, 0.3, 0.25);
+    this.markerMaterial.emissiveColor.set(ok ? 0.2 : 0.95, ok ? 0.9 : 0.3, ok ? 0.4 : 0.25);
     this.marker.setEnabled(true);
     this.marker.position.set(to[0], to[1] + 0.05, to[2]);
     const flight = planFlight(from, to);
@@ -226,8 +225,14 @@ export class TrebuchetView {
       // Dashes: every other stretch faded out.
       colors.push(Math.floor(i / 2) % 2 === 0 ? color : new Color4(color.r, color.g, color.b, 0.15));
     }
-    this.arc = CreateLines("target-arc", { points, colors, useVertexAlpha: true }, this.scene);
-    this.arc.isPickable = false;
+    // Made once, then updated in place (it follows the crosshair every frame).
+    if (this.arc) {
+      CreateLines("target-arc", { points, colors, instance: this.arc });
+      this.arc.setEnabled(true);
+    } else {
+      this.arc = CreateLines("target-arc", { points, colors, useVertexAlpha: true, updatable: true }, this.scene);
+      this.arc.isPickable = false;
+    }
   }
 
   /** Animates arms and stones. Call once a frame. */

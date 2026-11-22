@@ -210,7 +210,7 @@ export class Hud {
     if (!status) return;
     const html =
       `<div class="status ${status.ok ? "ok" : "bad"}">${status.text}</div>` +
-      `<kbd>Right click</kbd> set target · <kbd>Click</kbd> fire · <kbd>Wheel</kbd> zoom${status.zoom ? ` ${status.zoom}` : ""} · <kbd>H</kbd> get off`;
+      `<kbd>Click</kbd> fire · <kbd>Wheel</kbd> zoom${status.zoom ? ` ${status.zoom}` : ""} · <kbd>H</kbd> get off`;
     if (node.innerHTML !== html) node.innerHTML = html;
   }
 

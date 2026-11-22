@@ -60,7 +60,7 @@ await wait(500);
 check("H gets B on the trebuchet", !!(await sf(b, () => window.snapfort.crewOn)));
 check("…and shows the trebuchet panel", await b.isVisible("#crew"), await b.textContent("#crew"));
 
-// Aim: point the camera at the tower's base and right click.
+// Aim: point the crosshair at the tower's base; the crosshair is the target.
 const aimAt = async (x, y, z) => {
   for (let i = 0; i < 4; i++) {
     await sf(b, ([x, y, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(y - p.y, Math.hypot(x - p.x, z - p.z)); }, [x, y, z]);
@@ -68,9 +68,9 @@ const aimAt = async (x, y, z) => {
   }
 };
 await aimAt(2.5, 1.5, 60);
-await b.mouse.down({ button: "right" }); await b.mouse.up({ button: "right" }); await frames(b, 3);
+await frames(b, 3);
 const target = await sf(b, () => window.snapfort.target);
-check("right click sets a target on the tower", !!target && Math.abs(target[2] - 60) < 1.5, JSON.stringify(target?.map((v) => +v.toFixed(1))));
+check("aiming at the tower makes it the target (no right click needed)", !!target && Math.abs(target[2] - 60) < 1.5, JSON.stringify(target?.map((v) => +v.toFixed(1))));
 check("the panel says it is in range and ready", (await b.textContent("#crew")).includes("ready"), await b.textContent("#crew"));
 await b.screenshot({ path: "qa/shots/trebuchet-aim.png" });
 
@@ -123,7 +123,7 @@ check("the tower board drops the fallen tower", !(await a.textContent("#towers")
 
 // B fires at open ground, and their tab sleeps right away; it wakes after the reload.
 await aimAt(-30, 0, 30);
-await b.mouse.down({ button: "right" }); await b.mouse.up({ button: "right" }); await frames(b, 3);
+await frames(b, 3);
 await b.mouse.down(); await b.mouse.up();
 await wait(250);
 const swung = await armNow();
@@ -135,7 +135,7 @@ check("a trebuchet whose tab slept through the reload is wound and ready the mom
 
 // Too close: aim at the ground right in front.
 await aimAt(2.5, 0, 12);
-await b.mouse.down({ button: "right" }); await b.mouse.up({ button: "right" }); await frames(b, 3);
+await frames(b, 3);
 check("a target nearer than the minimum shows as too close", (await b.textContent("#crew")).includes("too close"), await b.textContent("#crew"));
 
 // A removes the trebuchet while B is on it.

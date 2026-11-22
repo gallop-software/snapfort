@@ -515,8 +515,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     // Flying through the air, or flat on the ground: hands are busy.
     if (player.knockedDown) return;
     if (crewOn) {
-      if (button === 2) setTarget();
-      else if (button === 0) fireStone();
+      // Aim and shoot: the crosshair is the target.
+      if (button === 0) fireStone();
       return;
     }
     if (editing) {
@@ -895,8 +895,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     return [x, y + 0.8, z];
   }
 
-  /** Right click on a trebuchet: aim at the spot under the crosshair. */
-  function setTarget(): void {
+  /**
+   * On a trebuchet the crosshair is the target: every frame, the spot under it
+   * becomes the target, the trebuchet turns toward it, and the ring and arc
+   * follow (green in range, red not).
+   */
+  function aimScope(): void {
     const t = crewOn ? state.get(crewOn) : undefined;
     if (!t) return;
     const start = rig.pivot.clone();
@@ -910,21 +914,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (view.pieceIdOf(ray.body) === t.id) start.copyFrom(hit.add(rig.forward.scale(0.2)));
       else point = [hit.x, hit.y, hit.z];
     }
-    if (!point) {
-      hud.toast("Aim at something to set a target");
-      return sfx.deny();
-    }
     target = point;
+    if (!point) return trebuchets.showTarget(null, null, false);
     trebuchets.aimAt(t.id, point);
     trebuchets.showTarget(launchPoint(t), point, checkRange(t, point) === "ok");
-    sfx.rotate();
   }
 
   function fireStone(): void {
     const t = crewOn ? state.get(crewOn) : undefined;
     if (!t) return;
+    aimScope();
     if (!target) {
-      hud.toast("Right click to set a target first");
+      hud.toast("Aim at something to fire at it");
       return sfx.deny();
     }
     const range = checkRange(t, target);
@@ -956,7 +957,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       const reload = Math.max(0, (readyAt - now) / 1000);
       const reach = `range ${TREBUCHET.minRange}–${Math.round(maxRange(t))} m`;
       let status: { text: string; ok: boolean };
-      if (!target) status = { text: `Right click a target · ${reach}`, ok: true };
+      if (!target) status = { text: `Aim at a target · ${reach}`, ok: true };
       else {
         const d = Math.round(rangeTo(t, target));
         const range = checkRange(t, target);
@@ -1005,6 +1006,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (crewOn || player.knockedDown) {
       ghost.hide();
       placing = false;
+      if (crewOn && input.locked) aimScope();
     } else if (input.locked && editing) {
       updateEdit();
     } else if (input.locked) {

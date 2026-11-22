@@ -131,8 +131,14 @@ export function pieceGeometry(type: PieceType): VertexData {
         { pts: [p[3]!, p[2]!, p[1]!, p[0]!] },
       ]);
     }
+    case "trebuchet":
+      // Only the turntable base: the frame and arm above it turn to aim (see trebuchetView.ts).
+      return buildConvex(box([-H * 0.84, 0, -H * 0.84], [H * 0.84, TREBUCHET_BASE, H * 0.84], "y"));
   }
 }
+
+/** Height of a trebuchet's turntable base. */
+export const TREBUCHET_BASE = 0.5;
 
 /**
  * Texture coordinates for one tile of an edited piece, matching what the

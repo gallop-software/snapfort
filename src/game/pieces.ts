@@ -5,7 +5,8 @@ import { CELL, LEVEL, MAX_LEVEL, WORLD_HALF_CELLS } from "./constants";
  * by the game, the unit tests and (later) a multiplayer server.
  */
 
-export const PIECE_TYPES = ["wall", "floor", "ramp", "roof"] as const;
+/** New types go on the end: the position in this list is how pieces are saved and sent. */
+export const PIECE_TYPES = ["wall", "floor", "ramp", "roof", "trebuchet"] as const;
 export type PieceType = (typeof PIECE_TYPES)[number];
 
 /** Quarter turns about the vertical axis. */
@@ -20,6 +21,8 @@ export type Rot = 0 | 1 | 2 | 3;
  * - ramp: fills the cell and climbs one storey. rot 0 climbs toward +z, 1 toward +x,
  *   2 toward -z, 3 toward -x.
  * - roof: a four-sided cone filling the cell.
+ * - trebuchet: a siege engine filling the cell, standing on a floor or the
+ *   ground. It turns on its base toward whatever it aims at, so it has no rotation.
  */
 export interface PieceSpec {
   type: PieceType;
@@ -63,6 +66,7 @@ export const PIECE_DEFS: Record<PieceType, PieceDef> = {
   floor: { type: "floor", label: "Floor", rotations: 1 },
   ramp: { type: "ramp", label: "Ramp", rotations: 4 },
   roof: { type: "roof", label: "Roof", rotations: 1 },
+  trebuchet: { type: "trebuchet", label: "Trebuchet", rotations: 1 },
 };
 
 /**

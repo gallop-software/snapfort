@@ -67,6 +67,61 @@ body.playing #crosshair { opacity: 1; }
 #online { right: 12px; }
 #online[hidden] { display: none; }
 
+/* Tallest towers, top right under the builder count. */
+#towers {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: rgba(31, 42, 55, 0.62);
+  color: var(--cream);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+#towers[hidden] { display: none; }
+#towers b { display: block; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
+#towers i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; font-style: normal; }
+
+/* On a trebuchet: what it is aimed at and how to work it. */
+#crew {
+  position: absolute;
+  left: 50%;
+  bottom: 118px;
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  border-radius: 14px;
+  background: rgba(31, 42, 55, 0.8);
+  color: var(--cream);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+#crew[hidden] { display: none; }
+#crew .status { font-size: 15px; font-weight: 800; margin-bottom: 3px; }
+#crew .ok { color: #7be495; }
+#crew .bad { color: #ff8a73; }
+#crew kbd { padding: 1px 6px; border-radius: 6px; background: var(--cream); color: var(--ink); font: inherit; font-size: 11px; font-weight: 800; }
+
+#hint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  transform: translateX(-50%);
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: rgba(31, 42, 55, 0.72);
+  color: var(--cream);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+#hint[hidden] { display: none; }
+#hint kbd { padding: 1px 6px; border-radius: 6px; background: var(--cream); color: var(--ink); font: inherit; font-size: 11px; }
+
 /* Connection trouble, at the top of the screen. */
 #net {
   position: absolute;

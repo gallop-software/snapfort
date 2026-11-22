@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { BuildState, type BuildOp } from "../src/game/buildState";
+import { findLooseAfterRemoval } from "../src/game/structure";
+import { measureTowers } from "../src/game/towers";
+import { checkRange, findImpact, launchPoint, planFlight, strike, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import type { Piece } from "../src/game/pieces";
 import { applyAction } from "../src/net/authority";
 import {
@@ -16,6 +19,7 @@ import {
   type WireOp,
   type WirePiece,
   type WirePlayer,
+  type WireTower,
 } from "../src/net/protocol";
 
 export interface Env {
@@ -63,6 +67,9 @@ const LOG_MS = 7 * 24 * 3600_000;
 /** Positions accepted, in centimetres: the building area plus a margin. */
 const MAX_COORD = 60_000;
 
+/** Tower heights go out this long after the build changes (they take a full search to work out). */
+const TOWERS_MS = 1_500;
+
 /** One logged change: time, who, the operation and what undoes it. */
 type LogEntry = [number, string, WireOp, WireOp];
 
@@ -90,6 +97,17 @@ export class World extends DurableObject<Env> {
   private readonly moves = new Map<string, WireMove>();
   private readonly budgets = new Map<WebSocket, { tokens: number; at: number }>();
   private readonly messageCounts = new Map<WebSocket, { count: number; second: number }>();
+
+  /** Trebuchet id → id of the builder on it, and the reverse. */
+  private readonly crews = new Map<string, string>();
+  private readonly crewOf = new Map<string, string>();
+  /** When each trebuchet may throw again (ms). */
+  private readonly readyAt = new Map<string, number>();
+  /** Hits taken by pieces that have not broken yet. */
+  private readonly damage = new Map<string, number>();
+  private nextShot = 1;
+  private towers: WireTower[] = [];
+  private towersTimer: ReturnType<typeof setTimeout> | null = null;
 
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -159,6 +177,12 @@ export class World extends DurableObject<Env> {
       }
       case "sync":
         return send(ws, { t: "snap", pieces: this.allPieces() });
+      case "board":
+        return this.board(ws, player, msg.id, msg.at);
+      case "leave":
+        return this.release(player.id);
+      case "fire":
+        return this.fire(ws, player, msg.id, msg.to);
     }
   }
 
@@ -192,6 +216,9 @@ export class World extends DurableObject<Env> {
       pieces: this.allPieces(),
       players: others.map(publicPlayer),
       moves: others.map((p) => this.moves.get(p.id) ?? p.move).filter((m): m is WireMove => m !== undefined),
+      crews: [...this.crews],
+      damage: [...this.damage],
+      towers: this.towers,
     });
     this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
   }
@@ -203,6 +230,7 @@ export class World extends DurableObject<Env> {
     this.messageCounts.delete(ws);
     if (!player) return;
     this.moves.delete(player.id);
+    this.release(player.id);
     this.broadcast({ t: "leave", id: player.id });
     if (this.players.size === 0) this.flush();
   }
@@ -226,6 +254,7 @@ export class World extends DurableObject<Env> {
     if (done.length + extra.length > 0) {
       this.broadcast({ t: "ops", by: player.id, ops: [...done.map((d) => encodeOp(d.op)), ...extraWire] }, ws);
       this.scheduleFlush();
+      this.scheduleTowers();
     }
   }
 
@@ -269,6 +298,7 @@ export class World extends DurableObject<Env> {
     }
     this.flush();
     this.broadcast({ t: "snap", pieces: this.allPieces() });
+    this.scheduleTowers();
     return count;
   }
 
@@ -286,6 +316,104 @@ export class World extends DurableObject<Env> {
       }
     }
     return this.applyAsAdmin(undo);
+  }
+
+  // ── Trebuchets ─────────────────────────────────────────────────────────
+
+  /** Puts a builder on a trebuchet, if it is free and they are standing by it. */
+  private board(ws: WebSocket, player: Attachment, id: unknown, at: unknown): void {
+    const t = typeof id === "string" ? this.build.get(id) : undefined;
+    if (!t || t.type !== "trebuchet") return send(ws, { t: "denied", reason: "gone" });
+    const crew = this.crews.get(t.id);
+    if (crew && crew !== player.id) return send(ws, { t: "denied", reason: "busy" });
+    const pos = readVec(at);
+    const base = trebuchetBase(t);
+    if (!pos || Math.hypot(pos[0] - base[0], pos[2] - base[2]) > TREBUCHET.boardReach + 1 || Math.abs(pos[1] - base[1]) > 4) {
+      return send(ws, { t: "denied", reason: "far" });
+    }
+    if (crew === player.id) return;
+    this.release(player.id);
+    this.crews.set(t.id, player.id);
+    this.crewOf.set(player.id, t.id);
+    this.broadcast({ t: "crew", id: t.id, by: player.id });
+  }
+
+  /** Takes a builder off whatever trebuchet they are on. */
+  private release(playerId: string): void {
+    const id = this.crewOf.get(playerId);
+    if (id === undefined) return;
+    this.crewOf.delete(playerId);
+    this.crews.delete(id);
+    this.broadcast({ t: "crew", id, by: null });
+  }
+
+  /** Throws a stone from the trebuchet the builder is on at point `to`. */
+  private fire(ws: WebSocket, player: Attachment, id: unknown, to: unknown): void {
+    const t = typeof id === "string" ? this.build.get(id) : undefined;
+    if (!t || t.type !== "trebuchet" || this.crews.get(t.id) !== player.id) return send(ws, { t: "denied", reason: "gone" });
+    const target = readVec(to);
+    if (!target) return;
+    const now = Date.now();
+    if (now < (this.readyAt.get(t.id) ?? 0) - 150) return send(ws, { t: "denied", reason: "reload" });
+    const range = checkRange(t, target);
+    if (range !== "ok") return send(ws, { t: "denied", reason: range === "near" ? "near" : "range" });
+    this.readyAt.set(t.id, now + TREBUCHET.reload * 1000);
+    const from = launchPoint(t);
+    const flight = planFlight(from, target);
+    const shot = this.nextShot++;
+    this.broadcast({ t: "shot", shot, id: t.id, by: player.id, from: round(from), to: round(target) });
+    this.followStone(shot, flight, t.id, player.id, findImpact(this.build, flight, t.id).time, now);
+  }
+
+  /**
+   * Waits for the stone to arrive, then checks again (the build may have
+   * changed in flight): if what it was heading for has gone, it flies on.
+   */
+  private followStone(shot: number, flight: Flight, ignore: string, by: string, at: number, launched: number): void {
+    const wait = Math.max(0, launched + at * 1000 - Date.now());
+    setTimeout(() => {
+      const impact = findImpact(this.build, flight, ignore);
+      if (impact.time > at + 0.02) return this.followStone(shot, flight, ignore, by, impact.time, launched);
+      this.land(shot, impact.point, by);
+    }, wait);
+  }
+
+  /** A stone lands: everything in the blast takes a hit, what breaks goes, and what that strands falls. */
+  private land(shot: number, point: Vec, by: string): void {
+    const now = Date.now();
+    const { broken, damaged } = strike(this.build, point, this.damage);
+    const ops: WireOp[] = [];
+    const remove = (piece: Piece) => {
+      const op: BuildOp = { kind: "remove", id: piece.id };
+      const inverse = this.build.apply(op);
+      if (!inverse) return false;
+      ops.push(encodeOp(op));
+      this.unsavedLog.push([now, by, encodeOp(op), encodeOp(inverse)]);
+      return true;
+    };
+    const gone = broken.filter(remove);
+    const fallen = gone.length > 0 ? findLooseAfterRemoval(this.build, gone).filter(remove) : [];
+    this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
+    if (ops.length > 0) {
+      this.scheduleFlush();
+      this.scheduleTowers();
+    }
+  }
+
+  // ── Towers ─────────────────────────────────────────────────────────────
+
+  private scheduleTowers(): void {
+    this.towersTimer ??= setTimeout(() => {
+      this.towersTimer = null;
+      const next = this.measure();
+      if (JSON.stringify(next) === JSON.stringify(this.towers)) return;
+      this.towers = next;
+      this.broadcast({ t: "towers", list: next });
+    }, TOWERS_MS);
+  }
+
+  private measure(): WireTower[] {
+    return measureTowers(this.build, 5).map((t) => [Math.round(t.height * 100) / 100, ...round(t.top), t.pieces]);
   }
 
   // ── Movement ───────────────────────────────────────────────────────────
@@ -326,6 +454,7 @@ export class World extends DurableObject<Env> {
       for (const piece of decodePieces(JSON.parse(row.data) as WirePiece[])) this.build.apply({ kind: "place", piece });
     }
     this.loading = false;
+    this.towers = this.measure();
   }
 
   /** Keeps the chunk index up to date and marks the chunk as needing a save. */
@@ -338,6 +467,13 @@ export class World extends DurableObject<Env> {
     } else if (op.kind === "remove" && ids) {
       ids.delete(piece.id);
       if (ids.size === 0) this.chunks.delete(key);
+    }
+    if (op.kind === "remove") {
+      this.damage.delete(piece.id);
+      // A trebuchet taken away (removed, broken or fallen) drops whoever was on it.
+      const crew = this.crews.get(piece.id);
+      if (crew !== undefined) this.release(crew);
+      this.readyAt.delete(piece.id);
     }
     if (!this.loading) this.dirty.add(key);
   }
@@ -400,3 +536,13 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 }
 
 const publicPlayer = (p: Attachment): WirePlayer => ({ id: p.id, name: p.name, color: p.color });
+
+/** A point in metres from a message, or null when malformed or far outside the world. */
+function readVec(v: unknown): Vec | null {
+  if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+  const [x, y, z] = v as number[];
+  if (Math.abs(x!) > MAX_COORD / 100 || Math.abs(z!) > MAX_COORD / 100 || y! < -10 || y! > 400) return null;
+  return [x!, y!, z!];
+}
+
+const round = (v: Vec): [number, number, number] => [Math.round(v[0] * 100) / 100, Math.round(v[1] * 100) / 100, Math.round(v[2] * 100) / 100];

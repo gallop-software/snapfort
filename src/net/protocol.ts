@@ -8,7 +8,7 @@ import { MATERIALS, PIECE_TYPES, type Piece, type Rot } from "../game/pieces";
  */
 
 /** Bump when the messages change in a way older pages cannot read. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Pieces are grouped in square chunks of this many cells, for saving (and later streaming). */
 export const CHUNK_CELLS = 16;
@@ -31,7 +31,18 @@ export interface WirePlayer {
 /** Where a builder is: [id, x, y, z, yaw, flags]. Positions in centimetres, yaw in milliradians. Flags: 1 = on the ground. */
 export type WireMove = [string, number, number, number, number, number];
 
+/** A point in metres. */
+export type WireVec = [number, number, number];
+
+/** A standing structure: [height m, top x, top y, top z, pieces]. */
+export type WireTower = [number, number, number, number, number];
+
 export type ClientMessage =
+  /** Get on trebuchet `id`, standing at `at`. */
+  | { t: "board"; id: string; at: WireVec }
+  | { t: "leave" }
+  /** Throw from the trebuchet you are on at point `to`. */
+  | { t: "fire"; id: string; to: WireVec }
   | { t: "hello"; v: number; name: string; color: string }
   | { t: "act"; seq: number; ops: WireOp[] }
   /** [x, y, z, yaw, flags], encoded like WireMove without the id. */
@@ -42,7 +53,32 @@ export type ClientMessage =
 
 export type ServerMessage =
   /** You joined: your id (also the prefix for ids of pieces you make), the whole world and who is here. */
-  | { t: "welcome"; you: string; pieces: WirePiece[]; players: WirePlayer[]; moves: WireMove[] }
+  | {
+      t: "welcome";
+      you: string;
+      pieces: WirePiece[];
+      players: WirePlayer[];
+      moves: WireMove[];
+      /** Who is on which trebuchet: [trebuchet id, builder id]. */
+      crews: [string, string][];
+      /** Hits taken by damaged pieces: [piece id, hits]. */
+      damage: [string, number][];
+      towers: WireTower[];
+    }
+  /** Trebuchet `id` now has builder `by` on it (null: nobody). */
+  | { t: "crew"; id: string; by: string | null }
+  /** A stone is thrown: it flies from `from` through `to` (see planFlight). */
+  | { t: "shot"; shot: number; id: string; by: string; from: WireVec; to: WireVec }
+  /**
+   * Stone `shot` landed at `point`. `ops` removes what broke and what fell;
+   * `fallen` lists the pieces that fell (rather than broke); `damage` the new
+   * hits of pieces that held.
+   */
+  | { t: "impact"; shot: number; point: WireVec; ops: WireOp[]; fallen: string[]; damage: [string, number][] }
+  /** The tallest standing structures, tallest first. */
+  | { t: "towers"; list: WireTower[] }
+  /** A board or fire request was turned down. */
+  | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" }
   | { t: "snap"; pieces: WirePiece[] }
   /** Someone else changed the world. */
   | { t: "ops"; by: string; ops: WireOp[] }

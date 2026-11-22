@@ -1,3 +1,4 @@
+import { CELL, LEVEL } from "./constants";
 import { boxesTouch, gridBox, inBounds, isMaterial, isValidEdit, normalizeSpec, slotKey, type Piece, type PieceSpec } from "./pieces";
 
 /**
@@ -60,8 +61,13 @@ export class BuildState {
     return { ok: true };
   }
 
+  /**
+   * Resting on the ground or touching another piece. A trebuchet must stand on
+   * the ground or on a floor in its own cell, and holds nothing else up.
+   */
   isSupported(spec: PieceSpec): boolean {
-    return gridBox(spec)[1] === 0 || this.touching(spec).length > 0;
+    if (spec.type === "trebuchet") return spec.y === 0 || this.occupant({ type: "floor", x: spec.x, y: spec.y, z: spec.z, rot: 0 }) !== undefined;
+    return gridBox(spec)[1] === 0 || this.touching(spec).some((p) => p.type !== "trebuchet");
   }
 
   /** Every piece that overlaps or touches the space `spec` takes up (not counting itself). */
@@ -78,6 +84,21 @@ export class BuildState {
             const other = this.pieces.get(id);
             if (other && boxesTouch(box, gridBox(other))) found.push(other);
           }
+        }
+      }
+    }
+    return found;
+  }
+
+  /** Pieces whose own cell is within one cell of the cell holding point (x, y, z) in metres. */
+  near(x: number, y: number, z: number): Piece[] {
+    const gx = Math.floor(x / CELL), gy = Math.floor(y / LEVEL), gz = Math.floor(z / CELL);
+    const found: Piece[] = [];
+    for (let cx = gx - 1; cx <= gx + 1; cx++) {
+      for (let cy = gy - 1; cy <= gy + 1; cy++) {
+        for (let cz = gz - 1; cz <= gz + 1; cz++) {
+          const bucket = this.cells.get(cellKey(cx, cy, cz));
+          if (bucket) for (const id of bucket) found.push(this.pieces.get(id)!);
         }
       }
     }

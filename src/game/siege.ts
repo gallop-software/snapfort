@@ -33,7 +33,7 @@ export const SIEGE = {
 };
 
 /** Hits a piece takes before it breaks. */
-export const PIECE_HITS: Record<PieceType, number> = { wall: 24, floor: 24, ramp: 16, roof: 24 };
+export const PIECE_HITS: Record<PieceType, number> = { wall: 24, floor: 24, ramp: 16, roof: 24, trebuchet: 24 };
 
 export function waveSize(wave: number): number {
   return 10 + wave * 8;

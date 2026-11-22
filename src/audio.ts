@@ -17,6 +17,21 @@ export class Sfx {
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
+  /** The arm swings: a creak and a whoosh. */
+  launch(): void {
+    this.tone("sawtooth", 90, 60, 0.25, 0.12);
+    this.noise(0.45, 0.22, 900);
+    this.tone("triangle", 260, 120, 0.3, 0.25, 0.08);
+  }
+
+  /** A stone lands: a deep thud and a spray of rubble. Quieter further away (`near` 0..1). */
+  boom(near = 1): void {
+    const v = 0.25 + 0.75 * near;
+    this.tone("sine", 110, 38, 0.6, 0.9 * v);
+    this.noise(0.5, 0.55 * v, 1200);
+    this.tone("triangle", 70, 40, 0.4, 0.5 * v, 0.05);
+  }
+
   /** A woody knock with a bright click on top. */
   place(): void {
     this.tone("triangle", 190, 95, 0.11, 0.5);

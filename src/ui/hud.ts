@@ -35,6 +35,7 @@ const ICONS: Record<string, string> = {
   floor: '<path d="M20 12 36 20 20 28 4 20Z"/><path d="M12 16l16 8M28 16 12 24"/>',
   ramp: '<path d="M5 32h30V10Z"/><path d="M15 32v-7M25 32V17"/>',
   roof: '<path d="M20 6 36 32H4Z"/><path d="M20 6v26"/>',
+  trebuchet: '<path d="M6 33h28M10 33l6-14M24 33l-6-14M17 19 31 7M17 19l-6 5"/><circle cx="10" cy="26" r="3"/><circle cx="31" cy="7" r="2"/>',
   remove: '<path d="M10 12h20l-2 22H12Z"/><path d="M7 12h26M16 12V7h8v5M17 18v10M23 18v10"/>',
 };
 
@@ -176,6 +177,32 @@ export class Hud {
     const node = el("online");
     node.hidden = count === null;
     if (count !== null) node.textContent = `${count} ${count === 1 ? "builder" : "builders"} online`;
+  }
+
+  /** The tallest towers: [height m, ...] tallest first; empty hides the board. */
+  setTowers(heights: readonly number[]): void {
+    const node = el("towers");
+    node.hidden = heights.length === 0;
+    const colors = ["#f2b134", "#c9d2dc", "#d48a52", "#8fa3b8", "#8fa3b8"];
+    node.innerHTML = `<b>Tallest towers</b>` + heights.map((h, i) => `<div><i style="background:${colors[i]}"></i>${Math.round(h)} m</div>`).join("");
+  }
+
+  /** The trebuchet panel: a status line and the controls; null hides it. */
+  setCrew(status: { text: string; ok: boolean } | null): void {
+    const node = el("crew");
+    node.hidden = status === null;
+    if (!status) return;
+    const html =
+      `<div class="status ${status.ok ? "ok" : "bad"}">${status.text}</div>` +
+      `<kbd>Right click</kbd> set target · <kbd>Click</kbd> fire · <kbd>H</kbd> get off`;
+    if (node.innerHTML !== html) node.innerHTML = html;
+  }
+
+  /** A short hint under the crosshair (HTML); null hides it. */
+  setHint(html: string | null): void {
+    const node = el("hint");
+    node.hidden = html === null;
+    if (html !== null && node.innerHTML !== html) node.innerHTML = html;
   }
 
   /** Shows connection trouble at the top of the screen. */

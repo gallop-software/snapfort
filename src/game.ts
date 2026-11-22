@@ -19,8 +19,8 @@ import {
   MATERIAL_DEFS,
   MATERIALS,
   PIECE_DEFS,
-  PIECE_TYPES,
   slotKey,
+  type Piece,
   type PieceSpec,
   type PieceType,
 } from "./game/pieces";
@@ -39,7 +39,11 @@ import type { GraphicsApi } from "./render/engine";
 import { Ghost, PieceView, PlaceFlash } from "./render/pieceView";
 import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
+import { Debris } from "./render/debris";
 import { RemotePlayers } from "./render/remotePlayers";
+import { TowerFlags } from "./render/towerFlags";
+import { TrebuchetView } from "./render/trebuchetView";
+import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
 import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
@@ -47,9 +51,9 @@ import { createWorld } from "./render/world";
 import { clock, Hud, showStats, type HotbarItem } from "./ui/hud";
 
 type Tool = PieceType | "remove";
-const TOOLS: readonly Tool[] = [...PIECE_TYPES, "remove"];
+const TOOLS: readonly Tool[] = ["wall", "floor", "ramp", "roof", "remove", "trebuchet"];
 /** Quick keys beside WASD, one per piece. F1 to F4 and the number keys work too. */
-const TOOL_KEYS: Record<Tool, string> = { wall: "Z", floor: "F", ramp: "X", roof: "C", remove: "V" };
+const TOOL_KEYS: Record<Tool, string> = { wall: "Z", floor: "F", ramp: "X", roof: "C", remove: "V", trebuchet: "B" };
 const FUNCTION_KEYS: Record<string, Tool> = { F1: "wall", F2: "floor", F3: "ramp", F4: "roof" };
 
 /** "free": building only. "siege": the army comes (not on the menu for now). "menu": nothing chosen yet. */
@@ -102,6 +106,21 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const sfx = new Sfx();
   const army = new SoldierView(scene, world.shadows);
   const remotes = new RemotePlayers(scene, world.shadows);
+  const trebuchets = new TrebuchetView(scene, state, world.shadows);
+  const debris = new Debris(scene, (piece) => view.debrisMesh(piece));
+  const flags = new TowerFlags(scene);
+  /** Hits taken by damaged pieces (from the server), so their cracks show. */
+  const damage = new Map<string, number>();
+  const tint = (id: string) => {
+    const piece = state.get(id);
+    const hits = damage.get(id);
+    if (piece && hits) view.setDamage(piece, Math.min(0.9, hits / hitPoints(piece)));
+  };
+  // A damaged piece drawn again (after a correction from the server) keeps its cracks.
+  state.subscribe((op, piece) => {
+    if (op.kind === "remove") damage.delete(piece.id);
+    else if (damage.has(piece.id)) tint(piece.id);
+  });
   const resolution = new ResolutionGovernor(engine);
 
   const settings = loadSettings();
@@ -184,6 +203,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       settings.graphics = mode;
       saveSettings(settings);
       graphics.apply(mode);
+      debris.limit = graphics.effective === "saver" ? 40 : 140;
     },
     setIdentity(next) {
       identity.name = next.name;
@@ -265,7 +285,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     lastTriedSlot = slotKey(aimSpec);
     if (aimProblem) {
       if (announce) {
-        hud.toast(PROBLEM_TEXT[aimProblem]);
+        hud.toast(aimSpec.type === "trebuchet" && aimProblem === "unsupported" ? "A trebuchet needs a floor or the ground under it" : PROBLEM_TEXT[aimProblem]);
         sfx.deny();
       }
       return;
@@ -426,6 +446,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   });
   input.onMouseDown = (button) => {
     sfx.unlock();
+    if (crewOn) {
+      if (button === 2) setTarget();
+      else if (button === 0) fireStone();
+      return;
+    }
     if (editing) {
       if (button === 0 && editing.hover >= 0) {
         editing.paint = ((editing.cut >> editing.hover) & 1) === 0;
@@ -459,6 +484,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (command && code === "KeyZ") return event.shiftKey ? redo() : undo();
     if (command && code === "KeyY") return redo();
     if (command) return;
+    if (code === "KeyH") return toggleCrew();
+    // On a trebuchet the hands are busy: no building until getting off.
+    if (crewOn) return;
     const fnTool = FUNCTION_KEYS[code];
     if (fnTool) return toggleTool(TOOLS.indexOf(fnTool));
     if (code.startsWith("Digit")) {
@@ -485,7 +513,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   scene.onAfterPhysicsObservable.add(() => {
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
     if (dt <= 0) return;
-    const on = input.locked;
+    // On a trebuchet the builder stands still at its controls.
+    const on = input.locked && !crewOn;
     // Arrow keys and WASD both move the builder.
     const key = (a: string, b: string) => (input.isDown(a) || input.isDown(b) ? 1 : 0);
     player.step(dt, {
@@ -562,8 +591,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.setNetStatus(status);
       showOnline();
     },
-    welcome(you, pieces, players, moves) {
+    welcome(you, pieces, players, moves, extras) {
       joined = true;
+      leaveCrew();
+      crews.clear();
+      for (const [id, by] of extras.crews) crews.set(id, by);
       myId = you;
       idSource = createIdSource(you);
       finishEdit(false);
@@ -574,6 +606,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       const now = performance.now();
       for (const m of moves) remotes.move(m, now);
       showOnline();
+      damage.clear();
+      for (const [id, hits] of extras.damage) {
+        damage.set(id, hits);
+        tint(id);
+      }
+      showTowers(extras.towers);
     },
     snapshot(pieces) {
       if (solo) return;
@@ -602,7 +640,205 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       const now = performance.now();
       for (const m of list) remotes.move(m, now);
     },
+    crew(id, by) {
+      if (by === null) crews.delete(id);
+      else crews.set(id, by);
+      if (by === myId && !solo) joinCrew(id);
+      else if (crewOn === id) {
+        leaveCrew();
+        if (!state.get(id)) hud.toast("Your trebuchet is gone");
+      }
+    },
+    shot(shot, id, by, from, to) {
+      if (solo) return;
+      trebuchets.throwStone(shot, id, from, to);
+      if (by === myId) readyAt = performance.now() + TREBUCHET.reload * 1000;
+      const near = nearness(from);
+      if (near > 0) sfx.launch();
+    },
+    impact(shot, point, ops, fallen, hits) {
+      if (solo) return;
+      trebuchets.land(shot);
+      // Take copies of what is coming down before it goes, for the rubble.
+      const falling = new Set(fallen);
+      const pieces = ops.flatMap((op) => (op.kind === "remove" && state.get(op.id) ? [{ ...state.get(op.id)! }] : []));
+      const broken = new Set(pieces.filter((p) => !falling.has(p.id)).map((p) => p.id));
+      synced.remote(ops);
+      debris.spawn(pieces, broken, point);
+      debris.puff(new Vector3(...point), 3.2, 1.3);
+      for (const [id, n] of hits) {
+        damage.set(id, n);
+        tint(id);
+      }
+      const near = nearness(point);
+      if (near > 0) {
+        sfx.boom(near);
+        if (pieces.length > 4) sfx.crumble();
+      }
+    },
+    towers(list) {
+      showTowers(list);
+    },
+    denied(reason) {
+      const text: Record<string, string> = {
+        busy: "Someone else is on that trebuchet",
+        far: "Get closer to the trebuchet",
+        near: `Too close: aim at least ${TREBUCHET.minRange} m away`,
+        range: "Out of range: build higher or get closer",
+        reload: "Still reloading",
+        gone: "That trebuchet is gone",
+      };
+      hud.toast(text[reason] ?? "Not now");
+      sfx.deny();
+    },
   });
+
+  // ── Trebuchets ───────────────────────────────────────────────────────
+  /** Who is on each trebuchet (trebuchet id → builder id). */
+  const crews = new Map<string, string>();
+  /** The trebuchet this builder is on, and where it is aimed. */
+  let crewOn: string | null = null;
+  let target: Vec | null = null;
+  /** When this builder's trebuchet can throw again (performance.now() ms). */
+  let readyAt = 0;
+
+  /** 1 right here, falling to 0 at 160 m: how loud something is. */
+  const nearness = (p: Vec) => Math.max(0, 1 - Math.hypot(p[0] - player.position.x, p[1] - player.position.y, p[2] - player.position.z) / 160);
+
+  /** The trebuchet within reach of the builder, nearest first. */
+  function trebuchetInReach(): Piece | undefined {
+    let best: Piece | undefined;
+    let bestDist = Infinity;
+    for (const p of state.near(player.position.x, player.feetY + 0.5, player.position.z)) {
+      if (p.type !== "trebuchet") continue;
+      const [x, y, z] = trebuchetBase(p);
+      const d = Math.hypot(x - player.position.x, z - player.position.z);
+      if (d <= TREBUCHET.boardReach && Math.abs(y - player.feetY) < 3 && d < bestDist) {
+        best = p;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
+  function toggleCrew(): void {
+    if (crewOn) {
+      net.leaveTrebuchet();
+      leaveCrew();
+      return;
+    }
+    if (solo) return;
+    const t = trebuchetInReach();
+    if (!t) {
+      hud.toast("Stand next to a trebuchet to get on");
+      return sfx.deny();
+    }
+    if (crews.has(t.id) && crews.get(t.id) !== myId) {
+      hud.toast("Someone else is on that trebuchet");
+      return sfx.deny();
+    }
+    net.board(t.id, [player.position.x, player.feetY, player.position.z]);
+  }
+
+  function joinCrew(id: string): void {
+    const t = state.get(id);
+    if (!t) return;
+    finishEdit(false);
+    placing = false;
+    ghost.hide();
+    crewOn = id;
+    target = null;
+    // Stand at its side, a little back, with the trebuchet on the left: the camera looks
+    // over the right shoulder, so the view toward the target stays clear.
+    const [x, y, z] = trebuchetBase(t);
+    const fx = Math.sin(rig.yaw), fz = Math.cos(rig.yaw);
+    player.teleport(x + fz * 3.2 - fx * 1.2, y + 0.95, z - fx * 3.2 - fz * 1.2);
+    sfx.select();
+  }
+
+  function leaveCrew(): void {
+    if (!crewOn) return;
+    crewOn = null;
+    target = null;
+    trebuchets.showTarget(null, null, false);
+    hud.setCrew(null);
+  }
+
+  /** Right click on a trebuchet: aim at the spot under the crosshair. */
+  function setTarget(): void {
+    const t = crewOn ? state.get(crewOn) : undefined;
+    if (!t) return;
+    const start = rig.pivot.clone();
+    const end = start.add(rig.forward.scale(600));
+    let point: Vec | null = null;
+    // Look past this trebuchet's own frame.
+    for (let tries = 0; tries < 3 && !point; tries++) {
+      physics.raycastToRef(start, end, ray, IGNORE_BUILDER);
+      if (!ray.hasHit) break;
+      const hit = ray.hitPointWorld;
+      if (view.pieceIdOf(ray.body) === t.id) start.copyFrom(hit.add(rig.forward.scale(0.2)));
+      else point = [hit.x, hit.y, hit.z];
+    }
+    if (!point) {
+      hud.toast("Aim at something to set a target");
+      return sfx.deny();
+    }
+    target = point;
+    trebuchets.aimAt(t.id, point);
+    trebuchets.showTarget(launchPoint(t), point, checkRange(t, point) === "ok");
+    sfx.rotate();
+  }
+
+  function fireStone(): void {
+    const t = crewOn ? state.get(crewOn) : undefined;
+    if (!t) return;
+    if (!target) {
+      hud.toast("Right click to set a target first");
+      return sfx.deny();
+    }
+    const range = checkRange(t, target);
+    if (range !== "ok") {
+      hud.toast(range === "near" ? `Too close: aim at least ${TREBUCHET.minRange} m away` : "Out of range: build higher or get closer");
+      return sfx.deny();
+    }
+    if (performance.now() < readyAt) {
+      hud.toast("Still reloading");
+      return sfx.deny();
+    }
+    net.fire(t.id, target);
+  }
+
+  /** Keeps the trebuchet panel and the get-on hint up to date. */
+  function updateCrewHud(now: number): void {
+    const t = crewOn ? state.get(crewOn) : undefined;
+    if (t) {
+      hud.setHint(null);
+      const reload = Math.max(0, (readyAt - now) / 1000);
+      const reach = `range ${TREBUCHET.minRange}–${Math.round(maxRange(t))} m`;
+      let status: { text: string; ok: boolean };
+      if (!target) status = { text: `Right click a target · ${reach}`, ok: true };
+      else {
+        const d = Math.round(rangeTo(t, target));
+        const range = checkRange(t, target);
+        if (range === "near") status = { text: `Target ${d} m: too close (min ${TREBUCHET.minRange} m)`, ok: false };
+        else if (range === "far") status = { text: `Target ${d} m: out of range (max ${Math.round(maxRange(t))} m)`, ok: false };
+        else if (reload > 0) status = { text: `Target ${d} m · reloading ${reload.toFixed(1)} s`, ok: false };
+        else status = { text: `Target ${d} m · ready: click to fire`, ok: true };
+      }
+      hud.setCrew(status);
+      return;
+    }
+    hud.setCrew(null);
+    const near = input.locked && !solo ? trebuchetInReach() : undefined;
+    if (!near) return hud.setHint(null);
+    const busy = crews.has(near.id) && crews.get(near.id) !== myId;
+    hud.setHint(busy ? "Someone is on this trebuchet" : "<kbd>H</kbd> get on the trebuchet");
+  }
+
+  function showTowers(list: readonly [number, number, number, number, number][]): void {
+    hud.setTowers(list.map((t) => t[0]));
+    flags.show(list);
+  }
   net.connect();
 
   let statsTimer = 0;
@@ -623,7 +859,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     world.update(dt);
     flash.update(dt);
 
-    if (input.locked && editing) {
+    if (crewOn) {
+      ghost.hide();
+    } else if (input.locked && editing) {
       updateEdit();
     } else if (input.locked) {
       updateAim();
@@ -651,6 +889,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now);
     }
     remotes.update(dt, now, player.position);
+    trebuchets.update(dt);
+    debris.update(dt);
+    flags.update(dt);
+    updateCrewHud(now);
     view.flush();
 
     statsTimer -= dt;
@@ -670,6 +912,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   hud.showMuted(settings.muted);
   const graphics = new Graphics(engine, world, resolution, gpuName);
   graphics.apply(settings.graphics);
+  debris.limit = graphics.effective === "saver" ? 40 : 140;
   hud.showGraphics(settings.graphics, graphics.autoMode);
   window.addEventListener("resize", () => engine.resize());
   engine.runRenderLoop(() => scene.render());
@@ -682,7 +925,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, resolution, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

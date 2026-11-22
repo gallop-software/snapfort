@@ -97,6 +97,18 @@ How it works:
 - Admin (needs the `ADMIN_SECRET` Worker secret, sent as an `x-admin-secret` header): `POST /admin/reset` clears the world, `POST /admin/rollback?minutes=N` undoes every change of the last N minutes (up to 7 days), `GET /admin/stats` shows pieces and builders.
 - Measured locally (2026-11-22): 100 bot builders walking and building for a minute, with no dropped connections, actions answered in 19 ms at p95, and a real page at 60 fps among them (`npm run qa:load`). An 18,000-piece world joins in about 0.6 s and draws at 60 fps.
 
+## Trebuchets and the tallest tower (user, 2026-11-22)
+
+The goal is the tallest structure. There are no teams: anyone builds on any structure and attacks any other, with trebuchets. Decided with the user: damage by material, range grows with height, things in the stone's path block it, 6 s reload.
+
+- A trebuchet is a piece (`PIECE_TYPES` "trebuchet", B or 6). It stands on the ground or on a floor in its own cell, holds nothing else up, and falls with its platform (`src/game/structure.ts`). Anyone can remove one, even with someone on it.
+- H gets on or off one within 6 m. On it: right click sets the target under the crosshair, click fires. The server checks every shot (`worker/world.ts`): the builder must be its crew, reloaded, and the target 25 m to 120 m + 1 m per metre of height away.
+- Rules in `src/game/trebuchet.ts`, shared by the server and the game: the stone flies an exact arc through the target (`planFlight`); the first piece it touches on the way takes the hit (`findImpact`); every piece within 2.2 m takes one hit, and wood breaks in 1, brick in 2, metal in 3, a trebuchet in 2 (`strike`). What breaks goes, and what that strands falls. The server re-checks when the stone arrives, so it flies on if its target was taken away mid-flight.
+- Falling and broken pieces become rubble in every page (`src/render/debris.ts`): real physics for 5 s, then they fade; broken pieces burst away from the impact. At most 140 pieces of rubble (40 in battery saver).
+- Towers (`src/game/towers.ts`): every grounded group of 3+ pieces, trebuchets excluded, measured by the server 1.5 s after changes. The top five show top right; the top three get gold, silver and bronze flags with their height.
+- Trebuchet frames and arms are two thin-instance meshes (`src/render/trebuchetView.ts`); the frame turns toward the target and the arm swings over on a throw and winds back during the reload.
+- Messages: protocol version 2 (an open page from before asks to reload). `npm run qa:trebuchet` checks it all with two pages.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

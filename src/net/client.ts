@@ -10,14 +10,22 @@ import {
   type ServerMessage,
   type WireMove,
   type WirePlayer,
+  type WireTower,
+  type WireVec,
 } from "./protocol";
+
+export interface WelcomeExtras {
+  crews: [string, string][];
+  damage: [string, number][];
+  towers: WireTower[];
+}
 
 export type NetStatus = "connecting" | "online" | "offline" | "full" | "outdated";
 
 export interface NetHandlers {
   status(status: NetStatus): void;
   /** Joined (or joined again): your id, the whole world and who is here. */
-  welcome(you: string, pieces: Piece[], players: WirePlayer[], moves: WireMove[]): void;
+  welcome(you: string, pieces: Piece[], players: WirePlayer[], moves: WireMove[], extras: WelcomeExtras): void;
   /** The whole world again (after an admin reset or rollback, or when asked for). */
   snapshot(pieces: Piece[]): void;
   ops(by: string, ops: BuildOp[]): void;
@@ -25,6 +33,12 @@ export interface NetHandlers {
   join(player: WirePlayer): void;
   leave(id: string): void;
   moves(moves: WireMove[]): void;
+  crew(id: string, by: string | null): void;
+  shot(shot: number, id: string, by: string, from: WireVec, to: WireVec): void;
+  /** `ops` are applied like anyone's changes; this is told which pieces they remove first. */
+  impact(shot: number, point: WireVec, ops: BuildOp[], fallen: string[], damage: [string, number][]): void;
+  towers(list: WireTower[]): void;
+  denied(reason: string): void;
 }
 
 /** How often this builder's position goes out while they move, ms. */
@@ -97,6 +111,18 @@ export class NetClient {
     this.raw({ t: "name", name: identity.name, color: identity.color });
   }
 
+  board(id: string, at: WireVec): void {
+    this.raw({ t: "board", id, at });
+  }
+
+  leaveTrebuchet(): void {
+    this.raw({ t: "leave" });
+  }
+
+  fire(id: string, to: WireVec): void {
+    this.raw({ t: "fire", id, to });
+  }
+
   requestSnapshot(): void {
     this.raw({ t: "sync" });
   }
@@ -123,7 +149,7 @@ export class NetClient {
         this.retry = 500;
         this.lastMove = "";
         this.setStatus("online");
-        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves);
+        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [] });
       case "snap":
         return h.snapshot(decodePieces(msg.pieces));
       case "ops":
@@ -136,6 +162,16 @@ export class NetClient {
         return h.leave(msg.id);
       case "moves":
         return h.moves(msg.m);
+      case "crew":
+        return h.crew(msg.id, msg.by);
+      case "shot":
+        return h.shot(msg.shot, msg.id, msg.by, msg.from, msg.to);
+      case "impact":
+        return h.impact(msg.shot, msg.point, decodeOps(msg.ops), msg.fallen, msg.damage);
+      case "towers":
+        return h.towers(msg.list);
+      case "denied":
+        return h.denied(msg.reason);
       case "error":
         if (msg.reason === "full") this.setStatus("full");
         else if (msg.reason === "version") this.setStatus("outdated");

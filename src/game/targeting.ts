@@ -89,6 +89,8 @@ export function buildTarget(type: PieceType, v: Viewer, rotation = 0): PieceSpec
       return { type, x: cx, y: levelAt(cellDist), z: cz, rot: 0 };
     case "ramp":
       return normalizeSpec({ type, x: cx, y: levelAt(cellDist), z: cz, rot: ((((q + rotation) % 4) + 4) % 4) as Rot });
+    case "trebuchet":
+      return { type, x: cx, y: levelAt(cellDist), z: cz, rot: 0 };
   }
 }
 

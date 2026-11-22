@@ -34,6 +34,7 @@ import { CameraRig } from "./render/cameraRig";
 import { EditOverlay } from "./render/editOverlay";
 import type { GraphicsApi } from "./render/engine";
 import { Ghost, PieceView, PlaceFlash } from "./render/pieceView";
+import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
 import { SoldierView } from "./render/soldierView";
 import { createWorld } from "./render/world";
@@ -467,7 +468,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   function updateAim(): void {
     rig.pivot.addToRef(rig.forward.scale(REMOVE_REACH), rayEnd);
-    physics.raycastToRef(rig.pivot, rayEnd, ray);
+    physics.raycastToRef(rig.pivot, rayEnd, ray, IGNORE_BUILDER);
     aimPieceId = ray.hasHit ? view.pieceIdOf(ray.body) : undefined;
     aimSpec = null;
     aimProblem = null;

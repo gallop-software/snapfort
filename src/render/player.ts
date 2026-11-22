@@ -11,6 +11,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL, WORLD_HALF_CELLS } from "../game/constants";
+import { BUILDER_GROUP } from "./physicsGroups";
 
 const HEIGHT = 1.8;
 const RADIUS = 0.4;
@@ -69,6 +70,8 @@ export class Player {
     this.controller = new PhysicsCharacterController(SPAWN.clone(), { capsuleHeight: HEIGHT, capsuleRadius: RADIUS }, scene);
     // Lets the builder walk over floor edges and ramp lips without hopping.
     this.controller.maxStepHeight = 0.4;
+    // Own collision group, so camera and crosshair lines can skip the builder's body.
+    this.controller.shape.filterMembershipMask = BUILDER_GROUP;
     this.controller.maxAcceleration = 340;
     // The controller's solver ignores speeds above this (default 10 m/s), which would cap running.
     this.controller.maxCharacterSpeedForSolver = 40;

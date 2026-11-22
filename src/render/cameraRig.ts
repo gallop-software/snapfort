@@ -3,6 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { PhysicsRaycastResult } from "@babylonjs/core/Physics/physicsRaycastResult";
 import type { PhysicsEngine } from "@babylonjs/core/Physics/v2/physicsEngine";
 import type { Scene } from "@babylonjs/core/scene";
+import { IGNORE_BUILDER } from "./physicsGroups";
 
 /** Radians turned per pixel of mouse movement at mouse speed 1. */
 const SENSITIVITY = 0.0045;
@@ -70,7 +71,7 @@ export class CameraRig {
     let shoulderTarget = SHOULDER;
     if (physics) {
       this.head.addToRef(this.right.scale(SHOULDER + CLEARANCE), this.to);
-      physics.raycastToRef(this.head, this.to, this.hit);
+      physics.raycastToRef(this.head, this.to, this.hit, IGNORE_BUILDER);
       if (this.hit.hasHit) shoulderTarget = Math.max(0, this.hit.hitDistance - CLEARANCE);
     }
     [this.shoulder, this.shoulderHold] = settle(this.shoulder, shoulderTarget, this.shoulderHold, dt);
@@ -84,7 +85,7 @@ export class CameraRig {
       for (const [r, u] of [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.22], [0, -0.22]] as const) {
         this.pivot.addToRef(this.right.scale(r), this.from).addInPlace(this.up.scale(u));
         this.from.subtractToRef(this.forward.scale(DISTANCE + CLEARANCE), this.to);
-        physics.raycastToRef(this.from, this.to, this.hit);
+        physics.raycastToRef(this.from, this.to, this.hit, IGNORE_BUILDER);
         if (this.hit.hasHit) target = Math.min(target, Math.max(MIN_DISTANCE, this.hit.hitDistance - CLEARANCE));
       }
     }

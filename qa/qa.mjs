@@ -441,6 +441,20 @@ check("from nothing selected, the mouse wheel starts at the first piece", (await
 // ---------- Default mouse speed ----------
 check("mouse speed starts at 2× for a new player", (await sf(() => window.snapfort.rig.sensitivity)) === 2 && (await page.inputValue("#mouse-speed")) === "2");
 
+// ---------- No zoom when running sideways in the open ----------
+await clear();
+let zoomFails = [];
+for (const key of ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"]) {
+  // Let the camera settle back out first (it eases out after the tight-corner test above).
+  await pose(0, 0, -100, 0, 0.1); await wait(1500);
+  await page.keyboard.down(key); await page.keyboard.down("ShiftLeft");
+  const minBoom = await sf(() => new Promise((res) => { const s = window.snapfort; let n = 0, min = Infinity;
+    const f = () => { const c = s.rig.camera.position, p = s.rig.pivot; if (n > 8) min = Math.min(min, Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z)); if (++n < 40) requestAnimationFrame(f); else res(min); }; requestAnimationFrame(f); }));
+  await page.keyboard.up(key); await page.keyboard.up("ShiftLeft");
+  if (minBoom < 4.4) zoomFails.push(`${key}: camera came in to ${minBoom.toFixed(2)} m`);
+}
+check("running any direction in the open, the camera never zooms in on the builder", zoomFails.length === 0, zoomFails.join(", "));
+
 // ---------- Arrow keys and WASD both move ----------
 await clear();
 const moved = async (key, axis = "z") => { await pose(2.5, 0, -60, 0, 0.1); const a0 = await sf((axis) => window.snapfort.player.position[axis], axis); await page.keyboard.down(key); await wait(400); await page.keyboard.up(key); await frames(2); return (await sf((axis) => window.snapfort.player.position[axis], axis)) - a0; };

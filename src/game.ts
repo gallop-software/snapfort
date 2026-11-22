@@ -36,7 +36,7 @@ import { Input } from "./input";
 import { NetClient, worldUrl } from "./net/client";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
-import { CameraRig } from "./render/cameraRig";
+import { CameraRig, SCOPE_ZOOMS } from "./render/cameraRig";
 import { EditOverlay } from "./render/editOverlay";
 import type { GraphicsApi } from "./render/engine";
 import { Ghost, PieceView, PlaceFlash } from "./render/pieceView";
@@ -498,7 +498,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   };
   // The wheel moves along the hotbar; from nothing selected it starts at either end.
-  input.onWheel = (direction) => selectTool(toolIndex < 0 ? (direction > 0 ? 0 : TOOLS.length - 1) : toolIndex + direction);
+  input.onWheel = (direction) => {
+    // On a trebuchet the wheel zooms the scope.
+    if (crewOn) {
+      rig.zoom = Math.max(0, Math.min(SCOPE_ZOOMS.length - 1, rig.zoom + direction));
+      return;
+    }
+    wheelTool(direction);
+  };
+  const wheelTool = (direction: 1 | -1) => selectTool(toolIndex < 0 ? (direction > 0 ? 0 : TOOLS.length - 1) : toolIndex + direction);
   input.onKey = (code, event) => {
     const command = event.ctrlKey || event.metaKey;
     if (command && code === "KeyZ") return event.shiftKey ? redo() : undo();
@@ -780,6 +788,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     ghost.hide();
     crewOn = id;
     target = null;
+    // Scope: look from above the trebuchet with nothing of it, or of yourself, in the way.
+    rig.scope = new Vector3(...scopePoint(t));
+    rig.zoom = 0;
+    trebuchets.hidden = id;
+    player.avatar.setEnabled(false);
+    document.body.classList.add("scoped");
     // Stand on its turntable, on its own floor: to the right of the frame and a
     // little back, so the camera over the right shoulder looks past it at the target.
     const [x, y, z] = trebuchetBase(t);
@@ -792,8 +806,19 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (!crewOn) return;
     crewOn = null;
     target = null;
+    rig.scope = null;
+    rig.zoom = 0;
+    trebuchets.hidden = null;
+    player.avatar.setEnabled(true);
+    document.body.classList.remove("scoped");
     trebuchets.showTarget(null, null, false);
     hud.setCrew(null);
+  }
+
+  /** Where the scope looks from: just above where the stone is released. */
+  function scopePoint(t: Piece): Vec {
+    const [x, y, z] = launchPoint(t);
+    return [x, y + 0.8, z];
   }
 
   /** Right click on a trebuchet: aim at the spot under the crosshair. */
@@ -866,7 +891,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         else if (reload > 0) status = { text: `Target ${d} m · reloading ${reload.toFixed(1)} s`, ok: false };
         else status = { text: `Target ${d} m · ready: click to fire`, ok: true };
       }
-      hud.setCrew(status);
+      // Zoom as a magnification: how much bigger things look than without the scope.
+      const magnify = Math.tan(SCOPE_ZOOMS[0] / 2) / Math.tan(SCOPE_ZOOMS[rig.zoom]! / 2);
+      hud.setCrew({ ...status, zoom: `${magnify < 1.05 ? 1 : magnify.toFixed(1)}×` });
       return;
     }
     hud.setCrew(null);

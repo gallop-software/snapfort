@@ -197,13 +197,13 @@ export class Hud {
   }
 
   /** The trebuchet panel: a status line and the controls; null hides it. */
-  setCrew(status: { text: string; ok: boolean } | null): void {
+  setCrew(status: { text: string; ok: boolean; zoom?: string } | null): void {
     const node = el("crew");
     node.hidden = status === null;
     if (!status) return;
     const html =
       `<div class="status ${status.ok ? "ok" : "bad"}">${status.text}</div>` +
-      `<kbd>Right click</kbd> set target · <kbd>Click</kbd> fire · <kbd>H</kbd> get off`;
+      `<kbd>Right click</kbd> set target · <kbd>Click</kbd> fire · <kbd>Wheel</kbd> zoom${status.zoom ? ` ${status.zoom}` : ""} · <kbd>H</kbd> get off`;
     if (node.innerHTML !== html) node.innerHTML = html;
   }
 

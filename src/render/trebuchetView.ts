@@ -70,6 +70,8 @@ export class TrebuchetView {
   private readonly markerMaterial: StandardMaterial;
   private arc: LinesMesh | null = null;
   private readonly tmp = new Matrix();
+  /** A trebuchet not drawn on this page (the one this player is aiming from). */
+  hidden: string | null = null;
 
   constructor(
     private readonly scene: Scene,
@@ -210,6 +212,7 @@ export class TrebuchetView {
     let i = 0;
     for (const engine of this.engines.values()) {
       if (i >= MAX_ENGINES) break;
+      if (engine.piece.id === this.hidden) continue;
       let diff = (engine.aimYaw - engine.yaw) % (Math.PI * 2);
       if (diff > Math.PI) diff -= Math.PI * 2;
       if (diff < -Math.PI) diff += Math.PI * 2;

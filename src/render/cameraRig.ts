@@ -20,7 +20,15 @@ const HOLD = 0.35;
 /** How fast the camera eases back out, per second. */
 const EASE_OUT = 3;
 
-/** Third-person camera: sits behind the builder's shoulder and looks where the mouse points. */
+/** Field of view normally, and the zoom steps of the trebuchet scope (radians). */
+const FOV = 0.9;
+export const SCOPE_ZOOMS = [0.9, 0.55, 0.32, 0.18] as const;
+
+/**
+ * Third-person camera: sits behind the builder's shoulder and looks where the
+ * mouse points. On a trebuchet it becomes a scope instead: the camera sits at
+ * `scope` (above the trebuchet), looks freely all the way round, and zooms.
+ */
 export class CameraRig {
   readonly camera: FreeCamera;
   /** Multiplies mouse look speed (the player's setting). */
@@ -31,6 +39,10 @@ export class CameraRig {
   readonly forward = new Vector3(0, 0, 1);
   /** The point beside the builder's head that the view line passes through. Aiming starts here. */
   readonly pivot = new Vector3();
+  /** Where the scope looks from while on a trebuchet; null for the normal camera. */
+  scope: Vector3 | null = null;
+  /** Index into SCOPE_ZOOMS. */
+  zoom = 0;
 
   private distance = DISTANCE;
   private shoulder = SHOULDER;
@@ -47,12 +59,13 @@ export class CameraRig {
     this.camera = new FreeCamera("camera", new Vector3(0, 3, -8), scene);
     this.camera.minZ = 0.15;
     this.camera.maxZ = 2000;
-    this.camera.fov = 0.9;
+    this.camera.fov = FOV;
     this.camera.inputs.clear();
   }
 
   look(dx: number, dy: number): void {
-    const k = SENSITIVITY * this.sensitivity;
+    // Zoomed in, the mouse turns the view less, so aiming stays precise.
+    const k = SENSITIVITY * this.sensitivity * (this.scope ? SCOPE_ZOOMS[this.zoom]! / FOV : 1);
     this.yaw += dx * k;
     this.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.pitch + dy * k));
   }
@@ -63,6 +76,15 @@ export class CameraRig {
     this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     // Camera up: perpendicular to the view and to its right.
     Vector3.CrossToRef(this.forward, this.right, this.up);
+    if (this.scope) {
+      // Scope: straight from the trebuchet's vantage point, nothing behind or around to dodge.
+      this.pivot.copyFrom(this.scope);
+      this.camera.position.copyFrom(this.scope);
+      this.camera.rotation.set(this.pitch, this.yaw, 0);
+      this.camera.fov = SCOPE_ZOOMS[this.zoom]!;
+      return;
+    }
+    this.camera.fov = FOV;
     this.head.set(playerCentre.x, playerCentre.y + HEAD, playerCentre.z);
     const physics = this.scene.getPhysicsEngine() as PhysicsEngine | null;
 

@@ -50,6 +50,22 @@ html, body {
   transition: opacity 0.15s;
 }
 body.playing #crosshair { opacity: 1; }
+/* On a trebuchet the hands are on the controls: no hotbar or material badge. */
+body.scoped #hotbar, body.scoped #material { display: none; }
+body.scoped #crew { bottom: 22px; }
+/* On a trebuchet: a scope reticle (ring with a centre dot and cross lines) and a soft vignette. */
+body.scoped #crosshair {
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border: 2px solid rgba(255, 246, 228, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(31, 42, 55, 0.5), 0 0 0 9999px rgba(31, 42, 55, 0.12);
+  background:
+    radial-gradient(circle, var(--coral) 0 2.5px, transparent 3px),
+    linear-gradient(rgba(255, 246, 228, 0.85), rgba(255, 246, 228, 0.85)) center / 2px 100% no-repeat,
+    linear-gradient(rgba(255, 246, 228, 0.85), rgba(255, 246, 228, 0.85)) center / 100% 2px no-repeat;
+}
 
 #stats, #online {
   position: absolute;

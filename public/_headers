@@ -1,0 +1,10 @@
+# Cloudflare static assets headers (https://developers.cloudflare.com/workers/static-assets/headers/).
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+
+# Built files have a hash of their contents in their name: safe to keep for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

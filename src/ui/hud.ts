@@ -236,9 +236,11 @@ export class Hud {
   }
 
   /** Shows the material new pieces are made of. `color` is RGB 0..1. */
-  setMaterial(label: string, color: readonly [number, number, number], key: string): void {
+  setMaterial(label: string, color: readonly [number, number, number], key: string, note = ""): void {
     const css = `rgb(${color.map((c) => Math.round(c * 255)).join(", ")})`;
-    el("material").innerHTML = `<span class="swatch" style="background:${css}"></span>${label}<kbd>${key}</kbd>`;
+    el("material").innerHTML =
+      `<span class="swatch" style="background:${css}"></span>` +
+      `<span class="name">${label}${note ? `<small>${note}</small>` : ""}</span><kbd>${key}</kbd>`;
   }
 
   setEditing(editing: boolean): void {

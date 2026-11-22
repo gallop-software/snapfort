@@ -17,6 +17,9 @@ import {
   editGrid,
   isValidEdit,
   MATERIAL_DEFS,
+  MATERIAL_MAX_LEVEL,
+  materialFor,
+  type MaterialId,
   MATERIALS,
   PIECE_DEFS,
   slotKey,
@@ -269,9 +272,22 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     else selectTool(index);
   }
 
+  /** What the badge last showed, so it is only redrawn when that changes. */
+  let shownMaterial = "";
+  const reach: Record<MaterialId, string> = { metal: "storeys 1–10", brick: "storeys 1–30", wood: "any storey" };
+
+  /**
+   * The material badge: the chosen material and where it can go, or, when the
+   * build target is too high for it, the material that will be used instead.
+   */
   function showMaterial(): void {
-    const id = MATERIALS[materialIndex]!;
-    hud.setMaterial(MATERIAL_DEFS[id].label, MATERIAL_DEFS[id].color, "T");
+    const chosen = MATERIALS[materialIndex]!;
+    const used = aimSpec && !crewOn ? materialFor(aimSpec.type, chosen, aimSpec.y) : chosen;
+    const key = `${chosen}>${used}`;
+    if (key === shownMaterial) return;
+    shownMaterial = key;
+    const note = used === chosen ? reach[chosen] : `${MATERIAL_DEFS[chosen].label} only to storey ${MATERIAL_MAX_LEVEL[chosen] + 1}`;
+    hud.setMaterial(MATERIAL_DEFS[used].label, MATERIAL_DEFS[used].color, "T", note);
   }
 
   function cycleMaterial(): void {
@@ -290,7 +306,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       }
       return;
     }
-    const piece = { ...aimSpec, id: nextId(), material: MATERIALS[materialIndex]!, edit: 0 };
+    // Too high for the chosen material: the strongest one allowed there.
+    const piece = { ...aimSpec, id: nextId(), material: materialFor(aimSpec.type, MATERIALS[materialIndex]!, aimSpec.y), edit: 0 };
     if (history.do({ kind: "place", piece })) {
       placedCount++;
       flash.play(aimSpec);
@@ -889,6 +906,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now);
     }
     remotes.update(dt, now, player.position);
+    showMaterial();
     trebuchets.update(dt);
     debris.update(dt);
     flags.update(dt);

@@ -47,6 +47,27 @@ export const MATERIAL_DEFS: Record<MaterialId, MaterialDef> = {
   metal: { label: "Metal", color: [0.63, 0.69, 0.75] },
 };
 
+/**
+ * The highest storey (y) each material can be built on. Heavy metal belongs in
+ * a tower's base, brick in its middle, and wood goes all the way up: storeys
+ * 1–10 for metal, 1–30 for brick, counting the ground storey as 1.
+ */
+export const MATERIAL_MAX_LEVEL: Record<MaterialId, number> = { metal: 9, brick: 29, wood: Infinity };
+
+/** Strongest first. */
+const BY_STRENGTH: readonly MaterialId[] = ["metal", "brick", "wood"];
+
+/** Whether `material` may be used for a piece on storey `y`. Trebuchets are not limited. */
+export function materialAllowed(type: PieceType, material: MaterialId, y: number): boolean {
+  return type === "trebuchet" || y <= MATERIAL_MAX_LEVEL[material];
+}
+
+/** The material actually used when `selected` is chosen for a piece on storey `y`: the strongest allowed there, no stronger than chosen. */
+export function materialFor(type: PieceType, selected: MaterialId, y: number): MaterialId {
+  for (const m of BY_STRENGTH.slice(BY_STRENGTH.indexOf(selected))) if (materialAllowed(type, m, y)) return m;
+  return "wood";
+}
+
 export interface Piece extends PieceSpec {
   id: string;
   material: MaterialId;

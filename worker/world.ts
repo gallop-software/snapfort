@@ -4,7 +4,7 @@ import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
 import { checkRange, findImpact, launchPoint, planFlight, strike, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
-import type { Piece } from "../src/game/pieces";
+import { materialAllowed, type Piece } from "../src/game/pieces";
 import { applyAction } from "../src/net/authority";
 import {
   chunkOf,
@@ -247,7 +247,7 @@ export class World extends DurableObject<Env> {
     }
 
     const now = Date.now();
-    const { done, rejected, extra } = applyAction(this.build, wire.map(decodeOp), (piece) => !this.isFull(piece));
+    const { done, rejected, extra } = applyAction(this.build, wire.map(decodeOp), (piece) => !this.isFull(piece) && materialAllowed(piece.type, piece.material, piece.y));
 
     for (const d of [...done, ...extra]) this.unsavedLog.push([now, player.id, encodeOp(d.op), encodeOp(d.inverse)]);
     const extraWire = extra.map((e) => encodeOp(e.op));

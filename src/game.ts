@@ -133,6 +133,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   sfx.muted = settings.muted;
 
   let mode: Mode = "menu";
+  /** The tallest towers as last heard from the server: [height, x, y, z, pieces]. */
+  let tallest: readonly [number, number, number, number, number][] = [];
   /** Siege (hidden for now) is played alone: the build is local and nothing is sent or received. */
   let solo = false;
   let placedCount = 0;
@@ -249,7 +251,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) if (built.has(`${cx + dx},${cz + dz}`)) return false;
       return true;
     });
-    rig.yaw = 0;
+    // Face the tallest tower, so the first thing a builder sees is what to beat.
+    const top = tallest[0];
+    rig.yaw = top ? Math.atan2(top[1] - player.position.x, top[3] - player.position.z) : 0;
     rig.pitch = 0.22;
     hud.setSiege(null);
   }
@@ -943,6 +947,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
 
   function showTowers(list: readonly [number, number, number, number, number][]): void {
+    tallest = list;
     hud.setTowers(list.map((t) => t[0]));
     flags.show(list);
   }

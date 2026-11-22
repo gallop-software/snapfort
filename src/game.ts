@@ -966,7 +966,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (action) net.sendAction(action.seq, action.ops);
       net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now, player.tumbling);
     }
-    remotes.update(dt, now, player.position);
+    remotes.update(dt, now, rig.camera.globalPosition, rig.camera.fov);
     showMaterial();
     trebuchets.update(dt);
     debris.update(dt);

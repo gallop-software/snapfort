@@ -24,6 +24,8 @@ export function downness(t: number): number {
   return 1 - k * k * (3 - 2 * k);
 }
 
+export type StandInPose = "stand" | "runA" | "runB" | "air";
+
 /** The local player's jacket. */
 export const DEFAULT_AVATAR_COLOR = "#f07356";
 
@@ -220,6 +222,44 @@ export class Avatar {
     this.body.position.y = 0;
     this.legYaw = 0;
     this.holdLegs();
+  }
+
+  /**
+   * Sets a fixed pose at once (no easing), for baking distant stand-ins:
+   * standing, the two halves of a running stride, or in the air.
+   */
+  setPose(pose: StandInPose): void {
+    this.root.position.set(0, 0, 0);
+    this.root.rotation.set(0, 0, 0);
+    this.body.position.y = 0;
+    this.legYaw = 0;
+    const run = pose === "runA" || pose === "runB";
+    const p = pose === "runA" ? Math.PI / 2 : -Math.PI / 2;
+    this.body.rotation.set(run ? 0.22 : pose === "air" ? 0.1 : 0, 0, 0);
+    for (let side = 0; side < 2; side++) {
+      const ph = p + side * Math.PI;
+      this.shoulders[side]!.rotation.set(run ? Math.sin(ph) * 1.0 : pose === "air" ? (side === 0 ? -2.2 : -1.6) : 0, 0, 0);
+      this.elbows[side]!.rotation.set(run ? -1.1 : pose === "air" ? -0.5 : -0.15, 0, 0);
+      this.hips[side]!.rotation.set(run ? -Math.sin(ph) * 0.9 : pose === "air" ? (side === 0 ? -1.0 : 0.45) : 0, 0, 0);
+      this.knees[side]!.rotation.set(run ? 0.08 + 1.6 * Math.max(0, Math.cos(ph)) ** 1.5 + (Math.sin(ph) > 0 ? 0.4 : 0) : pose === "air" ? (side === 0 ? 1.4 : 0.9) : 0.05, 0, 0);
+    }
+    this.holdLegs();
+  }
+
+  /**
+   * The body's parts in their current pose, split into the jacket (to be
+   * tinted per builder) and everything else, each painted its colour, ready to
+   * be merged into one mesh (see standIns.ts).
+   */
+  partsForBaking(): { jacket: Mesh[]; rest: Mesh[] } {
+    const jacket: Mesh[] = [];
+    const rest: Mesh[] = [];
+    for (const mesh of this.meshes) {
+      mesh.computeWorldMatrix(true);
+      if (mesh.material === this.jacket) jacket.push(mesh);
+      else rest.push(mesh);
+    }
+    return { jacket, rest };
   }
 
   /**

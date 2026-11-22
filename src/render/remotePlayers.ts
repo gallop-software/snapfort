@@ -3,27 +3,33 @@ import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTextur
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { CreateCapsule } from "@babylonjs/core/Meshes/Builders/capsuleBuilder";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
-import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { WireMove, WirePlayer } from "../net/protocol";
 import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
 import { Avatar, downness } from "./avatar";
+import { StandIns } from "./standIns";
 
 /** Positions are shown this far in the past, so there are always two to blend between, ms. */
 const DELAY = 200;
-/** Builders nearer than this get the full animated body... */
-const FULL_RANGE = 120;
-/** ...up to this many of them, nearest first. The rest are simple figures. */
-const FULL_LIMIT = 24;
-/** Name tags show within this distance. */
-const TAG_RANGE = 45;
+/**
+ * How a builder is drawn depends on how big they look on screen (their height
+ * as a share of half the screen's height), as in big shooters: zooming in on
+ * someone far away brings back their full body. Distance alone never decides.
+ *
+ * Full animated body from this size up (about 120 m away without zoom)...
+ */
+const FULL_SIZE = 0.031;
+/** ...back to the stand-in only below this, so nobody flickers between the two at the edge. */
+const STAND_IN_SIZE = 0.026;
+/** Name tags from this size up (about 50 m away without zoom). */
+const TAG_SIZE = 0.075;
+/** A builder's height, for their size on screen. */
+const BODY = 1.8;
 /** Feet are this far below the body centre that positions describe. */
 const HALF_HEIGHT = 0.9;
-const MAX_FIGURES = 128;
 
 interface Sample {
   at: number;
@@ -48,6 +54,10 @@ interface Remote {
   tumbling: boolean;
   avatar: Avatar | null;
   tag: Mesh | null;
+  /** Shown with the full body (else as a stand-in). */
+  full: boolean;
+  /** Where the stand-in is in its running stride (radians). */
+  stride: number;
   /** A flight from the server (thrown or falling), played here whatever their own page does. */
   fall: { fall: Fall; start: number } | null;
   down: number;
@@ -57,34 +67,21 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /**
  * Everyone else in the world. Their positions arrive about ten times a second
- * and are blended smoothly, a fifth of a second behind. Nearby builders get
- * the full animated body and a name tag; distant ones are simple figures in
- * their colour, all drawn as one mesh, so a crowd stays cheap to draw.
+ * and are blended smoothly, a fifth of a second behind. Builders big enough on
+ * screen get the full animated body (and, closer, a name tag); smaller ones
+ * are stand-ins (see standIns.ts), so a crowd stays cheap to draw. The same
+ * rule applies however many builders there are.
  */
 export class RemotePlayers {
   private readonly remotes = new Map<string, Remote>();
   private readonly spare: Avatar[] = [];
-  private readonly figure: Mesh;
-  private readonly figureMatrices = new Float32Array(MAX_FIGURES * 16);
-  private readonly figureColors = new Float32Array(MAX_FIGURES * 4);
-  private figureBuffers = false;
+  private readonly standIns: StandIns;
 
   constructor(
     private readonly scene: Scene,
     private readonly shadows: ShadowGenerator,
   ) {
-    const body = CreateCapsule("figure-body", { radius: 0.3, height: 1.5, tessellation: 8, subdivisions: 1 }, scene);
-    body.position.y = 0.75;
-    const head = CreateSphere("figure-head", { diameter: 0.4, segments: 6 }, scene);
-    head.position.y = 1.65;
-    this.figure = Mesh.MergeMeshes([body, head], true, true)!;
-    this.figure.name = "far-builders";
-    const material = new StandardMaterial("far-builders", scene);
-    material.specularColor = Color3.Black();
-    this.figure.material = material;
-    this.figure.isPickable = false;
-    this.figure.alwaysSelectAsActiveMesh = true;
-    this.figure.setEnabled(false);
+    this.standIns = new StandIns(scene, shadows);
   }
 
   get count(): number {
@@ -95,7 +92,7 @@ export class RemotePlayers {
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);
     if (!remote) {
-      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, avatar: null, tag: null, fall: null, down: 0 });
+      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, avatar: null, tag: null, full: false, stride: 0, fall: null, down: 0 });
       return;
     }
     const renamed = remote.player.name !== player.name || remote.player.color !== player.color;
@@ -140,55 +137,41 @@ export class RemotePlayers {
     if (remote.samples.length > 8) remote.samples.shift();
   }
 
-  /** Blends positions, chooses who gets a full body, and draws everyone. Call once a frame. */
-  update(dt: number, now: number, viewer: Vector3): void {
+  /**
+   * Blends positions, chooses full body or stand-in for each builder by their
+   * size on screen (`fov`: the camera's vertical field of view), and draws
+   * everyone. Call once a frame.
+   */
+  update(dt: number, now: number, viewer: Vector3, fov: number): void {
     const at = now - DELAY;
-    const order: { remote: Remote; dist: number }[] = [];
+    const halfView = Math.tan(fov / 2);
+    this.standIns.begin();
     for (const remote of this.remotes.values()) {
       if (remote.fall) this.followFall(remote, now);
       else this.blend(remote, at);
-      if (remote.samples.length === 0) continue;
-      order.push({ remote, dist: Math.hypot(remote.x - viewer.x, remote.y - viewer.y, remote.z - viewer.z) });
-    }
-    order.sort((a, b) => a.dist - b.dist);
-
-    let figures = 0;
-    order.forEach(({ remote, dist }, rank) => {
-      // Someone thrown always gets the full body, however far: the flailing is the point.
-      const full = remote.fall !== null || (rank < FULL_LIMIT && dist < FULL_RANGE);
-      if (!full) {
+      if (remote.samples.length === 0 && !remote.fall) continue;
+      const dist = Math.max(0.1, Math.hypot(remote.x - viewer.x, remote.y - viewer.y, remote.z - viewer.z));
+      const size = BODY / (dist * halfView);
+      // Someone thrown always gets the full body: the flailing is the point.
+      remote.full = remote.fall !== null || size >= FULL_SIZE || (remote.full && size >= STAND_IN_SIZE);
+      if (!remote.full) {
         this.release(remote);
         if (remote.tag) remote.tag.setEnabled(false);
-        if (figures < MAX_FIGURES) this.placeFigure(figures++, remote);
-        return;
+        this.placeStandIn(remote, dt);
+        continue;
       }
       const avatar = (remote.avatar ??= this.claim(remote.player.color));
       avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
       avatar.root.rotation.y = remote.yaw;
       avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down);
-      const showTag = dist < TAG_RANGE;
+      const showTag = size >= TAG_SIZE;
       if (showTag && !remote.tag) remote.tag = this.makeTag(remote.player);
       if (remote.tag) {
         remote.tag.setEnabled(showTag);
         remote.tag.position.set(remote.x, remote.y + 1.45, remote.z);
       }
-    });
-
-    if (figures > 0 && !this.figureBuffers) {
-      // Attach the buffers once there is something to draw: Babylon decides whether the
-      // material uses per-instance colours when the mesh first has instances.
-      this.figureBuffers = true;
-      this.figure.thinInstanceSetBuffer("matrix", this.figureMatrices, 16, false);
-      this.figure.thinInstanceSetBuffer("color", this.figureColors, 4, false);
     }
-    if (!this.figureBuffers) return;
-    // Count first: Babylon uploads only the first `thinInstanceCount` entries.
-    this.figure.thinInstanceCount = figures;
-    if (figures > 0) {
-      this.figure.thinInstanceBufferUpdated("matrix");
-      this.figure.thinInstanceBufferUpdated("color");
-    }
-    this.figure.setEnabled(figures > 0);
+    this.standIns.end();
   }
 
   /** Moves a thrown builder along their flight; afterwards they stay where they came down. */
@@ -244,15 +227,19 @@ export class RemotePlayers {
     remote.vz = moving ? ((b.z - a.z) / span) * 1000 : 0;
   }
 
-  private placeFigure(i: number, remote: Remote): void {
-    const sin = Math.sin(remote.yaw), cos = Math.cos(remote.yaw);
-    const m = this.figureMatrices, o = i * 16;
-    m[o] = cos; m[o + 1] = 0; m[o + 2] = -sin; m[o + 3] = 0;
-    m[o + 4] = 0; m[o + 5] = 1; m[o + 6] = 0; m[o + 7] = 0;
-    m[o + 8] = sin; m[o + 9] = 0; m[o + 10] = cos; m[o + 11] = 0;
-    m[o + 12] = remote.x; m[o + 13] = remote.y - HALF_HEIGHT; m[o + 14] = remote.z; m[o + 15] = 1;
-    const c = Color3.FromHexString(remote.player.color);
-    this.figureColors.set([c.r, c.g, c.b, 1], i * 4);
+  /**
+   * A builder too small on screen for the full body: a flipbook pose (standing,
+   * one of two running strides, or in the air), facing the way they run, with a
+   * small bob on each step.
+   */
+  private placeStandIn(remote: Remote, dt: number): void {
+    const speed = Math.hypot(remote.vx, remote.vz);
+    const running = remote.ground && speed > 0.5;
+    if (running) remote.stride += dt * (7 + Math.min(1, speed / 26) * 11);
+    const pose = !remote.ground ? "air" : !running ? "stand" : Math.sin(remote.stride) > 0 ? "runA" : "runB";
+    const bob = running ? Math.abs(Math.sin(remote.stride)) * 0.08 : 0;
+    const yaw = running ? Math.atan2(remote.vx, remote.vz) : remote.yaw;
+    this.standIns.add(pose, remote.x, remote.y - HALF_HEIGHT + bob, remote.z, yaw, Color3.FromHexString(remote.player.color));
   }
 
   private claim(color: string): Avatar {

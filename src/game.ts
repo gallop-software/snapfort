@@ -17,6 +17,7 @@ import {
   editGrid,
   isValidEdit,
   MATERIAL_DEFS,
+  normalizeSpec,
   MATERIAL_MAX_LEVEL,
   materialFor,
   type MaterialId,
@@ -240,7 +241,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     placedCount = 0;
     mode = next;
     siege.reset(next === "siege");
-    player.respawn();
+    // Start on open ground, clear of anything built at ground level for 3 cells
+    // around, so nobody begins boxed in inside a fort or its courtyard.
+    const built = new Set<string>();
+    for (const p of state.all()) if (p.y <= 1) built.add(`${p.x},${p.z}`);
+    player.respawn((cx, cz) => {
+      for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) if (built.has(`${cx + dx},${cz + dz}`)) return false;
+      return true;
+    });
     rig.yaw = 0;
     rig.pitch = 0.22;
     hud.setSiege(null);
@@ -297,12 +305,23 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     sfx.select();
   }
 
+  /** What to tell the builder when a piece cannot go where they aim. */
+  function problemText(spec: PieceSpec, problem: PlaceProblem): string {
+    if (problem !== "unsupported") return PROBLEM_TEXT[problem];
+    if (spec.type === "trebuchet") return "A trebuchet needs a floor or the ground under it";
+    // A ramp next to a ramp climbing another way: they only join in a straight line.
+    if (spec.type === "ramp" && state.around(spec, 1).some((p) => p.type === "ramp" && p.rot !== normalizeSpec(spec).rot && Math.abs(p.y - spec.y) <= 1)) {
+      return "Ramps turn only on a floor: put a floor down first";
+    }
+    return PROBLEM_TEXT[problem];
+  }
+
   function placeAtAim(announce: boolean): void {
     if (!aimSpec) return;
     lastTriedSlot = slotKey(aimSpec);
     if (aimProblem) {
       if (announce) {
-        hud.toast(aimSpec.type === "trebuchet" && aimProblem === "unsupported" ? "A trebuchet needs a floor or the ground under it" : PROBLEM_TEXT[aimProblem]);
+        hud.toast(problemText(aimSpec, aimProblem));
         sfx.deny();
       }
       return;

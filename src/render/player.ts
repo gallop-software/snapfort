@@ -33,6 +33,8 @@ export interface MoveInput {
 
 type State = "ground" | "air" | "jump";
 
+const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+
 /** The builder: a Havok character controller with a small original avatar on top. */
 export class Player {
   readonly controller: PhysicsCharacterController;
@@ -167,7 +169,21 @@ export class Player {
     return this.position.y - HEIGHT / 2;
   }
 
-  respawn(): void {
+  /**
+   * Puts the builder at the start, or the nearest open ground to it when
+   * `isOpen` (cell x, z → free of pieces) says the start is built over, so
+   * nobody begins boxed in inside someone's fort.
+   */
+  respawn(isOpen: (cx: number, cz: number) => boolean = () => true): void {
+    const sx = Math.floor(SPAWN.x / CELL), sz = Math.floor(SPAWN.z / CELL);
+    for (let r = 0; r <= 40; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (const dz of r === 0 ? [0] : Math.abs(dx) === r ? range(-r, r) : [-r, r]) {
+          if (!isOpen(sx + dx, sz + dz)) continue;
+          return this.teleport((sx + dx + 0.5) * CELL, SPAWN.y, (sz + dz + 0.5) * CELL);
+        }
+      }
+    }
     this.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
   }
 

@@ -468,6 +468,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       ray.hasHit ? { dist: ray.hitDistance, piece: hitPiece } : null,
       { x: player.position.x, z: player.position.z, feetY: player.feetY, yaw: rig.yaw, pitch: rig.pitch, slope: groundSlope() },
       rotation,
+      (spec) => (state.canPlace(spec).ok ? state.touching(spec).length : null),
     ).spec;
     const check = state.canPlace(aimSpec);
     aimProblem = check.ok ? null : check.problem;

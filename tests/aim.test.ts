@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aimTarget, type AimRay } from "../src/game/aim";
+import { BuildState } from "../src/game/buildState";
 import { LEVEL } from "../src/game/constants";
 import type { Piece, PieceSpec } from "../src/game/pieces";
 import type { Viewer } from "../src/game/targeting";
@@ -98,5 +99,56 @@ describe("crosshair aiming: ramps and roofs", () => {
   it("goes right in front when the crosshair meets nothing close (keeps ramp rushing)", () => {
     const r = ray(3.6, 1.7, -2, 3.6, 1.5, 40);
     expect(aimTarget("ramp", r, { dist: 30 }, viewer).source).toBe("front");
+  });
+});
+
+describe("crosshair aiming: roofs two storeys up", () => {
+  /** A one-cell tower at cell (0, 0): walls on all four sides, two storeys high. */
+  function tower(): BuildState {
+    const state = new BuildState();
+    let n = 0;
+    for (const y of [0, 1]) {
+      for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1]] as const) {
+        state.apply({ kind: "place", piece: piece({ type: "wall", x, y, z, rot }, `w${n++}`) });
+      }
+    }
+    return state;
+  }
+  const can = (state: BuildState) => (s: PieceSpec) => (state.canPlace(s).ok ? state.touching(s).length : null);
+
+  it("looking up from inside the tower puts the roof on top, two storeys up", () => {
+    const state = tower();
+    const inside: Viewer = { ...viewer, x: 2.5, z: 2.5 };
+    const r = ray(3.4, 1.7, 2.5, 2.8, 9, 3);
+    expect(aimTarget("roof", r, null, inside, 0, can(state)).spec).toEqual({ type: "roof", x: 0, y: 2, z: 0, rot: 0 });
+  });
+
+  it("looking up past the top of the tower from outside puts the roof on top", () => {
+    const state = tower();
+    const outside: Viewer = { ...viewer, x: 2.5, z: -4 };
+    // From in front of the tower, just over the top edge of its near wall (7.5 m up at z = 0).
+    const r = ray(3.6, 1.7, -4, 2.5, 8.3, 2);
+    expect(aimTarget("roof", r, null, outside, 0, can(state)).spec).toEqual({ type: "roof", x: 0, y: 2, z: 0, rot: 0 });
+  });
+
+  it("among equally high spots, the roof caps the tower rather than hanging off its edge", () => {
+    const state = tower();
+    const outside: Viewer = { ...viewer, x: 2.5, z: -4 };
+    // A steep line that passes through the level-2 cell in front of the tower before the one on top.
+    const r = ray(3.6, 1.7, -4, 2.5, 11, 1);
+    expect(aimTarget("roof", r, null, outside, 0, can(state)).spec).toEqual({ type: "roof", x: 0, y: 2, z: 0, rot: 0 });
+  });
+
+  it("looking at the ground still puts the roof where the crosshair points", () => {
+    const state = new BuildState();
+    const r = ray(3.6, 1.7, 1, 7, 0, 8);
+    expect(aimTarget("roof", r, { dist: distTo(r, 7, 0, 8) }, viewer, 0, can(state)).spec).toMatchObject({ x: 1, y: 0, z: 1 });
+  });
+
+  it("looking straight ahead in an open field puts the roof in the next cell, not far away", () => {
+    const state = new BuildState();
+    const here: Viewer = { ...viewer, x: 2.5, z: 2.5 };
+    const r = ray(3.6, 1.7, 2.5, 3.6, 1.7, 40);
+    expect(aimTarget("roof", r, null, here, 0, can(state)).spec).toMatchObject({ x: 0, y: 0, z: 1 });
   });
 });

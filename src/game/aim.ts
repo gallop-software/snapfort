@@ -9,7 +9,10 @@ import { buildTarget, facingRot, type Viewer } from "./targeting";
  * - walls: the vertical panes on the grid lines across the view direction
  *   (panes facing the builder),
  * - floors: the horizontal panes at every storey height (the ground is storey 0),
- * - ramps and roofs: the cell where the line meets something solid.
+ * - ramps: the cell where the line meets something solid,
+ * - roofs: the highest buildable cell the line passes through (so looking up
+ *   past the top of a tall wall caps it), or the cell where the line meets
+ *   something solid when that is as high.
  *
  * A piece of the same kind under the crosshair is its own slot ("it is already
  * there"). Anything solid stops the line, so hidden slots cannot be targeted.
@@ -22,6 +25,8 @@ import { buildTarget, facingRot, type Viewer } from "./targeting";
 export const PANE_REACH = 12;
 /** How far along the crosshair line a ramp or roof spot can be targeted, in metres. */
 export const CELL_REACH = 8;
+/** How far along the crosshair line a roof can be targeted, in metres (high enough to cap two storeys). */
+export const ROOF_REACH = 12;
 /** Panes closer than this to the start of the line (the builder's shoulder) are ignored. */
 const MIN_DIST = 0.5;
 /** A surface lying exactly where the line stops (the ground under a floor pane) still counts. */
@@ -103,7 +108,54 @@ function firstFloorPane(r: AimRay, from: number, to: number): { t: number; spec:
   return null;
 }
 
-export function aimTarget(type: PieceType, r: AimRay, hit: AimHit | null, viewer: Viewer, rotation = 0): AimResult {
+/** Height of the builder's body, for keeping roofs out of the cells they stand in. */
+const BODY_HEIGHT = 1.8;
+
+/**
+ * How firmly a piece would sit at a spot: null when it cannot be built there,
+ * otherwise a number that grows with what holds it up (the game passes how many
+ * pieces it would touch).
+ */
+export type PlaceScore = (spec: PieceSpec) => number | null;
+
+/**
+ * The highest cell along the line where a roof could go; among equally high
+ * cells the best supported (on top of a tower rather than hanging off one wall
+ * edge), then the nearest. Skips the cells the builder's body is in.
+ */
+function highestRoofCell(r: AimRay, stop: number, viewer: Viewer, score: PlaceScore): PieceSpec | null {
+  const bodyX = Math.floor(viewer.x / CELL), bodyZ = Math.floor(viewer.z / CELL);
+  const bodyLow = Math.floor(viewer.feetY / LEVEL), bodyHigh = Math.floor((viewer.feetY + BODY_HEIGHT) / LEVEL);
+  let best: PieceSpec | null = null;
+  let bestScore = -Infinity;
+  let last = "";
+  for (let t = MIN_DIST; t <= stop; t += 0.2) {
+    const y = r.oy + r.dy * t;
+    if (y < 0) break;
+    const spec: PieceSpec = { type: "roof", x: Math.floor((r.ox + r.dx * t) / CELL), y: Math.floor(y / LEVEL), z: Math.floor((r.oz + r.dz * t) / CELL), rot: 0 };
+    const key = `${spec.x}|${spec.y}|${spec.z}`;
+    if (key === last) continue;
+    last = key;
+    if (spec.x === bodyX && spec.z === bodyZ && spec.y >= bodyLow && spec.y <= bodyHigh) continue;
+    if (best && spec.y < best.y) continue;
+    const sc = score(spec);
+    if (sc === null) continue;
+    if (!best || spec.y > best.y || sc > bestScore) {
+      best = spec;
+      bestScore = sc;
+    }
+  }
+  return best;
+}
+
+export function aimTarget(
+  type: PieceType,
+  r: AimRay,
+  hit: AimHit | null,
+  viewer: Viewer,
+  rotation = 0,
+  score: PlaceScore = () => 0,
+): AimResult {
   const front = (): AimResult => ({ spec: buildTarget(type, viewer, rotation), source: "front" });
   // A piece of the same kind under the crosshair is the target: it is already there.
   if (hit?.piece && sameKind(hit.piece.type, type)) {
@@ -121,13 +173,20 @@ export function aimTarget(type: PieceType, r: AimRay, hit: AimHit | null, viewer
   }
 
   // Ramps and roofs fill a cell: the cell just in front of whatever the crosshair touches.
-  if (hit && hit.dist <= CELL_REACH) {
+  const reach = type === "roof" ? ROOF_REACH : CELL_REACH;
+  let touched: PieceSpec | null = null;
+  if (hit && hit.dist <= reach) {
     const t = Math.max(0, hit.dist - 0.05);
     const x = r.ox + r.dx * t, y = r.oy + r.dy * t, z = r.oz + r.dz * t;
-    const spec: PieceSpec = { type, x: Math.floor(x / CELL), y: Math.max(0, Math.floor(y / LEVEL)), z: Math.floor(z / CELL), rot: type === "ramp" ? rampRot(viewer.yaw, rotation) : 0 };
-    return { spec: normalizeSpec(spec), source: "crosshair" };
+    touched = normalizeSpec({ type, x: Math.floor(x / CELL), y: Math.max(0, Math.floor(y / LEVEL)), z: Math.floor(z / CELL), rot: type === "ramp" ? rampRot(viewer.yaw, rotation) : 0 });
   }
-  return front();
+  if (type === "roof") {
+    // A roof caps things: prefer the highest buildable cell the crosshair passes
+    // through, unless the spot the crosshair touches is just as high.
+    const high = highestRoofCell(r, Math.min(reach, hit ? hit.dist : Infinity), viewer, score);
+    if (high && (!touched || high.y > touched.y || score(touched) === null)) return { spec: high, source: "crosshair" };
+  }
+  return touched ? { spec: touched, source: "crosshair" } : front();
 }
 
 function rampRot(yaw: number, rotation: number): Rot {

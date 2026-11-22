@@ -1,3 +1,6 @@
+/** Largest mouse movement accepted from a single event, in pixels. */
+const MAX_MOUSE_JUMP = 250;
+
 /** Keyboard and mouse. The game only reacts while the pointer is locked to the canvas. */
 export class Input {
   locked = false;
@@ -34,6 +37,9 @@ export class Input {
 
     document.addEventListener("mousemove", (e) => {
       if (!this.locked) return;
+      // Browsers occasionally report one huge jump (a known pointer-lock glitch).
+      // No real hand moves this far in a single event, so ignore it.
+      if (Math.abs(e.movementX) > MAX_MOUSE_JUMP || Math.abs(e.movementY) > MAX_MOUSE_JUMP) return;
       this.lookX += e.movementX;
       this.lookY += e.movementY;
     });

@@ -382,6 +382,43 @@ await wait(2500);
 check(`${many} pieces stay smooth`, /^(5\d|6\d|1\d\d) fps/.test(await page.textContent("#stats")), await page.textContent("#stats"));
 await auditCheck("many pieces");
 
+// ---------- Roofs two storeys up ----------
+await clear();
+await sf(() => { const s = window.snapfort; const put = (type, x, y, z, rot = 0) => s.history.do({ kind: "place", piece: { type, x, y, z, rot, id: s.nextId(), material: "wood", edit: 0 } }); for (const y of [0, 1]) for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1]]) put("wall", x, y, z, rot); });
+await pose(2.5, 0, 2.5, 0, -1); await page.keyboard.press("KeyC");
+await aimPoint(2.6, 9, 2.9);
+check("inside a two-storey tower, looking up: the roof preview is green", (await ghostLookNow()) === "ghost-ok", await ghostLookNow());
+await clearToast(); await click();
+const towerRoof = (await pieces()).find((p) => p.type === "roof");
+check("…and the roof goes on top, two storeys up", towerRoof?.x === 0 && towerRoof?.y === 2 && towerRoof?.z === 0, towerRoof ? `${towerRoof.x},${towerRoof.y},${towerRoof.z}` : `none (${await toast()})`);
+await page.keyboard.press("KeyQ"); await frames(2);
+await pose(2.5, 0, -4, 0, -0.6); await aimPoint(2.5, 11, 1);
+await clearToast(); await click();
+const outsideRoof = (await pieces()).find((p) => p.type === "roof");
+check("from outside, looking just over the top of the tower: the roof goes on top", outsideRoof?.y === 2 && outsideRoof?.x === 0 && outsideRoof?.z === 0, outsideRoof ? `${outsideRoof.x},${outsideRoof.y},${outsideRoof.z}` : `none (${await toast()})`);
+await shot("tower-roof");
+
+// ---------- The camera stays steady in tight spaces ----------
+await clear();
+const camStats = await sf(async () => {
+  const s = window.snapfort; const frame = () => new Promise((res) => requestAnimationFrame(res));
+  const put = (type, x, y, z, rot = 0) => s.history.do({ kind: "place", piece: { type, x, y, z, rot, id: s.nextId(), material: "wood", edit: 0 } });
+  for (const [x, z, rot] of [[0, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0], [1, 1, 0], [2, 0, 1], [0, -1, 1], [0, 1, 1]]) { put("wall", x, 0, z, rot); put("wall", x, 1, z, rot); }
+  s.player.teleport(1.2, 1, 1.2); s.rig.pitch = 0.2; s.rig.yaw = 0;
+  for (let i = 0; i < 20; i++) await frame();
+  const cam = s.rig.camera.position; let prev = cam.clone(), maxJump = 0;
+  const boom = () => Math.hypot(cam.x - s.rig.pivot.x, cam.y - s.rig.pivot.y, cam.z - s.rig.pivot.z);
+  let lastBoom = boom(), lastSign = 0, reversals = 0;
+  for (let i = 0; i < 360; i++) {
+    s.rig.yaw += 0.0175; await frame();
+    maxJump = Math.max(maxJump, Math.hypot(cam.x - prev.x, cam.y - prev.y, cam.z - prev.z)); prev = cam.clone();
+    const db = boom() - lastBoom; const sign = Math.abs(db) < 0.02 ? 0 : Math.sign(db);
+    if (sign && lastSign && sign !== lastSign) reversals++; if (sign) lastSign = sign; lastBoom = boom();
+  }
+  return { maxJump, reversals };
+});
+check("turning all the way round in a tight corner, the camera does not bounce in and out", camStats.reversals <= 8 && camStats.maxJump < 2.5, `${camStats.reversals} in/out reversals, biggest jump ${camStats.maxJump.toFixed(2)} m`);
+
 // ---------- Arrow keys and WASD both move ----------
 await clear();
 const moved = async (key, axis = "z") => { await pose(2.5, 0, -60, 0, 0.1); const a0 = await sf((axis) => window.snapfort.player.position[axis], axis); await page.keyboard.down(key); await wait(400); await page.keyboard.up(key); await frames(2); return (await sf((axis) => window.snapfort.player.position[axis], axis)) - a0; };

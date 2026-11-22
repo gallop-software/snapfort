@@ -10,6 +10,14 @@ const MAX_PITCH = 1.4;
 const DISTANCE = 4.6;
 const SHOULDER = 1.15;
 const HEAD = 0.8;
+/** Closest the camera comes to the pivot when something is behind it. */
+const MIN_DISTANCE = 0.5;
+/** Space kept between the camera (or the shoulder point) and whatever blocks it. */
+const CLEARANCE = 0.35;
+/** After being pulled in, the camera waits this long with a clear view before easing back out. */
+const HOLD = 0.35;
+/** How fast the camera eases back out, per second. */
+const EASE_OUT = 3;
 
 /** Third-person camera: sits behind the builder's shoulder and looks where the mouse points. */
 export class CameraRig {
@@ -24,7 +32,14 @@ export class CameraRig {
   readonly pivot = new Vector3();
 
   private distance = DISTANCE;
-  private readonly wanted = new Vector3();
+  private shoulder = SHOULDER;
+  private distanceHold = 0;
+  private shoulderHold = 0;
+  private readonly head = new Vector3();
+  private readonly right = new Vector3();
+  private readonly up = new Vector3();
+  private readonly from = new Vector3();
+  private readonly to = new Vector3();
   private readonly hit = new PhysicsRaycastResult();
 
   constructor(private readonly scene: Scene) {
@@ -44,24 +59,49 @@ export class CameraRig {
   update(playerCentre: Vector3, dt: number): void {
     const cp = Math.cos(this.pitch);
     this.forward.set(Math.sin(this.yaw) * cp, -Math.sin(this.pitch), Math.cos(this.yaw) * cp);
-    this.pivot.set(
-      playerCentre.x + Math.cos(this.yaw) * SHOULDER,
-      playerCentre.y + HEAD,
-      playerCentre.z - Math.sin(this.yaw) * SHOULDER,
-    );
-
-    // Pull the camera in when a piece or the ground is between it and the builder.
-    let target = DISTANCE;
-    this.pivot.subtractToRef(this.forward.scale(DISTANCE + 0.4), this.wanted);
+    this.right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    // Camera up: perpendicular to the view and to its right.
+    Vector3.CrossToRef(this.forward, this.right, this.up);
+    this.head.set(playerCentre.x, playerCentre.y + HEAD, playerCentre.z);
     const physics = this.scene.getPhysicsEngine() as PhysicsEngine | null;
+
+    // Slide the over-the-shoulder point toward the head when a wall is right beside the builder,
+    // so the view never starts inside a wall.
+    let shoulderTarget = SHOULDER;
     if (physics) {
-      physics.raycastToRef(this.pivot, this.wanted, this.hit);
-      if (this.hit.hasHit) target = Math.max(0.6, this.hit.hitDistance - 0.4);
+      this.head.addToRef(this.right.scale(SHOULDER + CLEARANCE), this.to);
+      physics.raycastToRef(this.head, this.to, this.hit);
+      if (this.hit.hasHit) shoulderTarget = Math.max(0, this.hit.hitDistance - CLEARANCE);
     }
-    // Snap in at once so walls never cover the view, ease back out.
-    this.distance = target < this.distance ? target : this.distance + (target - this.distance) * Math.min(1, dt * 8);
+    [this.shoulder, this.shoulderHold] = settle(this.shoulder, shoulderTarget, this.shoulderHold, dt);
+    this.head.addToRef(this.right.scale(this.shoulder), this.pivot);
+
+    // Pull the camera in when anything is between it and the builder. Five lines
+    // (centre and around the edges of the view) instead of one, so the camera does
+    // not flicker in and out as a wall edge passes across a single line.
+    let target = DISTANCE;
+    if (physics) {
+      for (const [r, u] of [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.22], [0, -0.22]] as const) {
+        this.pivot.addToRef(this.right.scale(r), this.from).addInPlace(this.up.scale(u));
+        this.from.subtractToRef(this.forward.scale(DISTANCE + CLEARANCE), this.to);
+        physics.raycastToRef(this.from, this.to, this.hit);
+        if (this.hit.hasHit) target = Math.min(target, Math.max(MIN_DISTANCE, this.hit.hitDistance - CLEARANCE));
+      }
+    }
+    [this.distance, this.distanceHold] = settle(this.distance, target, this.distanceHold, dt);
 
     this.pivot.subtractToRef(this.forward.scale(this.distance), this.camera.position);
     this.camera.rotation.set(this.pitch, this.yaw, 0);
   }
+}
+
+/**
+ * Moves a length toward its target: straight in when something is in the way
+ * (so walls never cover the view), but back out only after the way has been
+ * clear for a moment, and then smoothly. Returns the new length and hold time.
+ */
+function settle(current: number, target: number, hold: number, dt: number): [number, number] {
+  if (target < current) return [target, HOLD];
+  if (hold > 0) return [current, hold - dt];
+  return [current + (target - current) * Math.min(1, dt * EASE_OUT), 0];
 }

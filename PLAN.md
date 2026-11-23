@@ -161,6 +161,13 @@ Decided with the user: one way to pay, a **one-time $7 "Full Game"** (no subscri
 - Switching world while playing (user, 2026-11-23: "when on the moon, I can't switch back"): the Esc / gear panel has Meadow and Moon buttons with their pictures, the current one marked; one tap goes there.
 - First-game tips, one at a time, each moving on once done: move, place a wall, try another piece, hold to keep placing, pieces need support. Never shown again in that browser (`snapfort.tips`); a ✕ hides them.
 
+## Exact builder counts, and new versions (user, 2026-11-23: "the builder count keeps increasing"; "a user saw two of my characters"; "everyone should be notified to restart")
+
+- Ghost connections were the cause: Cloudflare answers the heartbeat without waking the world, so a tab that vanished without a goodbye (sleep, lost signal, a crash, a navigation whose close never arrived) stayed a builder. Now: the page closes its connection on leaving (`pagehide`); each tab has an id (sessionStorage) and joining again from it replaces its old connection at once (no duplicate builders); and every 30 s while anyone is connected, a Durable Object alarm drops connections silent for 90 s (last heartbeat answered by Cloudflare, or any message). Hidden tabs ping at least once a minute even when throttled, so they stay.
+- New versions: every build has a stamp (`BUILD_ID`, set by Vite for the page and the Worker alike). A page from another build is "outdated": the world tells it at once (on joining, or on waking after a deploy), and the page also asks `/api/store` every 2 minutes and on coming back to the tab. An outdated page keeps watching the live world but cannot move or build (the server refuses its moves and actions too); a notice says "SnapFort was updated" with **Restart**, which reloads and puts the builder back where they stood, in the same world, facing the same way (sessionStorage, for 10 minutes). On a computer one click takes the mouse again; on touch play resumes at once.
+- Esc while typing in the chat line closes it without opening the settings (the browser lets go of the mouse with the same key): the world stays in view with "Click to keep building".
+- `qa/presence.mjs` checks all of this (a silent connection is dropped in under two minutes). Protocol version 3.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

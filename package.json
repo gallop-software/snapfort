@@ -19,7 +19,8 @@
     "qa:chat": "node qa/chat.mjs",
     "qa:pay": "node qa/pay.mjs",
     "qa:moon": "node qa/moon.mjs",
-    "qa:menu": "node qa/menu.mjs"
+    "qa:menu": "node qa/menu.mjs",
+    "qa:presence": "node qa/presence.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.37.1",

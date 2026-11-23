@@ -21,6 +21,7 @@ import {
   decodePieces,
   encodeOp,
   encodePiece,
+  BUILD_ID,
   PROTOCOL_VERSION,
   type ServerMessage,
   type WireMove,
@@ -48,8 +49,18 @@ interface Attachment extends WirePlayer {
   readyAt?: number;
   /** May build and work trebuchets here (in a paid world: owns the Full Game; else a visitor). */
   builder?: boolean;
+  /** The browser tab (the same across reloads): joining again from it replaces this connection. */
+  tab?: string;
+  /** The page's build; when it is not this server's, the page is "outdated": it can watch, not move or build. */
+  build?: string;
+  outdated?: boolean;
+  /** When they joined (ms): until their first heartbeat, that counts as heard from. */
+  joined?: number;
 }
 
+/** How often silent connections are looked for, and how long silence lasts before one is dropped, ms. */
+const SWEEP_MS = 30_000;
+const STALE_MS = 90_000;
 /** Most builders connected at once. */
 const MAX_PLAYERS = 120;
 /** Most pieces in the world. */
@@ -141,6 +152,8 @@ export class World extends DurableObject<Env> {
 
   /** Which world this is (the meadow, the Moon): set once, by the Worker, and saved. */
   private environment: Environment = MEADOW;
+  /** When each socket last sent anything (heartbeats aside, which Cloudflare answers and times itself). */
+  private readonly heard = new Map<WebSocket, number>();
   /** Sockets whose hello is being answered (their key is being checked). */
   private readonly greeting = new Set<WebSocket>();
 
@@ -159,6 +172,12 @@ export class World extends DurableObject<Env> {
         const player = ws.deserializeAttachment() as Attachment | null;
         if (!player) continue;
         this.players.set(ws, player);
+        // A new version went live while they stayed connected: they should restart.
+        if (player.build && player.build !== BUILD_ID && !player.outdated) {
+          player.outdated = true;
+          ws.serializeAttachment(player);
+          send(ws, { t: "update" });
+        }
         // Back from sleep: who was on which trebuchet, and its reload.
         if (player.crew && this.build.get(player.crew)?.type === "trebuchet") {
           this.crews.set(player.crew, player.id);
@@ -203,6 +222,7 @@ export class World extends DurableObject<Env> {
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (typeof raw !== "string" || raw.length > MAX_MESSAGE) return ws.close(1009, "Message too big");
+    this.heard.set(ws, Date.now());
     if (this.flooding(ws)) return;
     let msg: { t?: unknown; [key: string]: unknown };
     try {
@@ -216,6 +236,7 @@ export class World extends DurableObject<Env> {
     if (!player) return;
     switch (msg.t) {
       case "act":
+        if (player.outdated) return this.refuseAll(ws, msg.seq, msg.ops);
         if (!player.builder) return this.locked(ws, msg.seq, msg.ops);
         return this.act(ws, player, msg.seq, msg.ops);
       case "key": {
@@ -225,6 +246,8 @@ export class World extends DurableObject<Env> {
         return send(ws, { t: "access", builder: player.builder });
       }
       case "move":
+        // An outdated page stands still where it is, until it restarts.
+        if (player.outdated) return;
         return this.move(player, msg.m);
       case "name": {
         player.name = cleanName(msg.name) || player.name;
@@ -235,11 +258,13 @@ export class World extends DurableObject<Env> {
       case "sync":
         return send(ws, { t: "snap", pieces: this.allPieces() });
       case "board":
+        if (player.outdated) return send(ws, { t: "update" });
         if (!player.builder) return send(ws, { t: "denied", reason: "locked" });
         return this.board(ws, player, msg.id, msg.at);
       case "leave":
         return this.release(player.id);
       case "fire":
+        if (player.outdated) return send(ws, { t: "update" });
         if (!player.builder) return send(ws, { t: "denied", reason: "locked" });
         return this.fire(ws, player, msg.id, msg.to);
       case "say":
@@ -275,7 +300,23 @@ export class World extends DurableObject<Env> {
     const n = this.ctx.storage.sql.exec<{ value: number }>(
       "INSERT INTO meta (key, value) VALUES ('players', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1 RETURNING value",
     ).one().value;
-    const player: Attachment = { id: `p${n.toString(36)}`, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder };
+    // The same tab joining again (a reload, a dropped connection, a world switch and back):
+    // its old connection goes first, so nobody is ever seen twice.
+    const tab = typeof msg.tab === "string" && /^[a-z0-9]{8,32}$/.test(msg.tab) ? msg.tab : undefined;
+    if (tab) {
+      for (const [other, p] of this.players) {
+        if (other === ws || p.tab !== tab) continue;
+        try {
+          other.close(4000, "Replaced by a new connection from the same tab");
+        } catch {
+          // Already closing.
+        }
+        this.drop(other);
+      }
+    }
+    const build = typeof msg.build === "string" ? msg.build.slice(0, 40) : undefined;
+    const outdated = !!build && build !== BUILD_ID;
+    const player: Attachment = { id: `p${n.toString(36)}`, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
     ws.serializeAttachment(player);
     this.players.set(ws, player);
     const others = [...this.players.values()].filter((p) => p !== player);
@@ -292,12 +333,15 @@ export class World extends DurableObject<Env> {
       env: this.environment.id,
       builder,
     });
+    if (outdated) send(ws, { t: "update" });
+    void this.keepWatch();
     this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
   }
 
   private drop(ws: WebSocket): void {
     const player = this.players.get(ws);
     this.players.delete(ws);
+    this.heard.delete(ws);
     this.budgets.delete(ws);
     this.messageCounts.delete(ws);
     if (!player) return;
@@ -416,6 +460,42 @@ export class World extends DurableObject<Env> {
     } catch {
       return false;
     }
+  }
+
+  /** An outdated page tried to build: everything in the action is refused (it is told to restart). */
+  private refuseAll(ws: WebSocket, seq: unknown, list: unknown): void {
+    if (!Number.isInteger(seq) || !Array.isArray(list)) return;
+    send(ws, { t: "ack", seq: seq as number, rejected: list.map((_, i) => i), extra: [] });
+    send(ws, { t: "update" });
+  }
+
+  // ── Who is really here ─────────────────────────────────────────────────
+
+  /** Makes sure the sweep for silent connections is scheduled while anyone is connected. */
+  private async keepWatch(): Promise<void> {
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + SWEEP_MS);
+  }
+
+  /**
+   * Every SWEEP_MS while anyone is connected: a connection not heard from for
+   * STALE_MS (no heartbeat: the tab crashed, the laptop slept, the network
+   * went) is closed and its builder leaves, so the count is right and nobody
+   * lingers as a ghost. Heartbeats are answered by Cloudflare without waking
+   * the world; it keeps when it last answered each socket.
+   */
+  override async alarm(): Promise<void> {
+    const now = Date.now();
+    for (const [ws, player] of [...this.players]) {
+      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+      if (now - Math.max(pinged, player.joined ?? 0, this.heard.get(ws) ?? 0) <= STALE_MS) continue;
+      try {
+        ws.close(4001, "No heartbeat");
+      } catch {
+        // Already gone.
+      }
+      this.drop(ws);
+    }
+    if (this.players.size > 0) await this.ctx.storage.setAlarm(now + SWEEP_MS);
   }
 
   /** A visitor tried to build: everything in the action is refused. */

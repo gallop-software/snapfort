@@ -1,5 +1,6 @@
 import { environmentOf } from "../src/game/environments";
 import { cleanKey } from "../src/net/keys";
+import { BUILD_ID } from "../src/net/protocol";
 import { looksLikeEmail, sendKeyEmail } from "./mail";
 import { stripe, stripeLive, stripeReady, verifyWebhook, type CheckoutSession } from "./stripe";
 import type { Env } from "./world";
@@ -86,7 +87,7 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
     // Stripe's test mode only for whoever asks with ?testpay (so the public
     // never meets a test checkout).
     case "/api/store":
-      return Response.json({ ready: stripeReady(env), live });
+      return Response.json({ ready: stripeReady(env), live, build: BUILD_ID });
 
     case "/api/buy": {
       if (request.method !== "POST") return new Response("Use POST", { status: 405 });

@@ -36,7 +36,7 @@ import { facingRot } from "./game/targeting";
 import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
 import { TouchControls } from "./ui/touch";
-import { NetClient, worldUrl } from "./net/client";
+import { NetClient, pageBuild, worldUrl } from "./net/client";
 import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { Store } from "./ui/store";
@@ -510,8 +510,55 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    * click on the game captures the mouse again and play carries on.
    */
   let away = false;
+
+  // ── A new version is live ────────────────────────────────────────────
+  /** This page is from an older build than the server's: it can watch, not move or build, until it restarts. */
+  let outdated = false;
+  /** Says a new version is ready, and offers to restart (the world keeps going behind the panel). */
+  function showUpdate(): void {
+    if (outdated) return;
+    outdated = true;
+    placing = false;
+    chat.close();
+    if (input.locked) {
+      nextView = "update";
+      input.unlock();
+    } else hud.show("update");
+  }
+  /** Reloads the page, noting where the builder is, so the new version puts them back there. */
+  function restart(): void {
+    const resume: Resume = {
+      env: env.id,
+      at: Date.now(),
+      playing: mode !== "menu",
+      x: player.position.x,
+      y: player.position.y,
+      z: player.position.z,
+      yaw: rig.yaw,
+      pitch: rig.pitch,
+    };
+    sessionStorage.setItem(RESUME_KEY, JSON.stringify(resume));
+    location.reload();
+  }
+  document.getElementById("update-restart")!.addEventListener("click", restart);
+  /**
+   * A second way to hear of a new version, besides the world saying so when it
+   * reconnects: the site's own build, asked now and then (every 2 minutes, and
+   * on coming back to the tab).
+   */
+  async function checkVersion(): Promise<void> {
+    if (outdated || document.hidden) return;
+    try {
+      const { build } = (await (await fetch("/api/store", { cache: "no-store" })).json()) as { build?: string };
+      if (build && build !== pageBuild()) showUpdate();
+    } catch {
+      // Offline: the next check, or the world on reconnecting, will tell.
+    }
+  }
+  setInterval(() => void checkVersion(), 120_000);
+  document.addEventListener("visibilitychange", () => void checkVersion());
   /** The panel to show once play has stopped (it stops first: the mouse is released, or on touch the controls hide). */
-  let nextView: "unlock" | "settings" | "paused" | null = null;
+  let nextView: "unlock" | "settings" | "paused" | "update" | null = null;
   /** Stops playing (if playing) and shows a panel. */
   function openPanel(view: "unlock" | "settings" | "paused"): void {
     if (input.locked) {
@@ -535,8 +582,16 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.menuNote(null);
       return hud.show("playing");
     }
+    // Esc while typing closes the chat line, and the browser lets go of the mouse with the same
+    // key: that is not a request for the settings. Stay with the world in view; a click carries on.
+    const escFromChat = chat.isOpen || performance.now() - chatClosedAt < 500;
     chat.close();
     finishEdit(false);
+    if (outdated) return hud.show("update");
+    if (escFromChat && !nextView && mode !== "menu") {
+      away = true;
+      return hud.show("away");
+    }
     // A panel asked for on the way out of play (the unlock panel, the settings to type a key in).
     if (nextView) {
       const view = nextView;
@@ -579,13 +634,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    * on the game carries on.
    */
   function backToBuilding(): void {
+    if (outdated) return hud.show("update");
     sfx.unlock();
     showAway();
     void input.lock();
   }
   // Esc toggles the settings: opens them while stepped away, closes them while open.
   window.addEventListener("keydown", (e) => {
-    if (e.code !== "Escape" || input.locked) return;
+    if (e.code !== "Escape" || input.locked || outdated) return;
     if (away) {
       away = false;
       hud.show("paused");
@@ -684,7 +740,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
     if (dt <= 0) return;
     // On a trebuchet the builder stands still at its controls.
-    const on = input.locked && !crewOn;
+    const on = input.locked && !crewOn && !outdated;
     // Arrow keys and WASD both move the builder.
     const key = (a: string, b: string) => (input.isDown(a) || input.isDown(b) ? 1 : 0);
     // Touch: the on-screen joystick adds its own push (and runs when pushed all the way).
@@ -816,6 +872,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   let lastSent: { text: string; to: ChatTo } | null = null;
   chat.onOpenChange = (open) => {
     input.typing = open;
+    if (!open) chatClosedAt = performance.now();
     if (open) {
       placing = false;
       chatted = true;
@@ -823,6 +880,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   };
   /** The chat line has been opened (for the first-game tips). */
   let chatted = false;
+  /** When the chat line last closed (an Esc that closed it must not open the settings too). */
+  let chatClosedAt = -Infinity;
   const chatChip = document.getElementById("chat-chip")!;
   // With the mouse free (stepped away), the chip can be clicked: back to playing, talking.
   chatChip.addEventListener("click", () => {
@@ -898,6 +957,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const showOnline = () => hud.setOnline(net.online ? remotes.count + 1 : null);
   const net = new NetClient(worldUrl(env.id), identity, {
     status(status) {
+      // An old page the server no longer talks to: the same restart, as for any new version.
+      if (status === "outdated") showUpdate();
       hud.setNetStatus(status);
       showOnline();
     },
@@ -1039,6 +1100,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         sfx.chat();
         chatNoticed();
       }
+    },
+    update() {
+      showUpdate();
     },
     access(on) {
       setBuilder(on);
@@ -1273,6 +1337,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
   net.connect();
   void store.init();
+  // Leaving the page (another world, a reload, closing the tab): say goodbye at once, so this
+  // builder leaves everyone's count now. A page brought back from the browser's back/forward
+  // cache starts afresh.
+  window.addEventListener("pagehide", () => net.close());
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) location.reload();
+  });
 
   let statsTimer = 0;
   let fitTimer = 0;
@@ -1398,6 +1469,21 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   for (let waited = 0; !joined && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
   hud.showIdentity(identity, COLORS);
   hud.ready(joined);
+  // Back from a restart for a new version: in the same place, playing again.
+  const resume = takeResume(env.id);
+  if (resume?.playing) {
+    startMode("free");
+    player.teleport(resume.x, resume.y, resume.z);
+    rig.yaw = resume.yaw;
+    rig.pitch = resume.pitch;
+    if (touch) void input.lock();
+    else {
+      // The browser needs a click to take the mouse: the world in view until then.
+      away = true;
+      hud.show("away");
+    }
+    hud.toast("Updated to the latest version", 2500);
+  }
   if (!builder) (document.getElementById("play-free") as HTMLButtonElement).textContent = `Visit the ${env.name}`;
 
   if (import.meta.env.DEV) {
@@ -1405,5 +1491,32 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     Object.assign(window, {
       snapfort: { scene, engine, flag, chat, store, env, get builder() { return builder; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
+  }
+}
+
+/** Where a builder was when they restarted for a new version (sessionStorage, read once). */
+interface Resume {
+  env: string;
+  at: number;
+  playing: boolean;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+}
+const RESUME_KEY = "snapfort.resume";
+
+/** The saved place from a restart in this world in the last few minutes, if any (and forgets it). */
+function takeResume(env: string): Resume | null {
+  const raw = sessionStorage.getItem(RESUME_KEY);
+  sessionStorage.removeItem(RESUME_KEY);
+  if (!raw) return null;
+  try {
+    const r = JSON.parse(raw) as Resume;
+    const ok = r.env === env && Date.now() - r.at < 10 * 60_000 && [r.x, r.y, r.z, r.yaw, r.pitch].every(Number.isFinite);
+    return ok ? r : null;
+  } catch {
+    return null;
   }
 }

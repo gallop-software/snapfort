@@ -4,6 +4,7 @@ import type { Piece } from "../game/pieces";
 import type { Identity } from "../identity";
 import type { ChatTo } from "./chat";
 import {
+  BUILD_ID,
   decodeOps,
   decodePieces,
   encodeOp,
@@ -54,6 +55,8 @@ export interface NetHandlers {
   hush(reason: "flood", wait: number): void;
   /** Whether you may build here, after sending a key. */
   access(builder: boolean): void;
+  /** A newer version of SnapFort is live: this page should restart. */
+  update(): void;
 }
 
 /** How often this builder's position goes out while they move, ms. */
@@ -64,7 +67,7 @@ const MOVE_INTERVAL = 100;
  * DEAD_AFTER is taken for dead (a laptop that slept, a Wi-Fi switch) and
  * replaced.
  */
-const PING_EVERY = 20_000;
+const PING_EVERY = 15_000;
 const DEAD_AFTER = 45_000;
 /** After coming back to the tab or the network, a pong must arrive this fast. */
 const CHECK_WITHIN = 5_000;
@@ -103,7 +106,7 @@ export class NetClient {
     this.ws = ws;
     ws.onopen = () => {
       this.heardAt = performance.now();
-      this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color, ...(this.key ? { key: this.key } : {}) });
+      this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color, build: pageBuild(), tab: tabId(), ...(this.key ? { key: this.key } : {}) });
     };
     ws.onmessage = (event) => {
       this.heardAt = performance.now();
@@ -258,6 +261,8 @@ export class NetClient {
         return h.hush(msg.reason, msg.wait ?? 0);
       case "access":
         return h.access(msg.builder);
+      case "update":
+        return h.update();
       case "error":
         if (msg.reason === "full") this.setStatus("full");
         else if (msg.reason === "version") this.setStatus("outdated");
@@ -270,6 +275,25 @@ export class NetClient {
     this.status = status;
     this.handlers.status(status);
   }
+}
+
+/** This page's build; on a dev server ?build=<x> pretends to be another one (to try the update notice). */
+export function pageBuild(): string {
+  return (import.meta.env.DEV && new URLSearchParams(location.search).get("build")) || BUILD_ID;
+}
+
+/**
+ * This browser tab's id: the same across reloads and world switches (it lives
+ * in sessionStorage), different in every other tab. Joining again from the
+ * same tab replaces the old connection, so nobody is ever seen twice.
+ */
+export function tabId(): string {
+  let id = sessionStorage.getItem("snapfort.tab");
+  if (!id) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => (b % 36).toString(36)).join("");
+    sessionStorage.setItem("snapfort.tab", id);
+  }
+  return id;
 }
 
 /** The shared world's address on this site. */

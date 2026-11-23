@@ -1081,3 +1081,25 @@ body.playing:not(.touch):not(.chatting) #chat-chip { display: inline-flex; }
 #chat-chip kbd { padding: 1px 6px; border-radius: 6px; background: var(--cream); color: var(--ink); font: inherit; font-size: 11px; font-weight: 800; }
 #chat-chip.ping, .touch-button.ping { background: var(--teal); box-shadow: 0 0 0 3px rgba(47, 143, 138, 0.45); animation: chat-ping 0.9s ease-in-out 3; }
 @keyframes chat-ping { 50% { box-shadow: 0 0 0 7px rgba(47, 143, 138, 0.15); } }
+
+/* Stepped away from the game (the mouse let go): the world stays in view, and how to carry on. */
+#away-note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: none;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(31, 42, 55, 0.82);
+  color: var(--cream);
+  font-size: 15px;
+  font-weight: 800;
+  pointer-events: none;
+}
+body.away:not(.touch) #away-note { display: block; }
+
+/* A new version is live. */
+#view-update h2 { margin-top: 18px; }
+#view-update p { margin: 0 0 18px; }
+.update-note { margin: 14px 0 0 !important; font-size: 12.5px !important; }

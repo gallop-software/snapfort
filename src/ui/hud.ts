@@ -51,7 +51,7 @@ export function clock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-type View = "menu" | "paused" | "captured" | "controls" | "settings" | "unlock";
+type View = "menu" | "paused" | "captured" | "controls" | "settings" | "unlock" | "update";
 
 /** The plain HTML overlay: hotbar, crosshair, readouts, messages and the menu panel. */
 export class Hud {
@@ -68,6 +68,7 @@ export class Hud {
     controls: el("view-controls"),
     settings: el("view-settings"),
     unlock: el("view-unlock"),
+    update: el("view-update"),
   };
   /** Where Back goes from Controls (the menu, or the settings while playing). */
   private controlsFrom: View = "menu";
@@ -293,6 +294,8 @@ export class Hud {
     // The settings show in their own panel, and while playing (Esc / the gear).
     el("settings").hidden = view !== "paused" && view !== "settings";
     document.body.classList.toggle("playing", playing);
+    // Stepped away (or Esc out of the chat line): the world in view, a note that a click carries on.
+    document.body.classList.toggle("away", away);
     this.overlay.hidden = playing || away;
     for (const [name, node] of Object.entries(this.views)) node.hidden = name !== view;
   }

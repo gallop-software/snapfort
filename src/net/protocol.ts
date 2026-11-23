@@ -9,7 +9,15 @@ import type { ChatTo } from "./chat";
  */
 
 /** Bump when the messages change in a way older pages cannot read. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
+
+declare const __BUILD_ID__: string | undefined;
+/**
+ * The build this page or server came from (set by Vite at build time). A page
+ * from another build than the server's is told to restart: it keeps watching
+ * the world but cannot move or build until it reloads.
+ */
+export const BUILD_ID: string = typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev";
 
 /** Pieces are grouped in square chunks of this many cells, for saving (and later streaming). */
 export const CHUNK_CELLS = 16;
@@ -60,7 +68,17 @@ export type ClientMessage =
   /** Throw from the trebuchet you are on at point `to`. */
   | { t: "fire"; id: string; to: WireVec }
   /** Joins the world; `key` (a SnapFort key) lets its owner build in a paid world. */
-  | { t: "hello"; v: number; name: string; color: string; key?: string }
+  | {
+      t: "hello";
+      v: number;
+      name: string;
+      color: string;
+      key?: string;
+      /** The page's build (BUILD_ID). */
+      build?: string;
+      /** This browser tab, the same across reloads and world switches: joining again replaces its old connection. */
+      tab?: string;
+    }
   /** A key bought or typed in while here: asks again whether building is open. */
   | { t: "key"; key: string }
   | { t: "act"; seq: number; ops: WireOp[] }
@@ -115,6 +133,8 @@ export type ServerMessage =
   | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
   /** The answer to a "key" message. */
   | { t: "access"; builder: boolean }
+  /** A newer version of SnapFort is live: this page should restart (it can watch, not move or build, until it does). */
+  | { t: "update" }
   | { t: "snap"; pieces: WirePiece[] }
   /** Someone else changed the world. */
   | { t: "ops"; by: string; ops: WireOp[] }

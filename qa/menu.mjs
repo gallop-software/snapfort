@@ -4,7 +4,7 @@
  * the U key, the panel), and the first-game tips stepping along as they are
  * done. Dev server running: npm run qa:menu
  */
-import { chromium } from "playwright-core";
+import { chromium, devices } from "playwright-core";
 
 const base = new URL(process.argv[2] ?? "http://localhost:5173/");
 const world = `menu-${Date.now().toString(36)}`;
@@ -42,7 +42,7 @@ check("'Playing as' opens Settings, with your name and colour to change", (await
 await p.fill("#player-name", "Captain Menu"); await p.press("#player-name", "Enter");
 await p.click("#settings-back");
 check("…and the new name shows on the menu", (await p.textContent("#me-name")) === "Captain Menu" && (await p.isVisible("#worlds")));
-check("the Moon card goes to the Moon", (await p.getAttribute('.world[data-env="moon"]', "href")) === "/moon");
+check("the Moon card goes to the Moon (keeping the test world)", (await p.getAttribute('.world[data-env="moon"]', "href")).startsWith("/moon"));
 
 // ── First-game tips ──────────────────────────────────────────────────────
 await p.click("#play-free"); await wait(800);
@@ -80,6 +80,23 @@ if (!(await sf(m, () => window.snapfort.input.locked))) { await wait(1200); awai
 await m.mouse.down(); await m.mouse.up(); await wait(600);
 await m.click("#unlock-key"); await wait(500);
 check("'Have a key?' on the panel opens the key box in the settings", (await m.isVisible("#store-key-input")) && (await sf(m, () => document.getElementById("full-game").classList.contains("entering"))));
+
+// ── Switching world while playing (phone: the gear) ─────────────────────
+{
+  const ctx = await browser.newContext({ ...devices["iPhone 13 landscape"] });
+  const ph = await ctx.newPage();
+  ph.on("pageerror", (e) => errors.push(e.message.slice(0, 200)));
+  const url = new URL("/moon", base); url.searchParams.set("world", world);
+  await ph.goto(url.toString()); await ph.waitForSelector("body.ready", { timeout: 60000 });
+  await ph.tap("#play-free"); await wait(800);
+  await ph.tap("#t-settings"); await wait(600);
+  const here = await sf(ph, () => document.querySelector('.mini-world.current')?.dataset.env);
+  check("playing on the Moon, the gear's panel offers to switch world, the Moon marked as here", (await ph.isVisible(".mini-world[data-env=meadow]")) && here === "moon" && (await fits(ph)));
+  await ph.tap(".mini-world[data-env=meadow]");
+  await ph.waitForSelector("body.ready", { timeout: 60000 }); await wait(500);
+  check("…one tap on Meadow goes back to the meadow (same test world)", (await sf(ph, () => window.snapfort.env.id)) === "meadow" && new URL(ph.url()).searchParams.get("world") === world, ph.url());
+  await ctx.close();
+}
 
 check("no errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok);

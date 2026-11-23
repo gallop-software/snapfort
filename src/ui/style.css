@@ -1026,3 +1026,31 @@ body.chatting #tip { display: none; }
   body.touch #store-lost-link .link { white-space: normal; text-align: left; }
   body.touch #view-controls h2 { margin: 0 0 8px; font-size: 19px; }
 }
+
+/* Switching world while playing (in the Esc / gear panel). */
+.mini-worlds { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 16px 0 4px; flex-wrap: wrap; }
+.mini-title { flex-basis: 100%; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.6; }
+.mini-world {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px 4px 4px;
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 15px;
+  text-decoration: none;
+  box-shadow: 0 0 0 2px rgba(31, 42, 55, 0.1), 0 3px 0 rgba(31, 42, 55, 0.12);
+}
+.mini-world .pic { width: 56px; height: 34px; border-radius: 10px; background: #ccc center / cover no-repeat; }
+.mini-world.current { box-shadow: 0 0 0 3px var(--coral); pointer-events: none; }
+.mini-world.current b::after { content: " · here"; font-weight: 600; opacity: 0.6; font-size: 12px; }
+@media (max-height: 560px) {
+  body.touch .mini-worlds { margin: 8px 0 0; gap: 6px; flex-wrap: nowrap; }
+  body.touch .mini-title { display: none; }
+  body.touch .mini-world { font-size: 12px; gap: 6px; padding: 3px 8px 3px 3px; border-radius: 11px; }
+  body.touch .mini-world .pic { width: 36px; height: 24px; border-radius: 8px; }
+  body.touch .mini-world.current b::after { content: ""; }
+  /* Terms is on the menu's links; here it would run off the edge. */
+  body.touch #full-game .store-offer a.link { display: none; }
+}

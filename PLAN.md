@@ -157,6 +157,7 @@ Decided with the user: one way to pay, a **one-time $7 "Full Game"** (no subscri
 
 - The start screen only picks a world and plays: two world cards with pictures rendered from the game (`public/worlds/*.jpg`, made with `qa/world-images.mjs`), "You're here" on the current one, one big button, "Playing as Name ●" (opens Settings), and links to Controls, Settings, Terms. Controls (the key list or the touch help, and the building rules) and Settings are panels of their own; Esc while playing shows the settings as before.
 - On the Moon without the Full Game: **Unlock the Moon · $7** is the big button on the menu, above Visit the Moon; while visiting, a bar at the top keeps **Unlock · $7** in sight (U on a keyboard, a tap on phones); trying to build (click, a piece key, H, G) opens the unlock panel: the Moon's picture, four things you get, **Unlock · $7**, Have a key?, Terms, Keep visiting.
+- Switching world while playing (user, 2026-11-23: "when on the moon, I can't switch back"): the Esc / gear panel has Meadow and Moon buttons with their pictures, the current one marked; one tap goes there.
 - First-game tips, one at a time, each moving on once done: move, place a wall, try another piece, hold to keep placing, pieces need support. Never shown again in that browser (`snapfort.tips`); a ✕ hides them.
 
 ## Progress

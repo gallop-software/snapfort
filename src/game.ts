@@ -1233,7 +1233,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const tipStart = player.position.clone();
   net.key = store.key;
   document.body.dataset.env = env.id;
-  for (const a of document.querySelectorAll<HTMLAnchorElement>("#worlds a")) a.classList.toggle("current", a.dataset.env === env.id);
+  // World links (the menu's cards, the switcher while playing): the current one marked; on a dev
+  // server they keep the test world (?world=), so switching stays in it.
+  const testWorld = new URLSearchParams(location.search).get("world");
+  for (const a of document.querySelectorAll<HTMLAnchorElement>(".world, .mini-world")) {
+    a.classList.toggle("current", a.dataset.env === env.id);
+    if (testWorld) a.href = `${a.dataset.env === "moon" ? "/moon" : "/"}?world=${encodeURIComponent(testWorld)}`;
+  }
   net.connect();
   void store.init();
 

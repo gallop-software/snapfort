@@ -3,7 +3,9 @@ import { defineConfig } from "vitest/config";
 
 /**
  * This build's version, the same in the page and the Worker: a page from an
- * older build is told to restart (see BUILD_ID in src/net/protocol.ts).
+ * older build is told to restart (see BUILD_ID in src/net/protocol.ts). Set
+ * once by `npm run build`: Vite reads this file again for the Worker's build a
+ * few seconds later, and a time taken here would then differ between the two.
  */
 const BUILD = process.env.SNAPFORT_BUILD ?? new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 

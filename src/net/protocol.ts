@@ -19,6 +19,14 @@ declare const __BUILD_ID__: string | undefined;
  */
 export const BUILD_ID: string = typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev";
 
+/**
+ * True when build `a` is older than build `b`. Builds are times (YYYYMMDDHHMMSS),
+ * so they compare as text. Only an older page is told to restart: for a minute
+ * after a deploy a world may still run the old code while pages already have
+ * the new one, and those should just wait for it.
+ */
+export const olderBuild = (a: string, b: string): boolean => /^\d{14}$/.test(a) && /^\d{14}$/.test(b) && a < b;
+
 /** Pieces are grouped in square chunks of this many cells, for saving (and later streaming). */
 export const CHUNK_CELLS = 16;
 
@@ -150,7 +158,8 @@ export type ServerMessage =
   | { t: "join"; player: WirePlayer }
   | { t: "leave"; id: string }
   | { t: "moves"; m: WireMove[] }
-  | { t: "error"; reason: "full" | "version" | "bad" };
+  /** `v`: the server's protocol version (with "version"); older servers did not send it. */
+  | { t: "error"; reason: "full" | "version" | "bad"; v?: number };
 
 export function encodePiece(p: Piece): WirePiece {
   return [p.id, PIECE_TYPES.indexOf(p.type), p.x, p.y, p.z, p.rot, MATERIALS.indexOf(p.material), p.edit];

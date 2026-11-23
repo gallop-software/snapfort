@@ -265,6 +265,9 @@ export class NetClient {
         return h.update();
       case "error":
         if (msg.reason === "full") this.setStatus("full");
+        // The server is on an older protocol than this page: it is about to be updated (a deploy
+        // takes a minute to reach every world). Keep trying instead of asking for a restart.
+        else if (msg.reason === "version" && (msg.v ?? 0) < PROTOCOL_VERSION) this.retry = 3_000;
         else if (msg.reason === "version") this.setStatus("outdated");
         return;
     }

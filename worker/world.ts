@@ -22,6 +22,7 @@ import {
   encodeOp,
   encodePiece,
   BUILD_ID,
+  olderBuild,
   PROTOCOL_VERSION,
   type ServerMessage,
   type WireMove,
@@ -173,7 +174,7 @@ export class World extends DurableObject<Env> {
         if (!player) continue;
         this.players.set(ws, player);
         // A new version went live while they stayed connected: they should restart.
-        if (player.build && player.build !== BUILD_ID && !player.outdated) {
+        if (player.build && olderBuild(player.build, BUILD_ID) && !player.outdated) {
           player.outdated = true;
           ws.serializeAttachment(player);
           send(ws, { t: "update" });
@@ -284,8 +285,8 @@ export class World extends DurableObject<Env> {
 
   private async hello(ws: WebSocket, msg: Record<string, unknown>): Promise<void> {
     if (msg.v !== PROTOCOL_VERSION) {
-      send(ws, { t: "error", reason: "version" });
-      return ws.close(1008, "Old version: reload the page");
+      send(ws, { t: "error", reason: "version", v: PROTOCOL_VERSION });
+      return ws.close(1008, "Another version: reload the page");
     }
     if (this.players.has(ws) || this.greeting.has(ws)) return;
     this.greeting.add(ws);
@@ -315,7 +316,7 @@ export class World extends DurableObject<Env> {
       }
     }
     const build = typeof msg.build === "string" ? msg.build.slice(0, 40) : undefined;
-    const outdated = !!build && build !== BUILD_ID;
+    const outdated = !!build && olderBuild(build, BUILD_ID);
     const player: Attachment = { id: `p${n.toString(36)}`, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
     ws.serializeAttachment(player);
     this.players.set(ws, player);

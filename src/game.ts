@@ -37,6 +37,7 @@ import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
 import { TouchControls } from "./ui/touch";
 import { NetClient, pageBuild, worldUrl } from "./net/client";
+import { olderBuild } from "./net/protocol";
 import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { Store } from "./ui/store";
@@ -550,7 +551,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (outdated || document.hidden) return;
     try {
       const { build } = (await (await fetch("/api/store", { cache: "no-store" })).json()) as { build?: string };
-      if (build && build !== pageBuild()) showUpdate();
+      if (build && olderBuild(pageBuild(), build)) showUpdate();
     } catch {
       // Offline: the next check, or the world on reconnecting, will tell.
     }

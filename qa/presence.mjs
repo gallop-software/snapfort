@@ -92,7 +92,7 @@ alive.close();
 await wait(700);
 
 // ── A page from an older version ────────────────────────────────────────
-const old = await open("/?build=old", false);
+const old = await open("/?build=20000101000000", false);
 // (Playing, as someone would be when a new version goes live.)
 await sf(old, () => window.snapfort.startMode("free"));
 await wait(800);
@@ -111,7 +111,7 @@ await wait(900);
 check("…nor build (the server refuses it)", (await sf(watcher, () => window.snapfort.state.size)) === n0 + 1 && (await sf(old, () => window.snapfort.state.size)) === n0 + 1);
 await old.keyboard.press("Escape"); await wait(300);
 check("…and the notice cannot be closed: only Restart", await old.isVisible("#view-update"));
-// Restart: the new version (the address without ?build=old) puts it back where it was.
+// Restart: the new version (the address without ?build=20000101000000) puts it back where it was.
 await sf(old, () => { const s = window.snapfort; s.player.teleport(17.5, 0.95, 22.5); s.rig.yaw = 1.2; });
 await wait(300);
 await sf(old, () => history.replaceState(null, "", location.pathname + "?world=" + new URLSearchParams(location.search).get("world")));
@@ -142,7 +142,7 @@ await old.context().close();
   await ctx.addInitScript(() => localStorage.setItem("snapfort.tips", "done"));
   const ph = await ctx.newPage();
   ph.on("pageerror", (e) => errors.push(e.message.slice(0, 200)));
-  const url = new URL("/moon?build=old", base); url.searchParams.set("world", world);
+  const url = new URL("/moon?build=20000101000000", base); url.searchParams.set("world", world);
   await ph.goto(url.toString()); await ph.waitForSelector("body.ready", { timeout: 60000 });
   await sf(ph, () => window.snapfort.startMode("free")); await wait(800);
   const fitsUpdate = await sf(ph, () => { const o = document.getElementById("overlay"); return !document.getElementById("view-update").hidden && o.scrollHeight <= o.clientHeight + 1; });

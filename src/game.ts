@@ -544,8 +544,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   document.getElementById("update-restart")!.addEventListener("click", restart);
   /**
    * A second way to hear of a new version, besides the world saying so when it
-   * reconnects: the site's own build, asked now and then (every 2 minutes, and
-   * on coming back to the tab).
+   * reconnects (Cloudflare moves a running world onto new code a little after a
+   * deploy, not at once): the site's own build, asked every 45 seconds while
+   * the tab is in view, and on coming back to it.
    */
   async function checkVersion(): Promise<void> {
     if (outdated || document.hidden) return;
@@ -556,7 +557,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       // Offline: the next check, or the world on reconnecting, will tell.
     }
   }
-  setInterval(() => void checkVersion(), 120_000);
+  setInterval(() => void checkVersion(), 45_000);
   document.addEventListener("visibilitychange", () => void checkVersion());
   /** The panel to show once play has stopped (it stops first: the mouse is released, or on touch the controls hide). */
   let nextView: "unlock" | "settings" | "paused" | "update" | null = null;

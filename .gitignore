@@ -8,3 +8,6 @@ qa/shots
 # Secrets stay on this computer only, encrypted or not
 secrets/
 .dev.vars
+
+# Encrypted copies for moving to another machine, never committed
+*.age

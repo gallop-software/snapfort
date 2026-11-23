@@ -37,6 +37,8 @@ const bubbles = (page) => sf(page, () => [...document.querySelectorAll(".chat-bu
 const pins = (page) => sf(page, () => [...document.querySelectorAll(".chat-pin")].map((p) => { const r = p.getBoundingClientRect(); return { name: p.querySelector("b").textContent, dist: p.querySelector("em").textContent, edge: p.classList.contains("edge"), x: r.left + r.width / 2, bottom: r.bottom }; }));
 const lines = (page) => sf(page, () => [...document.querySelectorAll(".chat-line")].map((l) => l.textContent));
 const toast = (page) => sf(page, () => document.getElementById("toast").textContent);
+/** Closes the chat line without sending: empty it, then Enter (there is no other way on a computer). */
+const closeLine = async (page) => { await sf(page, () => { document.getElementById("chat-input").value = ""; }); await page.keyboard.press("Enter"); await wait(300); };
 const boxOpen = (page) => sf(page, () => !document.getElementById("chat-box").hidden);
 const named = async (page, name) => { await sf(page, (name) => { document.getElementById("player-name").value = name; document.getElementById("player-name").dispatchEvent(new Event("change", { bubbles: true })); document.getElementById("player-name").dispatchEvent(new Event("input", { bubbles: true })); }, name); };
 /** Says something with the keys: Enter, Tab if the line is set to the other audience, type, Enter. */
@@ -121,16 +123,26 @@ await a.keyboard.type("me again");
 await a.keyboard.press("Enter");
 await say(a, "me again", "all");
 check("messages go back to back, the same words twice too", (await lines(c)).filter((l) => l.includes("me again")).length === 2, JSON.stringify(await lines(c)));
+check("on a computer there are no Send or ✕ buttons (the mouse is the game's): the keys do it all", !(await a.isVisible("#chat-send")) && !(await a.isVisible("#chat-close")) && (await a.textContent("#chat-note")).includes("on empty closes"));
+// Backspace on an empty line closes it.
 await a.keyboard.press("Enter"); await frames(a, 2);
-await a.keyboard.type("never sent");
-await a.keyboard.press("Escape");
-await wait(300);
-check("Esc closes the line without sending", !(await boxOpen(a)) && !(await lines(c)).some((l) => l.includes("never sent")));
-// Esc also frees the mouse (the browser's rule): carry on.
-if (!(await sf(a, () => window.snapfort.input.locked))) { await wait(1200); await a.click("#resume").catch(() => a.mouse.click(550, 350)); await wait(1300); }
-check("…and building carries on after it", await sf(a, () => window.snapfort.input.locked));
+await a.keyboard.type("ab");
+await a.keyboard.press("Backspace"); await a.keyboard.press("Backspace");
+check("Backspace deletes as usual while there is text", (await boxOpen(a)) && (await sf(a, () => document.getElementById("chat-input").value)) === "");
+await a.keyboard.press("Backspace"); await wait(300);
+check("…and Backspace on the empty line closes it: straight back to playing", !(await boxOpen(a)) && (await sf(a, () => window.snapfort.input.locked)));
+// Esc opens the menu, keeping what was typed.
 await a.keyboard.press("Enter"); await frames(a, 2);
-check("next time the line opens empty (Esc forgot it), still to everyone", (await sf(a, () => document.getElementById("chat-input").value)) === "" && (await a.textContent("#chat-to")) === "Everyone");
+await a.keyboard.type("keep me");
+await a.keyboard.press("Escape"); await wait(700);
+check("Esc while typing opens the menu, as Esc does everywhere, and sends nothing", !(await boxOpen(a)) && (await a.isVisible("#view-paused")) && !(await lines(c)).some((l) => l.includes("keep me")));
+await a.click("#resume"); await wait(1500);
+if (!(await sf(a, () => window.snapfort.input.locked))) { await a.mouse.click(550, 350); await wait(1300); }
+await a.keyboard.press("Enter"); await frames(a, 2);
+check("…and what was typed is still there next time", (await sf(a, () => document.getElementById("chat-input").value)) === "keep me");
+await closeLine(a);
+await a.keyboard.press("Enter"); await frames(a, 2);
+check("after closing it empty, the line opens empty, still to everyone", (await sf(a, () => document.getElementById("chat-input").value)) === "" && (await a.textContent("#chat-to")) === "Everyone");
 await a.keyboard.press("Enter"); await frames(a, 2);
 check("Enter on an empty line just closes it", !(await boxOpen(a)));
 
@@ -149,8 +161,7 @@ await say(c, "flood 6", "all");
 check("a flood is held back on the server: five messages in a few seconds go, the sixth does not", (await lines(a)).some((l) => l.includes("flood 5")) && !(await lines(a)).some((l) => l.includes("flood 6")) && (await toast(c)).startsWith("Slow down"), await toast(c));
 await c.keyboard.press("Enter"); await frames(c, 2);
 { const st = await sf(c, () => document.getElementById("chat-input").value); check("…and the held message is waiting in the line to send again", st === "flood 6" && (await c.textContent("#chat-to")) === "Everyone", JSON.stringify(st)); }
-await c.keyboard.press("Escape"); await wait(300);
-if (!(await sf(c, () => window.snapfort.input.locked))) { await wait(1200); await c.click("#resume").catch(() => {}); await wait(1300); }
+await closeLine(c);
 // Typing fast by hand: the page holds the sixth itself and keeps it in the line.
 await wait(5100);
 for (let i = 1; i <= 5; i++) await say(c, `quick ${i}`, "all");
@@ -158,8 +169,7 @@ await c.keyboard.press("Enter"); await frames(c, 2);
 await c.keyboard.type("quick 6");
 await c.keyboard.press("Enter"); await frames(c, 3);
 check("five quick messages by hand all go; a sixth at once is held in the line, saying to slow down", (await lines(a)).some((l) => l.includes("quick 5")) && (await boxOpen(c)) && (await c.textContent("#chat-note")).startsWith("Slow down") && (await sf(c, () => document.getElementById("chat-input").value)) === "quick 6", await c.textContent("#chat-note"));
-await c.keyboard.press("Escape"); await wait(300);
-if (!(await sf(c, () => window.snapfort.input.locked))) { await wait(1200); await c.click("#resume").catch(() => {}); await wait(1300); }
+await closeLine(c);
 
 // ── Pings ────────────────────────────────────────────────────────────────
 await wait(2100);

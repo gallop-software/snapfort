@@ -584,16 +584,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.menuNote(null);
       return hud.show("playing");
     }
-    // Esc while typing closes the chat line, and the browser lets go of the mouse with the same
-    // key: that is not a request for the settings. Stay with the world in view; a click carries on.
-    const escFromChat = chat.isOpen || performance.now() - chatClosedAt < 500;
     chat.close();
     finishEdit(false);
     if (outdated) return hud.show("update");
-    if (escFromChat && !nextView && mode !== "menu") {
-      away = true;
-      return hud.show("away");
-    }
     // A panel asked for on the way out of play (the unlock panel, the settings to type a key in).
     if (nextView) {
       const view = nextView;
@@ -893,16 +886,16 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   let lastSent: { text: string; to: ChatTo } | null = null;
   chat.onOpenChange = (open) => {
     input.typing = open;
-    if (!open) chatClosedAt = performance.now();
     if (open) {
       placing = false;
       chatted = true;
     }
   };
+  // Esc in the chat line opens the menu, as Esc does everywhere in the game (on a computer the
+  // browser lets go of the mouse with it anyway; on a tablet's keyboard this does it).
+  chat.onEscape = () => input.unlock();
   /** The chat line has been opened (for the first-game tips). */
   let chatted = false;
-  /** When the chat line last closed (an Esc that closed it must not open the settings too). */
-  let chatClosedAt = -Infinity;
   const chatChip = document.getElementById("chat-chip")!;
   // With the mouse free (stepped away), the chip can be clicked: back to playing, talking.
   chatChip.addEventListener("click", () => {

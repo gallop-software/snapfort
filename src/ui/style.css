@@ -1103,3 +1103,8 @@ body.away:not(.touch) #away-note { display: block; }
 #view-update h2 { margin-top: 18px; }
 #view-update p { margin: 0 0 18px; }
 .update-note { margin: 14px 0 0 !important; font-size: 12.5px !important; }
+
+/* On a computer the mouse is the game's while typing: no buttons to click, Enter does it all. */
+body:not(.touch) #chat-send, body:not(.touch) #chat-close { display: none; }
+body:not(.touch) #chat-box { grid-template-columns: auto minmax(0, 1fr); }
+body:not(.touch) #chat-to { cursor: default; }

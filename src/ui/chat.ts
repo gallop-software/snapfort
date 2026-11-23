@@ -38,6 +38,8 @@ export class ChatView {
   /** Says a message; returns why it cannot go yet (the line stays open), or null when sent. */
   onSend: (text: string, to: ChatTo) => string | null = () => null;
   onOpenChange: (open: boolean) => void = () => {};
+  /** Esc in the chat line: the game opens its menu. */
+  onEscape: () => void = () => {};
 
   private readonly layer: HTMLElement;
   private readonly feed: HTMLElement;
@@ -98,9 +100,15 @@ export class ChatView {
       if (e.key === "Tab") {
         e.preventDefault();
         this.setTo(this.to === "near" ? "all" : "near");
-      } else if (e.key === "Escape") {
+      } else if (e.key === "Backspace" && this.input.value === "") {
+        // Backspace on an empty line closes it, like Enter on an empty line.
         e.preventDefault();
         this.cancel();
+      } else if (e.key === "Escape") {
+        // Esc opens the menu, as everywhere in the game; what was typed waits for next time.
+        e.preventDefault();
+        this.close();
+        this.onEscape();
       }
     });
     this.input.addEventListener("input", () => this.showNote(null));
@@ -225,7 +233,7 @@ export class ChatView {
     this.note.hidden = !problem && this.touch;
     this.note.innerHTML = problem
       ? escape(problem)
-      : `<kbd>Enter</kbd> send · <kbd>Tab</kbd> ${this.to === "near" ? "everyone" : "nearby"} · <kbd>Esc</kbd> close`;
+      : `<kbd>Enter</kbd> send · <kbd>Enter</kbd> or <kbd>⌫</kbd> on empty closes · <kbd>Tab</kbd> ${this.to === "near" ? "everyone" : "nearby"} · <kbd>Esc</kbd> menu`;
   }
 
   private bubble(said: WireSaid, me: string, now: number): void {

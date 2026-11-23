@@ -127,20 +127,20 @@ const q1 = await sf(old, () => window.snapfort.player.position.asArray());
 check("…one click and they are building again", (await sf(old, () => window.snapfort.input.locked)) && Math.hypot(q1[0] - q0[0], q1[2] - q0[2]) > 1);
 check("…still one builder to the others after all that", (await online(watcher)) === 2);
 
-// ── Esc out of the chat line ────────────────────────────────────────────
+// ── Esc while typing: the menu, the text kept ───────────────────────────
 await old.keyboard.press("Enter"); await wait(300);
-await old.keyboard.type("hello");
-await old.keyboard.press("Escape"); await wait(800);
-check("Esc in the chat line closes it, without opening the settings", !(await sf(old, () => !document.getElementById("chat-box").hidden)) && !(await old.isVisible("#view-paused")) && !(await old.isVisible("#settings")));
-check("…the world stays in view: still playing, or (where the browser let go of the mouse) a note that a click or key carries on", (await sf(old, () => window.snapfort.input.locked)) || (await old.isVisible("#away-note")));
-// As a real browser does on Esc: the mouse let go while the line was open. Then just press W.
+await old.keyboard.type("hello there");
+await old.keyboard.press("Escape"); await wait(700);
+check("Esc while typing opens the menu (as everywhere in the game)", (await old.isVisible("#view-paused")) && (await sf(old, () => document.getElementById("chat-box").hidden)));
+await old.click("#resume"); await wait(1500);
+if (!(await sf(old, () => window.snapfort.input.locked))) { await old.mouse.click(550, 350); await wait(1300); }
 await old.keyboard.press("Enter"); await wait(300);
-await sf(old, () => document.exitPointerLock()); await wait(400);
-const awayNow = await sf(old, () => document.body.classList.contains("away") && !window.snapfort.input.locked);
+check("…back to building, the message is still in the line", (await sf(old, () => document.getElementById("chat-input").value)) === "hello there");
+await old.keyboard.press("Enter"); await wait(600);
 const w0 = await sf(old, () => window.snapfort.player.position.asArray());
-await old.keyboard.down("KeyW"); await wait(2000); await old.keyboard.up("KeyW"); await wait(200);
+await old.keyboard.down("KeyW"); await wait(800); await old.keyboard.up("KeyW"); await wait(200);
 const w1 = await sf(old, () => window.snapfort.player.position.asArray());
-check("after Esc out of the chat, pressing W takes the mouse back and walks on: no click needed", awayNow && (await sf(old, () => window.snapfort.input.locked)) && Math.hypot(w1[0] - w0[0], w1[2] - w0[2]) > 1, `away ${awayNow}, moved ${Math.hypot(w1[0] - w0[0], w1[2] - w0[2]).toFixed(1)} m`);
+check("…Enter sends it, and walking carries on", (await sf(old, () => window.snapfort.input.locked && document.getElementById("chat-box").hidden)) && Math.hypot(w1[0] - w0[0], w1[2] - w0[2]) > 1 && (await sf(watcher, () => [...document.querySelectorAll(".chat-line, .chat-bubble")].some((n) => n.textContent.includes("hello there")))), `moved ${Math.hypot(w1[0] - w0[0], w1[2] - w0[2]).toFixed(1)} m`);
 await old.context().close();
 
 // ── The same on a phone ─────────────────────────────────────────────────

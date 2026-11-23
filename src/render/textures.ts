@@ -203,3 +203,140 @@ export function skyTexture(scene: Scene): Texture {
   texture.wrapV = Texture.CLAMP_ADDRESSMODE;
   return texture;
 }
+
+/** The Moon's dust: grey, with craters (dark bowls, bright rims) and the same faint cell lines. */
+export function moonGroundTexture(scene: Scene): Texture {
+  const size = 512;
+  const [c, g] = canvas(size);
+  g.fillStyle = "#9a9a9f";
+  g.fillRect(0, 0, size, size);
+  const r = rng(29);
+  const wrapped = (draw: (ox: number, oy: number) => void) => {
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) draw(ox, oy);
+  };
+  // Dusty speckle.
+  for (let i = 0; i < 900; i++) {
+    const x = r() * size, y = r() * size, rad = 1 + r() * 3;
+    g.fillStyle = r() > 0.5 ? `rgba(255, 255, 255, ${0.04 + r() * 0.06})` : `rgba(20, 20, 30, ${0.04 + r() * 0.07})`;
+    wrapped((ox, oy) => {
+      g.beginPath();
+      g.arc(x + ox, y + oy, rad, 0, Math.PI * 2);
+      g.fill();
+    });
+  }
+  // Craters: a darker bowl, shaded on one side, with a bright rim.
+  for (let i = 0; i < 26; i++) {
+    const x = r() * size, y = r() * size, rad = 8 + r() * r() * 46;
+    wrapped((ox, oy) => {
+      const cx = x + ox, cy = y + oy;
+      const bowl = g.createRadialGradient(cx - rad * 0.25, cy - rad * 0.25, rad * 0.1, cx, cy, rad);
+      bowl.addColorStop(0, "rgba(40, 40, 50, 0.30)");
+      bowl.addColorStop(0.85, "rgba(60, 60, 70, 0.16)");
+      bowl.addColorStop(1, "rgba(60, 60, 70, 0)");
+      g.fillStyle = bowl;
+      g.beginPath();
+      g.arc(cx, cy, rad, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = "rgba(235, 235, 240, 0.28)";
+      g.lineWidth = Math.max(1.5, rad * 0.08);
+      g.beginPath();
+      g.arc(cx, cy, rad * 0.97, Math.PI * 0.15, Math.PI * 1.15);
+      g.stroke();
+    });
+  }
+  g.fillStyle = "rgba(255, 255, 255, 0.16)";
+  for (const p of [0, size / 2]) {
+    g.fillRect(p - 2, 0, 4, size);
+    g.fillRect(0, p - 2, size, 4);
+  }
+  g.fillRect(size - 2, 0, 2, size);
+  g.fillRect(0, size - 2, size, 2);
+  return toTexture(c, scene, "moon-ground");
+}
+
+/** A black sky full of stars, a faint band of the galaxy across it. */
+export function starTexture(scene: Scene): Texture {
+  const w = 2048, h = 1024;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#04040a";
+  g.fillRect(0, 0, w, h);
+  const r = rng(91);
+  // The galaxy: a soft, tilted band.
+  for (let i = 0; i < 3200; i++) {
+    const x = r() * w;
+    const y = h * 0.72 + Math.sin((x / w) * Math.PI * 2) * h * 0.08 + (r() - 0.5) * h * 0.12;
+    g.fillStyle = `rgba(170, 180, 230, ${0.008 + r() * 0.018})`;
+    g.beginPath();
+    g.arc(x, y, 2 + r() * 7, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Stars: mostly tiny, a few bright ones with a soft glow. Babylon's sphere puts
+  // the top of the image at the bottom pole, so the sky is the lower half here
+  // (the upper half is below the horizon, behind the ground, and left plain).
+  for (let i = 0; i < 2600; i++) {
+    const x = r() * w, y = h * 0.45 + r() * h * 0.55;
+    const bright = r();
+    const size = bright > 0.985 ? 2.2 : bright > 0.9 ? 1.4 : 0.8;
+    const tint = r();
+    g.fillStyle = tint > 0.85 ? "rgba(255, 225, 190, 1)" : tint > 0.7 ? "rgba(200, 215, 255, 1)" : "rgba(255, 255, 255, 1)";
+    g.globalAlpha = 0.45 + bright * 0.55;
+    g.beginPath();
+    g.arc(x, y, size, 0, Math.PI * 2);
+    g.fill();
+    if (bright > 0.985) {
+      g.globalAlpha = 0.12;
+      g.beginPath();
+      g.arc(x, y, size * 2.2, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+  const texture = new Texture(c.toDataURL("image/png"), scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+  texture.name = "stars";
+  texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+  return texture;
+}
+
+/** The Earth seen from the Moon: blue oceans, green and brown land, swirls of white cloud. */
+export function earthTexture(scene: Scene): Texture {
+  const w = 512, h = 256;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d")!;
+  const ocean = g.createLinearGradient(0, 0, 0, h);
+  ocean.addColorStop(0, "#2f6fb8");
+  ocean.addColorStop(0.5, "#2a7fd0");
+  ocean.addColorStop(1, "#2f6fb8");
+  g.fillStyle = ocean;
+  g.fillRect(0, 0, w, h);
+  const r = rng(5);
+  // Land: clusters of blobs.
+  for (let k = 0; k < 7; k++) {
+    const cx = r() * w, cy = h * (0.2 + r() * 0.6);
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle = r() > 0.4 ? "#5f9a4a" : "#a48a5a";
+      g.beginPath();
+      g.ellipse(cx + (r() - 0.5) * 90, cy + (r() - 0.5) * 50, 8 + r() * 22, 6 + r() * 14, r() * Math.PI, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  // Ice caps.
+  g.fillStyle = "#f2f6fa";
+  g.fillRect(0, 0, w, h * 0.07);
+  g.fillRect(0, h * 0.93, w, h * 0.07);
+  // Clouds: long thin swirls.
+  for (let i = 0; i < 70; i++) {
+    g.strokeStyle = `rgba(255, 255, 255, ${0.25 + r() * 0.35})`;
+    g.lineWidth = 2 + r() * 4;
+    const x = r() * w, y = r() * h, len = 30 + r() * 90;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + len / 2, y + (r() - 0.5) * 24, x + len, y + (r() - 0.5) * 10);
+    g.stroke();
+  }
+  return new Texture(c.toDataURL("image/png"), scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+}

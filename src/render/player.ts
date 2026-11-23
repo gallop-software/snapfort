@@ -3,6 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL, WORLD_HALF_CELLS } from "../game/constants";
+import { MEADOW, type Environment } from "../game/environments";
 import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
 import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
 import { BUILDER_GROUP } from "./physicsGroups";
@@ -12,9 +13,6 @@ const RADIUS = 0.4;
 /** Fast on purpose: getting around quickly makes building quick. */
 const WALK_SPEED = 16;
 const RUN_SPEED = AVATAR_RUN_SPEED;
-/** About two thirds of a storey: high enough to hop onto most things, not over a wall. */
-const JUMP_HEIGHT = 2.6;
-const GRAVITY = new Vector3(0, -26, 0);
 const UP = Vector3.Up();
 const DOWN = Vector3.Down();
 const SPAWN = new Vector3(CELL / 2, HEIGHT / 2 + 0.05, -CELL * 1.5);
@@ -48,7 +46,12 @@ export class Player {
   private fall: { fall: Fall; start: number } | null = null;
   private readonly desired = new Vector3();
   private readonly forwardDir = new Vector3();
-  constructor(scene: Scene, shadows: ShadowGenerator) {
+  /** The world's pull, and how high a jump lifts the feet (the meadow: about two thirds of a storey; the Moon: a storey). */
+  private readonly gravity: Vector3;
+  private readonly jumpHeight: number;
+  constructor(scene: Scene, shadows: ShadowGenerator, env: Environment = MEADOW) {
+    this.gravity = new Vector3(0, -env.gravity, 0);
+    this.jumpHeight = env.jumpHeight;
     this.controller = new PhysicsCharacterController(SPAWN.clone(), { capsuleHeight: HEIGHT, capsuleRadius: RADIUS }, scene);
     // Lets the builder walk over floor edges and ramp lips without hopping.
     this.controller.maxStepHeight = 0.4;
@@ -101,7 +104,7 @@ export class Player {
     const current = cc.getVelocity();
     let out: Vector3;
     if (this.state === "jump") {
-      const lift = Math.sqrt(2 * -GRAVITY.y * JUMP_HEIGHT);
+      const lift = Math.sqrt(2 * -this.gravity.y * this.jumpHeight);
       out = current.add(UP.scale(lift - current.y));
     } else if (this.state === "ground") {
       out = cc.calculateMovement(dt, this.forwardDir, support.averageSurfaceNormal, current, support.averageSurfaceVelocity, this.desired, UP);
@@ -118,11 +121,11 @@ export class Player {
       out.addInPlace(support.averageSurfaceVelocity);
     } else {
       out = cc.calculateMovement(dt, this.forwardDir, UP, current, Vector3.ZeroReadOnly, this.desired, UP);
-      out.y = current.y + GRAVITY.y * dt;
+      out.y = current.y + this.gravity.y * dt;
     }
 
     cc.setVelocity(out);
-    cc.integrate(dt, support, GRAVITY);
+    cc.integrate(dt, support, this.gravity);
     this.settle();
   }
 

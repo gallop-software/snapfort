@@ -7,3 +7,4 @@ qa/shots
 
 # Secrets stay on this computer only, encrypted or not
 secrets/
+.dev.vars

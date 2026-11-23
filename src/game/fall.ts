@@ -1,5 +1,6 @@
 import type { BuildState } from "./buildState";
 import { CELL, LEVEL, THICK, WORLD_HALF_CELLS } from "./constants";
+import { MEADOW, type Environment } from "./environments";
 import { normalizeSpec, type Piece } from "./pieces";
 import { TREBUCHET_BASE, type Vec } from "./trebuchet";
 
@@ -10,8 +11,8 @@ import { TREBUCHET_BASE, type Vec } from "./trebuchet";
  * background. Positions are the centre of the builder's body, in metres.
  */
 
-/** Same pull as the builder's own physics. */
-export const FALL_GRAVITY = 26;
+/** Same pull as the builder's own physics, in the meadow (see Environment.gravity). */
+export const FALL_GRAVITY = MEADOW.gravity;
 /** Half the builder's height: the body's centre is this far above the feet. */
 const HALF = 0.9;
 const RADIUS = 0.4;
@@ -78,18 +79,19 @@ function hitsWallSide(p: Piece, c: Vec): boolean {
  * something stops a rise, and the first surface met on the way down (or the
  * ground) is where they land.
  */
-export function planFall(state: BuildState, from: Vec, v: Vec): Fall {
+export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment = MEADOW): Fall {
   let [x, y, z] = from;
   let [vx, vy, vz] = v;
   const path: Vec[] = [[x, y, z]];
   let t = 0;
-  for (; t < 12; t += STEP) {
+  // Long enough for the longest throw on the Moon.
+  for (; t < 20; t += STEP) {
     const nx = Math.max(-LIMIT, Math.min(LIMIT, x + vx * STEP));
     const nz = Math.max(-LIMIT, Math.min(LIMIT, z + vz * STEP));
     if (nx !== x + vx * STEP) vx = 0;
     if (nz !== z + vz * STEP) vz = 0;
     let ny = y + vy * STEP;
-    vy -= FALL_GRAVITY * STEP;
+    vy -= env.gravity * STEP;
     const near = state.near(nx, ny - HALF, nz).concat(state.near(nx, ny + HALF, nz));
     // Into a wall: lose the sideways speed and slide down it.
     if (near.some((p) => hitsWallSide(p, [nx, ny, nz]))) {

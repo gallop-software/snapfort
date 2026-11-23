@@ -1,5 +1,6 @@
 import type { BuildState } from "./buildState";
 import { CELL, LEVEL, THICK } from "./constants";
+import { MEADOW, type Environment } from "./environments";
 import { gridBox, type MaterialId, type Piece } from "./pieces";
 
 /**
@@ -18,8 +19,8 @@ export const TREBUCHET = {
   reload: 6,
   /** Where the stone leaves the arm, above the trebuchet's base. */
   launchHeight: 7,
-  /** Pull of gravity on the stone (a bit stronger than real, for snappy arcs). */
-  gravity: 18,
+  /** Pull of gravity on the stone in the meadow (a bit stronger than real, for snappy arcs; see Environment.stoneGravity). */
+  gravity: MEADOW.stoneGravity,
   /** Radius of the stone, for what it touches on the way. */
   stoneRadius: 0.4,
   /** Pieces this close to the impact take a hit. */
@@ -56,9 +57,9 @@ export function launchPoint(t: Piece): Vec {
   return [x, y + TREBUCHET.launchHeight, z];
 }
 
-/** Furthest it can throw: higher trebuchets reach further. */
-export function maxRange(t: Piece): number {
-  return TREBUCHET.baseRange + t.y * LEVEL * TREBUCHET.rangePerMetre;
+/** Furthest it can throw: higher trebuchets reach further (and every trebuchet further on the Moon). */
+export function maxRange(t: Piece, env: Environment = MEADOW): number {
+  return (TREBUCHET.baseRange + t.y * LEVEL * TREBUCHET.rangePerMetre) * env.range;
 }
 
 /** Horizontal distance from the trebuchet to a point. */
@@ -69,9 +70,9 @@ export function rangeTo(t: Piece, target: Vec): number {
 
 export type RangeCheck = "ok" | "near" | "far";
 
-export function checkRange(t: Piece, target: Vec): RangeCheck {
+export function checkRange(t: Piece, target: Vec, env: Environment = MEADOW): RangeCheck {
   const d = rangeTo(t, target);
-  return d < TREBUCHET.minRange ? "near" : d > maxRange(t) ? "far" : "ok";
+  return d < TREBUCHET.minRange ? "near" : d > maxRange(t, env) ? "far" : "ok";
 }
 
 /** The stone's flight from `from` that passes exactly through `to`. */
@@ -81,22 +82,26 @@ export interface Flight {
   v: Vec;
   /** Seconds to reach the target. */
   time: number;
+  /** Pull on the stone, m/s². */
+  g: number;
 }
 
-export function planFlight(from: Vec, to: Vec): Flight {
+export function planFlight(from: Vec, to: Vec, env: Environment = MEADOW): Flight {
   const d = Math.hypot(to[0] - from[0], to[2] - from[2]);
-  // Further throws fly longer and higher, so every shot reads as a lob.
-  const time = 1.5 + d / 45;
-  const g = TREBUCHET.gravity;
+  // Further throws fly longer and higher, so every shot reads as a lob. With a
+  // weaker pull the flight is slower by the square root, so the arc keeps its shape.
+  const time = (1.5 + d / 45) * env.flightTime;
+  const g = env.stoneGravity;
   return {
     from,
     time,
+    g,
     v: [(to[0] - from[0]) / time, (to[1] - from[1] + 0.5 * g * time * time) / time, (to[2] - from[2]) / time],
   };
 }
 
 export function positionAt(f: Flight, t: number): Vec {
-  return [f.from[0] + f.v[0] * t, f.from[1] + f.v[1] * t - 0.5 * TREBUCHET.gravity * t * t, f.from[2] + f.v[2] * t];
+  return [f.from[0] + f.v[0] * t, f.from[1] + f.v[1] * t - 0.5 * f.g * t * t, f.from[2] + f.v[2] * t];
 }
 
 /**
@@ -104,7 +109,7 @@ export function positionAt(f: Flight, t: number): Vec {
  * `point`: away from it and high into the air, harder the closer they were.
  * null when out of reach.
  */
-export function throwVelocity(point: Vec, at: Vec, spin = Math.random()): Vec | null {
+export function throwVelocity(point: Vec, at: Vec, spin = Math.random(), env: Environment = MEADOW): Vec | null {
   const dx = at[0] - point[0], dy = at[1] - point[1], dz = at[2] - point[2];
   const d = Math.hypot(dx, dy, dz);
   if (d > TREBUCHET.throwRadius) return null;
@@ -112,7 +117,8 @@ export function throwVelocity(point: Vec, at: Vec, spin = Math.random()): Vec | 
   const flat = Math.hypot(dx, dz);
   // Right on top of it: thrown in a random direction.
   const a = flat > 0.3 ? Math.atan2(dx, dz) : spin * Math.PI * 2;
-  return [Math.sin(a) * TREBUCHET.throwOut * k, TREBUCHET.throwUp * k, Math.cos(a) * TREBUCHET.throwOut * k];
+  const p = k * env.throwPower;
+  return [Math.sin(a) * TREBUCHET.throwOut * p, TREBUCHET.throwUp * p, Math.cos(a) * TREBUCHET.throwOut * p];
 }
 
 /** A piece's solid space in metres: [minX, minY, minZ, maxX, maxY, maxZ]. */
@@ -153,7 +159,7 @@ export interface Impact {
  * that it touches on its way, else the ground. Starting `fromTime` seconds in.
  */
 export function findImpact(state: BuildState, f: Flight, ignoreId: string, fromTime = 0): Impact {
-  const speed = Math.hypot(...f.v) + TREBUCHET.gravity * f.time;
+  const speed = Math.hypot(...f.v) + f.g * f.time;
   const step = Math.min(0.05, 0.3 / speed);
   const limit = f.time * 2.5;
   for (let t = Math.max(fromTime, step); t <= limit; t += step) {

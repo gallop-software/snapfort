@@ -50,7 +50,17 @@
         <h1>Snap<span>Fort</span><small>.io</small></h1>
 
         <div id="view-menu">
-          <p>Build the tallest tower in one shared world. Knock down the competition with trebuchets.</p>
+          <div id="thanks" hidden>
+            <b>Thanks! The Full Game is yours.</b>
+            <div class="store-line">Your key <code id="thanks-key"></code><button type="button" id="thanks-copy" class="small">Copy</button></div>
+            <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?).</p>
+            <div class="store-line"><a id="thanks-moon" class="small" href="/moon">Go to the Moon</a><button type="button" id="thanks-close" class="small ghost">OK</button></div>
+          </div>
+          <nav id="worlds" aria-label="Worlds">
+            <a href="/" data-env="meadow">Meadow <small>Free</small></a>
+            <a href="/moon" data-env="moon">Moon <small>Full Game</small></a>
+          </nav>
+          <p id="menu-about">Build the tallest tower in one shared world. Knock down the competition with trebuchets.</p>
           <div id="touch-help" class="mobile">
             <div><b>Left thumb</b> move (push all the way to run)</div>
             <div><b>Right thumb</b> look and aim</div>
@@ -120,6 +130,24 @@
             <div class="slider">
               <input id="mouse-speed" type="range" min="0.25" max="3" step="0.05" value="2" />
               <output id="mouse-speed-value">2.00×</output>
+            </div>
+          </div>
+          <div class="setting" id="full-game">
+            <span class="label">Full Game</span>
+            <div class="store">
+              <div class="store-line" id="store-owned" hidden><span class="tick">✓ Yours</span><code id="store-key"></code><button type="button" id="store-copy" class="small">Copy</button></div>
+              <div class="store-line store-offer">
+                <span id="store-buy" hidden><button type="button" id="store-buy-button" class="buy">Unlock · $7</button></span>
+                <span id="store-soon" class="note" hidden>Opens soon</span>
+                <button type="button" id="store-have-key" class="link">Have a key?</button>
+                <a class="link" href="/terms" target="_blank" rel="noopener">Terms</a>
+              </div>
+              <form class="store-line" id="store-enter" autocomplete="off">
+                <input id="store-key-input" type="text" placeholder="SNAP-XXXX-XXXX-XXXX" spellcheck="false" autocapitalize="characters" aria-label="Your SnapFort key" />
+                <button type="submit" class="small">Use</button>
+                <button type="button" id="store-enter-cancel" class="small ghost" aria-label="Cancel">✕</button>
+              </form>
+              <div id="store-message" hidden></div>
             </div>
           </div>
         </div>

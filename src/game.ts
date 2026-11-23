@@ -39,6 +39,8 @@ import { TouchControls } from "./ui/touch";
 import { NetClient, worldUrl } from "./net/client";
 import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
+import { Store } from "./ui/store";
+import { MEADOW, type Environment } from "./game/environments";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
 import { CameraRig, SCOPE_ZOOMS } from "./render/cameraRig";
@@ -94,12 +96,13 @@ interface EditSession {
   hover: number;
 }
 
-export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngine, api: GraphicsApi): Promise<void> {
+export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngine, api: GraphicsApi, env: Environment = MEADOW): Promise<void> {
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
 
   const havok = await HavokPhysics({ locateFile: () => havokWasmUrl });
-  scene.enablePhysics(new Vector3(0, -9.81, 0), new HavokPlugin(true, havok));
+  // The world's pull on rubble (gentle on the Moon).
+  scene.enablePhysics(new Vector3(0, -env.rubbleGravity, 0), new HavokPlugin(true, havok));
   const physics = scene.getPhysicsEngine() as PhysicsEngine;
 
   // Game logic: plain modules that know nothing about rendering.
@@ -112,12 +115,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const nextId = () => idSource();
 
   const rig = new CameraRig(scene);
-  const world = createWorld(scene, rig.camera);
+  const world = createWorld(scene, rig.camera, env);
   const view = new PieceView(scene, state, world.shadows);
   const ghost = new Ghost(scene);
   const flash = new PlaceFlash(scene);
   const overlay = new EditOverlay(scene);
-  const player = new Player(scene, world.shadows);
+  const player = new Player(scene, world.shadows, env);
   const input = new Input(canvas);
   // Phones and tablets: on-screen controls (created once the game's actions exist, below).
   let touch: TouchControls | null = null;
@@ -125,6 +128,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const army = new SoldierView(scene, world.shadows);
   const remotes = new RemotePlayers(scene, world.shadows);
   const trebuchets = new TrebuchetView(scene, state, world.shadows);
+  trebuchets.environment = env;
   // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
   const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)));
   const flag = new TowerFlag(scene);
@@ -302,8 +306,33 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** A piece key or hotbar click: selects that piece, or puts it away if it is already selected. */
   function toggleTool(index: number): void {
+    if (!builder) return lockedNote();
     if (index === toolIndex && !editing) deselectTool();
     else selectTool(index);
+  }
+
+  // ── Who may build here ───────────────────────────────────────────────
+  /** May build here: always in a free world; in a paid one, with the Full Game (the server decides on joining). */
+  let builder = !env.paid;
+  function lockedNote(): void {
+    hud.toast(`Building on the ${env.name} comes with the Full Game: unlock it in Settings (${touch ? "the gear" : "Esc"})`);
+    sfx.deny();
+  }
+  /** Visiting (no building: nothing selected, the hotbar faded) or building. */
+  function setBuilder(on: boolean): void {
+    const was = builder;
+    builder = on;
+    document.body.classList.toggle("visiting", !on);
+    const play = document.getElementById("play-free") as HTMLButtonElement;
+    if (!play.disabled) play.textContent = on ? "Start building" : `Visit the ${env.name}`;
+    if (!on) {
+      finishEdit(false);
+      toolIndex = -1;
+      placing = false;
+      hud.select(-1);
+      ghost.hide();
+      aimSpec = null;
+    } else if (!was) selectTool(0);
   }
 
   /** What the badge last showed, so it is only redrawn when that changes. */
@@ -410,6 +439,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
 
   function startEdit(): void {
+    if (!builder) return lockedNote();
     const piece = aimPieceId ? state.get(aimPieceId) : undefined;
     if (!piece) {
       hud.toast(pieceFarAway() ? "Get closer to edit it" : "Aim at a wall or floor to edit it");
@@ -540,6 +570,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     sfx.unlock();
     // Middle click pings the spot under the crosshair.
     if (button === 1) return ping();
+    if (!builder) return lockedNote();
     // Flying through the air, or flat on the ground: hands are busy.
     if (player.knockedDown) return;
     if (crewOn) {
@@ -810,7 +841,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** This builder's id in the shared world. */
   let myId = "";
   const showOnline = () => hud.setOnline(net.online ? remotes.count + 1 : null);
-  const net = new NetClient(worldUrl(), identity, {
+  const net = new NetClient(worldUrl(env.id), identity, {
     status(status) {
       hud.setNetStatus(status);
       showOnline();
@@ -836,6 +867,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         tint(id);
       }
       showTowers(extras.towers);
+      setBuilder(extras.builder);
       chat.clear();
       for (const said of extras.chat) chat.show(said, myId, now);
     },
@@ -940,6 +972,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         range: "Out of range: build higher or get closer",
         reload: "Still reloading",
         gone: "That trebuchet is gone",
+        locked: `Building on the ${env.name} comes with the Full Game`,
       };
       hud.toast(text[reason] ?? "Not now");
       sfx.deny();
@@ -948,6 +981,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       chat.show(said, myId, performance.now());
       if (said.at && !said.text) sfx.ping();
       else if (said.by !== myId) sfx.chat();
+    },
+    access(on) {
+      setBuilder(on);
+      if (on && env.paid) hud.toast(`Unlocked: build anywhere on the ${env.name}!`);
     },
     hush() {
       hud.toast(SLOW_DOWN);
@@ -986,6 +1023,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
 
   function toggleCrew(): void {
+    if (!builder && !crewOn) return lockedNote();
     if (crewOn) {
       net.leaveTrebuchet();
       leaveCrew();
@@ -1067,7 +1105,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     target = point;
     if (!point) return trebuchets.showTarget(null, null, false);
     trebuchets.aimAt(t.id, point);
-    trebuchets.showTarget(launchPoint(t), point, checkRange(t, point) === "ok");
+    trebuchets.showTarget(launchPoint(t), point, checkRange(t, point, env) === "ok");
   }
 
   function fireStone(): void {
@@ -1078,7 +1116,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.toast("Aim at something to fire at it");
       return sfx.deny();
     }
-    const range = checkRange(t, target);
+    const range = checkRange(t, target, env);
     if (range !== "ok") {
       hud.toast(range === "near" ? `Too close: aim at least ${TREBUCHET.minRange} m away` : "Out of range: build higher or get closer");
       return sfx.deny();
@@ -1105,14 +1143,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (t) {
       hud.setHint(null);
       const reload = Math.max(0, (readyAt - now) / 1000);
-      const reach = `range ${TREBUCHET.minRange}–${Math.round(maxRange(t))} m`;
+      const reach = `range ${TREBUCHET.minRange}–${Math.round(maxRange(t, env))} m`;
       let status: { text: string; ok: boolean };
       if (!target) status = { text: `Aim at a target · ${reach}`, ok: true };
       else {
         const d = Math.round(rangeTo(t, target));
-        const range = checkRange(t, target);
+        const range = checkRange(t, target, env);
         if (range === "near") status = { text: `Target ${d} m: too close (min ${TREBUCHET.minRange} m)`, ok: false };
-        else if (range === "far") status = { text: `Target ${d} m: out of range (max ${Math.round(maxRange(t))} m)`, ok: false };
+        else if (range === "far") status = { text: `Target ${d} m: out of range (max ${Math.round(maxRange(t, env))} m)`, ok: false };
         else if (reload > 0) status = { text: `Target ${d} m · reloading ${reload.toFixed(1)} s`, ok: false };
         else status = { text: `Target ${d} m · ready: ${touch ? "tap Fire" : "click to fire"}`, ok: true };
       }
@@ -1154,7 +1192,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       ping: () => ping(),
     });
   }
+  // The Full Game: a saved key goes with joining; buying or typing one in sends it at once.
+  const store = new Store();
+  store.onOwned = (key) => net.sendKey(key);
+  net.key = store.key;
+  document.body.dataset.env = env.id;
+  for (const a of document.querySelectorAll<HTMLAnchorElement>("#worlds a")) a.classList.toggle("current", a.dataset.env === env.id);
+  if (env.id === "moon") {
+    document.getElementById("menu-about")!.textContent =
+      "The Moon: a third of the gravity. Jump a storey high, throw stones further, send rivals flying. Anyone can visit; building here comes with the Full Game.";
+  }
   net.connect();
+  void store.init();
 
   let statsTimer = 0;
   let fitTimer = 0;
@@ -1259,7 +1308,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   });
 
-  selectTool(0);
+  if (builder) selectTool(0);
+  else setBuilder(false);
   showMaterial();
   hud.showMouseSpeed(settings.mouseSpeed);
   hud.showMuted(settings.muted);
@@ -1274,11 +1324,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   for (let waited = 0; !joined && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
   hud.showIdentity(identity, COLORS);
   hud.ready(joined);
+  if (!builder) (document.getElementById("play-free") as HTMLButtonElement).textContent = `Visit the ${env.name}`;
 
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, flag, chat, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
+      snapfort: { scene, engine, flag, chat, store, env, get builder() { return builder; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => view.audit(state), get editing() { return editing; } },
     });
   }
 }

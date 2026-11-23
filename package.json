@@ -16,7 +16,9 @@
     "qa:trebuchet": "node qa/trebuchet.mjs",
     "qa:chaos": "node qa/chaos.mjs",
     "qa:mobile": "node qa/mobile.mjs",
-    "qa:chat": "node qa/chat.mjs"
+    "qa:chat": "node qa/chat.mjs",
+    "qa:pay": "node qa/pay.mjs",
+    "qa:moon": "node qa/moon.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.37.1",

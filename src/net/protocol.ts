@@ -59,7 +59,10 @@ export type ClientMessage =
   | { t: "leave" }
   /** Throw from the trebuchet you are on at point `to`. */
   | { t: "fire"; id: string; to: WireVec }
-  | { t: "hello"; v: number; name: string; color: string }
+  /** Joins the world; `key` (a SnapFort key) lets its owner build in a paid world. */
+  | { t: "hello"; v: number; name: string; color: string; key?: string }
+  /** A key bought or typed in while here: asks again whether building is open. */
+  | { t: "key"; key: string }
   | { t: "act"; seq: number; ops: WireOp[] }
   /** [x, y, z, yaw, flags], encoded like WireMove without the id. */
   | { t: "move"; m: [number, number, number, number, number] }
@@ -84,6 +87,10 @@ export type ServerMessage =
       towers: WireTower[];
       /** World-wide lines from the last few seconds, oldest first. */
       chat?: WireSaid[];
+      /** Which world this is ("meadow", "moon"). */
+      env?: string;
+      /** May you build here (false: visiting a paid world without the Full Game). */
+      builder?: boolean;
     }
   /** Trebuchet `id` now has builder `by` on it (null: nobody). */
   | { t: "crew"; id: string; by: string | null }
@@ -104,8 +111,10 @@ export type ServerMessage =
   | { t: "thrown"; id: string; path: WireVec[]; time: number; land: WireVec }
   /** The tallest standing structures, tallest first. */
   | { t: "towers"; list: WireTower[] }
-  /** A board or fire request was turned down. */
-  | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" }
+  /** A board or fire request was turned down ("locked": building here needs the Full Game). */
+  | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
+  /** The answer to a "key" message. */
+  | { t: "access"; builder: boolean }
   | { t: "snap"; pieces: WirePiece[] }
   /** Someone else changed the world. */
   | { t: "ops"; by: string; ops: WireOp[] }

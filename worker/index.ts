@@ -1,37 +1,139 @@
+import { environmentOf } from "../src/game/environments";
+import { cleanKey } from "../src/net/keys";
+import { stripe, stripeLive, stripeReady, verifyWebhook, type CheckoutSession } from "./stripe";
 import type { Env } from "./world";
 
+export { Ledger } from "./ledger";
 export { World } from "./world";
+
+/** What buying shows on Stripe's page: a reminder of what comes next, and where the terms are. */
+const CHECKOUT_NOTE = "One-time purchase, yours to keep. Your SnapFort key appears as soon as you have paid. Terms and refunds: snapfort.io/terms";
 
 /**
  * SnapFort.io on Cloudflare: the game's files are served as static assets; /ws
- * joins the one shared world (the World Durable Object); /admin/* lets the
- * owner reset or roll back the world with the ADMIN_SECRET.
+ * joins a shared world (the meadow, or ?env=moon for the Moon), each its own
+ * World Durable Object; /api/* sells and checks the Full Game (Stripe Checkout
+ * and the Ledger of keys); /admin/* lets the owner reset or roll back a world
+ * and look up keys, with the ADMIN_SECRET.
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/ws") {
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
-      return world(env, request).fetch(request);
+      return forward(world(env, request), request);
+    }
+    if (url.pathname.startsWith("/api/")) {
+      try {
+        return await api(url, request, env);
+      } catch (error) {
+        console.error(error);
+        return Response.json({ error: "Something went wrong. Try again in a moment." }, { status: 502 });
+      }
     }
     if (url.pathname.startsWith("/admin/")) {
       if (!(await isAdmin(request, env))) return new Response("Forbidden", { status: 403 });
-      return world(env, request).fetch(request);
+      if (url.pathname === "/admin/keys") {
+        const email = url.searchParams.get("email") ?? "";
+        return Response.json(await ledger(env).findByEmail(email));
+      }
+      return forward(world(env, request), request);
     }
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
 
+const ledger = (env: Env) => env.LEDGER.get(env.LEDGER.idFromName("keys"));
+
+/** Passes a request on to a world, telling it which environment it is. */
+function forward(stub: DurableObjectStub, request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const headers = new Headers(request.headers);
+  headers.set("x-snapfort-env", environmentOf(url.searchParams.get("env")).id);
+  return stub.fetch(new Request(request, { headers }));
+}
+
 /**
- * The world to join: always "main", except on a local dev server, where
- * ?world=<name> opens a separate one (the browser QA uses a fresh world per run).
+ * The world to join: "main" (the meadow) or "moon", except on a local dev
+ * server, where ?world=<name> opens a separate one (the browser QA uses a
+ * fresh world per run).
  */
 function world(env: Env, request: Request) {
   const url = new URL(request.url);
   const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  const place = environmentOf(url.searchParams.get("env")).id;
   const name = url.searchParams.get("world");
-  const id = local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}` : "main";
+  const base = place === "meadow" ? "main" : place;
+  const id = local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}${place === "meadow" ? "" : `-${place}`}` : base;
   return env.WORLD.get(env.WORLD.idFromName(id));
+}
+
+async function api(url: URL, request: Request, env: Env): Promise<Response> {
+  const live = stripeLive(env);
+  switch (url.pathname) {
+    // Whether the Full Game can be bought here now: always on a live site; in
+    // Stripe's test mode only for whoever asks with ?testpay (so the public
+    // never meets a test checkout).
+    case "/api/store":
+      return Response.json({ ready: stripeReady(env), live });
+
+    case "/api/buy": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      const body = (await request.json().catch(() => ({}))) as { path?: string; testpay?: boolean };
+      if (!stripeReady(env)) return Response.json({ error: "Buying is not open yet." }, { status: 503 });
+      if (!live && !body.testpay) return Response.json({ error: "Buying opens soon." }, { status: 403 });
+      const path = body.path === "/moon" ? "/moon" : "/";
+      const back = `${url.origin}${path}`;
+      const key = await ledger(env).create(live);
+      const session = await stripe<CheckoutSession>(env, "POST", "checkout/sessions", {
+        mode: "payment",
+        line_items: { 0: { price: env.STRIPE_PRICE_ID, quantity: 1 } },
+        client_reference_id: key,
+        metadata: { key },
+        payment_intent_data: { description: `SnapFort Full Game · your key ${key}`, metadata: { key } },
+        custom_text: { submit: { message: CHECKOUT_NOTE } },
+        success_url: `${back}?paid={CHECKOUT_SESSION_ID}`,
+        cancel_url: back,
+      });
+      await ledger(env).attach(key, session.id);
+      return Response.json({ url: session.url });
+    }
+
+    // Back from checkout: if Stripe says the session is paid, the key is good.
+    case "/api/claim": {
+      const id = url.searchParams.get("session") ?? "";
+      if (!/^cs_[A-Za-z0-9_]+$/.test(id) || !stripeReady(env)) return Response.json({ error: "Unknown purchase." }, { status: 400 });
+      const session = await stripe<CheckoutSession>(env, "GET", `checkout/sessions/${id}`);
+      const key = cleanKey(session.client_reference_id);
+      if (!key) return Response.json({ error: "Unknown purchase." }, { status: 400 });
+      if (session.payment_status === "unpaid") return Response.json({ status: "unpaid" });
+      await ledger(env).paid(key, session.id, session.customer_details?.email ?? null, session.livemode);
+      return Response.json({ status: "paid", key });
+    }
+
+    // A key typed (or saved) on a page: is it good here?
+    case "/api/key": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      const body = (await request.json().catch(() => ({}))) as { key?: string };
+      const key = cleanKey(body.key);
+      return Response.json({ key, valid: !!key && (await ledger(env).check(key, live)) });
+    }
+
+    // Stripe telling us a checkout was paid (covers a buyer who closed the tab before coming back).
+    case "/api/stripe": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      const body = await request.text();
+      const event = await verifyWebhook(body, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET ?? "");
+      if (!event) return new Response("Bad signature", { status: 400 });
+      if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+        const session = event.data.object;
+        const key = cleanKey(session.client_reference_id);
+        if (key && session.payment_status !== "unpaid") await ledger(env).paid(key, session.id, session.customer_details?.email ?? null, session.livemode);
+      }
+      return Response.json({ received: true });
+    }
+  }
+  return new Response("Not found", { status: 404 });
 }
 
 async function isAdmin(request: Request, env: Env): Promise<boolean> {

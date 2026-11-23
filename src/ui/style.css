@@ -248,7 +248,7 @@ body.scoped #crosshair {
     width: min(1000px, calc(100vw - 32px));
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-    grid-template-rows: repeat(5, auto);
+    grid-template-rows: repeat(6, auto);
     column-gap: 36px;
     align-content: start;
   }
@@ -257,14 +257,14 @@ body.scoped #crosshair {
   #view-menu:not([hidden]) { display: contents; }
   #view-menu:not([hidden]) > .keys {
     grid-column: 2;
-    grid-row: 1 / 6;
+    grid-row: 1 / 7;
     align-self: center;
     margin: 0;
     padding: 18px 20px;
     border-radius: 18px;
     background: rgba(31, 42, 55, 0.05);
   }
-  #view-menu:not([hidden]) > p:first-child { margin-bottom: 16px; }
+  #view-menu:not([hidden]) > #menu-about { margin-bottom: 16px; }
   #view-menu:not([hidden]) > p.small { margin-top: 14px; }
 }
 .panel h1 {
@@ -691,6 +691,8 @@ body.touch #toast { max-width: 70vw; white-space: normal; text-align: center; }
 /* Menu and settings on a phone held sideways: two columns (title and button, then settings), compact. */
 #touch-help { margin: 0 0 14px; display: grid; gap: 4px; font-size: 13px; font-weight: 600; text-align: left; }
 #touch-help b { color: var(--coral); }
+/* Phone help only on phones (its own display rule would otherwise beat .mobile's). */
+body:not(.touch) #touch-help { display: none; }
 body.touch #view-menu:not([hidden]) { display: block; }
 body.touch .setting input[type="text"] { font-size: 16px; } /* iOS zooms into smaller text fields */
 body.touch .setting select { font-size: 13px; padding-left: 8px; }
@@ -803,3 +805,99 @@ body.touch .chat-bubble { max-width: 200px; font-size: 13px; }
 body.touch #chat-box { top: calc(env(safe-area-inset-top, 0px) + 70px); bottom: auto; width: min(540px, calc(100vw - 2 * (env(safe-area-inset-left, 0px) + 74px))); padding: 6px; }
 body.touch #chat-input { font-size: 16px; }
 body.touch #chat-box button { height: 38px; }
+
+/* ───────────── Worlds and the Full Game ───────────── */
+#worlds { display: flex; justify-content: center; gap: 8px; margin: 14px 0 0; }
+#worlds a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(31, 42, 55, 0.14);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+}
+#worlds a small { font-size: 11px; font-weight: 700; opacity: 0.6; }
+#worlds a.current { border-color: var(--ink); background: var(--ink); color: var(--cream); }
+#worlds a.current small { opacity: 0.8; }
+
+.store { display: grid; gap: 6px; min-width: 0; }
+.store-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.store .tick { color: var(--teal); font-weight: 800; font-size: 14px; }
+.store code, #thanks code { font: 800 13px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.02em; padding: 3px 7px; border-radius: 7px; background: rgba(31, 42, 55, 0.07); user-select: all; -webkit-user-select: all; }
+.store .note { font-size: 13px; font-weight: 700; opacity: 0.65; }
+.store button.buy {
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--coral);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #c95a41;
+}
+.store button.link, .store a.link { padding: 0; border: 0; background: none; color: var(--teal); font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+button.small, a.small {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--teal);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+button.small.ghost { background: rgba(31, 42, 55, 0.08); color: var(--ink); }
+#store-enter { display: none; flex-wrap: nowrap; }
+#full-game.entering #store-enter { display: flex; }
+#full-game.entering .store-offer, body.owned .store-offer { display: none; }
+#store-enter input { flex: 1; min-width: 0; height: 32px; text-transform: uppercase; }
+#store-message { font-size: 12px; font-weight: 700; color: var(--teal); }
+#store-message.bad { color: var(--coral); }
+#store-message[hidden], #store-owned[hidden], #store-buy[hidden], #store-soon[hidden] { display: none; }
+
+#thanks {
+  margin: 16px 0 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #e3f4ef;
+  border: 1.5px solid rgba(47, 143, 138, 0.35);
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+#thanks[hidden] { display: none; }
+#thanks b { font-size: 16px; }
+#thanks p { margin: 0; font-size: 13px; }
+body[data-env="moon"] #thanks-moon { display: none; }
+
+/* Visiting a paid world without the Full Game: the hotbar is shown, but faded. */
+body.visiting #hotbar { opacity: 0.45; }
+
+/* Phones held sideways (short screens): the world picker small, the description dropped (the picker says it),
+   and the Full Game row on one line. */
+@media (max-height: 560px) {
+  body.touch #worlds { margin-top: 6px; }
+  body.touch #worlds a { padding: 4px 11px; font-size: 13px; }
+  body.touch #menu-about { display: none; }
+  body.touch .store-offer { flex-wrap: nowrap; gap: 8px; }
+  body.touch .store button.buy { height: 30px; padding: 0 11px; font-size: 13px; }
+  body.touch .store .note, body.touch .store button.link, body.touch .store a.link { font-size: 12px; white-space: nowrap; }
+  body.touch #settings .setting { padding: 4px 0; }
+}
+/* Tablets: no key list on touch, so the settings take the right-hand column of the wide menu. */
+@media (min-width: 900px) {
+  body.touch .panel:has(#view-menu:not([hidden])) > #settings { grid-column: 2; grid-row: 1 / 7; align-self: start; margin-top: 0; }
+}

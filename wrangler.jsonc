@@ -1,6 +1,7 @@
 {
-  // SnapFort.io: the game's files are static assets; the Worker in ./worker runs the one
-  // shared world as a Durable Object (WebSockets at /ws, saved in its SQLite database).
+  // SnapFort.io: the game's files are static assets; the Worker in ./worker runs each shared
+  // world (the meadow, the Moon) as a Durable Object (WebSockets at /ws, saved in its SQLite
+  // database), and sells the Full Game (/api/*, Stripe Checkout, keys kept by the Ledger).
   // `npm run deploy` builds and publishes to snapfort.io, www.snapfort.io and snapfort.webplantmedia.workers.dev.
   "name": "snapfort",
   "main": "worker/index.ts",
@@ -12,12 +13,22 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // These paths always reach the Worker, never the static files.
-    "run_worker_first": ["/ws", "/admin/*"]
+    "run_worker_first": ["/ws", "/api/*", "/admin/*"]
   },
   "durable_objects": {
-    "bindings": [{ "name": "WORLD", "class_name": "World" }]
+    "bindings": [
+      { "name": "WORLD", "class_name": "World" },
+      // Who owns the Full Game: one instance holding every SnapFort key.
+      { "name": "LEDGER", "class_name": "Ledger" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["World"] },
+    { "tag": "v2", "new_sqlite_classes": ["Ledger"] }
+  ],
+  // The Full Game's price in Stripe (sandbox for now; the live one replaces it when payments go live).
+  // STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are Worker secrets (wrangler secret put), and .dev.vars locally.
+  "vars": { "STRIPE_PRICE_ID": "price_1Uf2XoCyWClSfIgHYvxYH7vn" },
   "routes": [
     { "pattern": "snapfort.io", "custom_domain": true },
     { "pattern": "www.snapfort.io", "custom_domain": true }

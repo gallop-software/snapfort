@@ -14,6 +14,7 @@ import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import type { Piece } from "../game/pieces";
+import { MEADOW, type Environment } from "../game/environments";
 import { planFlight, positionAt, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../game/trebuchet";
 import { TREBUCHET_BASE } from "./geometry";
 
@@ -77,6 +78,8 @@ export class TrebuchetView {
   private readonly tmp = new Matrix();
   /** A trebuchet not drawn on this page (the one this player is aiming from). */
   hidden: string | null = null;
+  /** The world's pull and stone flights (the Moon's are slower and longer). */
+  environment: Environment = MEADOW;
 
   constructor(
     private readonly scene: Scene,
@@ -189,7 +192,7 @@ export class TrebuchetView {
     }
     const mesh = this.spareStones.pop() ?? this.makeStone();
     mesh.setEnabled(true);
-    const flight = planFlight(from, to);
+    const flight = planFlight(from, to, this.environment);
     mesh.position.set(...from);
     this.stones.set(shot, { mesh, flight, start: performance.now() });
   }
@@ -216,7 +219,7 @@ export class TrebuchetView {
     this.markerMaterial.emissiveColor.set(ok ? 0.2 : 0.95, ok ? 0.9 : 0.3, ok ? 0.4 : 0.25);
     this.marker.setEnabled(true);
     this.marker.position.set(to[0], to[1] + 0.05, to[2]);
-    const flight = planFlight(from, to);
+    const flight = planFlight(from, to, this.environment);
     const points: Vector3[] = [];
     const colors: Color4[] = [];
     const color = ok ? new Color4(0.3, 1, 0.5, 1) : new Color4(1, 0.4, 0.3, 1);

@@ -6,6 +6,10 @@ import { measureTowers } from "../src/game/towers";
 import { DOWN_TIME, planFall, RISE_TIME } from "../src/game/fall";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
+import { environmentOf, MEADOW, type Environment } from "../src/game/environments";
+import { cleanKey } from "../src/net/keys";
+import type { Ledger } from "./ledger";
+import { stripeLive, type StripeEnv } from "./stripe";
 import { applyAction } from "../src/net/authority";
 import { cleanChat, FEED_LINES, FLOOD_MS, flooding, NEAR_RANGE, PIN_RANGE, RECENT_MS } from "../src/net/chat";
 import {
@@ -26,8 +30,9 @@ import {
   type WireTower,
 } from "../src/net/protocol";
 
-export interface Env {
+export interface Env extends StripeEnv {
   WORLD: DurableObjectNamespace<World>;
+  LEDGER: DurableObjectNamespace<Ledger>;
   ASSETS: Fetcher;
   ADMIN_SECRET?: string;
 }
@@ -38,6 +43,8 @@ interface Attachment extends WirePlayer {
   /** The trebuchet they are on, and when it can throw again (ms): kept here so they survive the object sleeping. */
   crew?: string;
   readyAt?: number;
+  /** May build and work trebuchets here (in a paid world: owns the Full Game; else a visitor). */
+  builder?: boolean;
 }
 
 /** Most builders connected at once. */
@@ -74,8 +81,6 @@ const LOG_MS = 7 * 24 * 3600_000;
 /** Positions accepted, in centimetres: the building area plus a margin. */
 const MAX_COORD = 60_000;
 
-/** A fall (not a throw) shorter than this many metres does not knock a builder down. */
-const MIN_KNOCKDOWN_DROP = 2;
 /** Tower heights go out this long after the build changes (they take a full search to work out). */
 const TOWERS_MS = 1_500;
 
@@ -131,6 +136,11 @@ export class World extends DurableObject<Env> {
   private readonly talk = new Map<string, number[]>();
   private recentLines: { at: number; said: WireSaid }[] = [];
 
+  /** Which world this is (the meadow, the Moon): set once, by the Worker, and saved. */
+  private environment: Environment = MEADOW;
+  /** Sockets whose hello is being answered (their key is being checked). */
+  private readonly greeting = new Set<WebSocket>();
+
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private quietTicks = 0;
@@ -162,6 +172,7 @@ export class World extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/ws") {
+      this.learnEnvironment(request.headers.get("x-snapfort-env"));
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
       this.ctx.acceptWebSocket(server);
@@ -202,7 +213,14 @@ export class World extends DurableObject<Env> {
     if (!player) return;
     switch (msg.t) {
       case "act":
+        if (!player.builder) return this.locked(ws, msg.seq, msg.ops);
         return this.act(ws, player, msg.seq, msg.ops);
+      case "key": {
+        // A key bought or typed in while here: building opens without joining again.
+        player.builder = await this.mayBuild(msg.key);
+        ws.serializeAttachment(player);
+        return send(ws, { t: "access", builder: player.builder });
+      }
       case "move":
         return this.move(player, msg.m);
       case "name": {
@@ -214,10 +232,12 @@ export class World extends DurableObject<Env> {
       case "sync":
         return send(ws, { t: "snap", pieces: this.allPieces() });
       case "board":
+        if (!player.builder) return send(ws, { t: "denied", reason: "locked" });
         return this.board(ws, player, msg.id, msg.at);
       case "leave":
         return this.release(player.id);
       case "fire":
+        if (!player.builder) return send(ws, { t: "denied", reason: "locked" });
         return this.fire(ws, player, msg.id, msg.to);
       case "say":
         return this.say(ws, player, msg.text, msg.to, msg.at);
@@ -234,17 +254,25 @@ export class World extends DurableObject<Env> {
 
   // ── Joining and leaving ────────────────────────────────────────────────
 
-  private hello(ws: WebSocket, msg: Record<string, unknown>): void {
+  private async hello(ws: WebSocket, msg: Record<string, unknown>): Promise<void> {
     if (msg.v !== PROTOCOL_VERSION) {
       send(ws, { t: "error", reason: "version" });
       return ws.close(1008, "Old version: reload the page");
     }
-    if (this.players.has(ws)) return;
+    if (this.players.has(ws) || this.greeting.has(ws)) return;
+    this.greeting.add(ws);
+    let builder: boolean;
+    try {
+      builder = await this.mayBuild(msg.key);
+    } finally {
+      this.greeting.delete(ws);
+    }
+    if (this.players.has(ws) || ws.readyState !== WebSocket.OPEN) return;
     // A fresh id on every join, never used before, so piece ids made with it never clash.
     const n = this.ctx.storage.sql.exec<{ value: number }>(
       "INSERT INTO meta (key, value) VALUES ('players', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1 RETURNING value",
     ).one().value;
-    const player: Attachment = { id: `p${n.toString(36)}`, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color) };
+    const player: Attachment = { id: `p${n.toString(36)}`, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder };
     ws.serializeAttachment(player);
     this.players.set(ws, player);
     const others = [...this.players.values()].filter((p) => p !== player);
@@ -258,6 +286,8 @@ export class World extends DurableObject<Env> {
       damage: [...this.damage],
       towers: this.towers,
       chat: this.recent(),
+      env: this.environment.id,
+      builder,
     });
     this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
   }
@@ -364,6 +394,34 @@ export class World extends DurableObject<Env> {
     return this.applyAsAdmin(undo);
   }
 
+  // ── Which world, and who may build in it ──────────────────────────────
+
+  /** Takes the environment the Worker says this world is, the first time, and saves it (it never changes). */
+  private learnEnvironment(id: string | null): void {
+    if (this.environment !== MEADOW || !id || id === MEADOW.id) return;
+    this.environment = environmentOf(id);
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('environment', ?)", this.environment.id);
+  }
+
+  /** Anyone may build in a free world; in a paid one, only with a key that is paid for. */
+  private async mayBuild(rawKey: unknown): Promise<boolean> {
+    if (!this.environment.paid) return true;
+    const key = cleanKey(rawKey);
+    if (!key) return false;
+    try {
+      return await this.env.LEDGER.get(this.env.LEDGER.idFromName("keys")).check(key, stripeLive(this.env));
+    } catch {
+      return false;
+    }
+  }
+
+  /** A visitor tried to build: everything in the action is refused. */
+  private locked(ws: WebSocket, seq: unknown, list: unknown): void {
+    if (!Number.isInteger(seq) || !Array.isArray(list)) return;
+    send(ws, { t: "ack", seq: seq as number, rejected: list.map((_, i) => i), extra: [] });
+    send(ws, { t: "denied", reason: "locked" });
+  }
+
   // ── Chat ───────────────────────────────────────────────────────────────
 
   /**
@@ -459,13 +517,13 @@ export class World extends DurableObject<Env> {
     if (!target) return;
     const now = Date.now();
     if (now < (this.readyAt.get(t.id) ?? 0) - 150) return send(ws, { t: "denied", reason: "reload" });
-    const range = checkRange(t, target);
+    const range = checkRange(t, target, this.environment);
     if (range !== "ok") return send(ws, { t: "denied", reason: range === "near" ? "near" : "range" });
     this.readyAt.set(t.id, now + TREBUCHET.reload * 1000);
     player.readyAt = now + TREBUCHET.reload * 1000;
     ws.serializeAttachment(player);
     const from = launchPoint(t);
-    const flight = planFlight(from, target);
+    const flight = planFlight(from, target, this.environment);
     const shot = this.nextShot++;
     this.broadcast({ t: "shot", shot, id: t.id, by: player.id, from: round(from), to: round(target) });
     this.followStone(shot, flight, t.id, player.id, findImpact(this.build, flight, t.id).time, now);
@@ -522,15 +580,15 @@ export class World extends DurableObject<Env> {
       const m = this.moves.get(player.id) ?? player.move;
       if (!m || now < (this.downUntil.get(player.id) ?? 0)) continue;
       const centre: Vec = [m[1] / 100, m[2] / 100, m[3] / 100];
-      const v = point ? throwVelocity(point, centre) : null;
+      const v = point ? throwVelocity(point, centre, Math.random(), this.environment) : null;
       // Not thrown: only someone who was standing on (or right by) a piece that went can fall.
       // (Anyone else, mid-jump say, is left alone.)
       if (!v && !gone.some((p) => wasStandingOn(p, centre))) continue;
-      let fall = v ? planFall(this.build, centre, v) : planFall(this.build, centre, [0, 0, 0]);
+      let fall = planFall(this.build, centre, v ?? [0, 0, 0], this.environment);
       // Still standing on something: no fall.
       // A small drop (a step, a trebuchet's base) is left to the builder's own physics:
       // only a real fall knocks them down.
-      if (!v && centre[1] - fall.land[1] < MIN_KNOCKDOWN_DROP) continue;
+      if (!v && centre[1] - fall.land[1] < this.environment.knockdownDrop) continue;
       fall = { ...fall, path: fall.path.map(round), land: round(fall.land) };
       this.release(player.id);
       this.downUntil.set(player.id, now + (fall.time + DOWN_TIME + RISE_TIME) * 1000);
@@ -606,6 +664,8 @@ export class World extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS log (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, ops TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+    const env = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'environment'").toArray()[0];
+    if (env) this.environment = environmentOf(env.value);
     // Hits taken by pieces that have not broken yet.
     const saved = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'damage'").toArray()[0];
     if (saved) for (const [id, hits] of JSON.parse(saved.value) as [string, number][]) this.damage.set(id, hits);

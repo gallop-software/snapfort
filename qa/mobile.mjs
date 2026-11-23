@@ -99,6 +99,19 @@ for (const [name, device] of screens) {
   check(`${name}: the settings panel fits`, settings.length === 0 && settingsFit, settings.slice(0, 4).join("; ") || (settingsFit ? "" : "settings need scrolling or did not open"));
   await ctx.close();
 }
+// The Moon's menu (visiting, with the Full Game row) on the smallest phone and a tablet.
+for (const [name, device] of [["iPhone SE landscape", devices["iPhone SE landscape"]], ["iPad Mini landscape", devices["iPad Mini landscape"]]]) {
+  const ctx = await browser.newContext({ ...device });
+  const p = await ctx.newPage();
+  p.on("pageerror", (e) => errors.push(`[moon ${name}] ${e.message.slice(0, 200)}`));
+  const url = new URL("/moon", base); url.searchParams.set("world", "mfit-moon");
+  await p.goto(url.toString()); await p.waitForSelector("body.ready", { timeout: 30000 });
+  const menu = await layoutProblems(p, []);
+  const fits = await p.evaluate(() => { const o = document.getElementById("overlay"); return o.scrollHeight <= o.clientHeight + 1; });
+  check(`${name}: the Moon's menu (visit, Full Game) fits`, menu.length === 0 && fits && (await p.textContent("#play-free")) === "Visit the Moon", [...menu, fits ? "" : "menu needs scrolling"].filter(Boolean).join("; "));
+  await ctx.close();
+}
+
 // Portrait: turn sideways.
 for (const [name, device] of [["iPhone 13 portrait", devices["iPhone 13"]], ["Pixel 7 portrait", devices["Pixel 7"]]]) {
   const { p, ctx } = await open(device, "mfit-portrait");
@@ -111,6 +124,7 @@ for (const [name, device] of [["iPhone 13 portrait", devices["iPhone 13"]], ["Pi
   const url = new URL(base); url.searchParams.set("world", "mfit-desk");
   await p.goto(url.toString()); await p.waitForSelector("body.ready");
   check("a computer gets no touch controls, and the key list", !(await p.evaluate(() => document.body.classList.contains("touch") || !!document.getElementById("touch"))) && (await p.isVisible(".keys")));
+  check("…and not the phone help (thumbs and buttons)", !(await p.isVisible("#touch-help")));
   await p.context().close();
 }
 

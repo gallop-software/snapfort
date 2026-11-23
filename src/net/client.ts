@@ -23,6 +23,8 @@ export interface WelcomeExtras {
   towers: WireTower[];
   /** World-wide chat lines from the last few seconds. */
   chat: WireSaid[];
+  /** May you build here (false: visiting a paid world without the Full Game). */
+  builder: boolean;
 }
 
 export type NetStatus = "connecting" | "online" | "offline" | "full" | "outdated";
@@ -50,6 +52,8 @@ export interface NetHandlers {
   said(said: WireSaid): void;
   /** Your message was not passed on. */
   hush(reason: "flood", wait: number): void;
+  /** Whether you may build here, after sending a key. */
+  access(builder: boolean): void;
 }
 
 /** How often this builder's position goes out while they move, ms. */
@@ -79,6 +83,8 @@ export class NetClient {
   private heardAt = 0;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   status: NetStatus = "connecting";
+  /** The SnapFort key sent on joining (lets its owner build in a paid world). */
+  key: string | null = null;
 
   constructor(
     private readonly url: string,
@@ -97,7 +103,7 @@ export class NetClient {
     this.ws = ws;
     ws.onopen = () => {
       this.heardAt = performance.now();
-      this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color });
+      this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color, ...(this.key ? { key: this.key } : {}) });
     };
     ws.onmessage = (event) => {
       this.heardAt = performance.now();
@@ -187,6 +193,12 @@ export class NetClient {
     this.raw(at ? { t: "say", text, to, at } : { t: "say", text, to });
   }
 
+  /** A key bought or typed in: remembered for joining, and sent now so building opens at once. */
+  sendKey(key: string): void {
+    this.key = key;
+    this.raw({ t: "key", key });
+  }
+
   requestSnapshot(): void {
     this.raw({ t: "sync" });
   }
@@ -213,7 +225,7 @@ export class NetClient {
         this.retry = 500;
         this.lastMove = "";
         this.setStatus("online");
-        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [], chat: msg.chat ?? [] });
+        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [], chat: msg.chat ?? [], builder: msg.builder ?? true });
       case "snap":
         return h.snapshot(decodePieces(msg.pieces));
       case "ops":
@@ -244,6 +256,8 @@ export class NetClient {
       }
       case "hush":
         return h.hush(msg.reason, msg.wait ?? 0);
+      case "access":
+        return h.access(msg.builder);
       case "error":
         if (msg.reason === "full") this.setStatus("full");
         else if (msg.reason === "version") this.setStatus("outdated");
@@ -259,9 +273,12 @@ export class NetClient {
 }
 
 /** The shared world's address on this site. */
-export function worldUrl(): string {
+export function worldUrl(env = "meadow"): string {
+  const params = new URLSearchParams();
+  if (env !== "meadow") params.set("env", env);
   // A local dev server can open a separate world with ?world=<name> (the server ignores it elsewhere).
   const world = new URLSearchParams(location.search).get("world");
-  const query = world ? `?world=${encodeURIComponent(world)}` : "";
+  if (world) params.set("world", world);
+  const query = params.size ? `?${params}` : "";
   return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws${query}`;
 }

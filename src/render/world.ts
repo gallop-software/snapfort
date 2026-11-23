@@ -15,9 +15,12 @@ import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
 import { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../game/constants";
-import { groundTexture, skyTexture } from "./textures";
+import { MEADOW, type Environment } from "../game/environments";
+import { earthTexture, groundTexture, moonGroundTexture, skyTexture, starTexture } from "./textures";
 
 const HORIZON = new Color3(0.98, 0.91, 0.78);
+/** The Moon's horizon: a thin dark haze, so far-off towers fade into the black. */
+const MOON_HAZE = new Color3(0.06, 0.06, 0.09);
 const GROUND_SIZE = 2400;
 
 export interface World {
@@ -27,24 +30,33 @@ export interface World {
   update(dt: number): void;
 }
 
-/** Sky, sun, shadows, drifting clouds and the flat meadow everything is built on. */
-export function createWorld(scene: Scene, camera: Camera): World {
-  scene.clearColor = new Color4(HORIZON.r, HORIZON.g, HORIZON.b, 1);
+/**
+ * Sky, sun, shadows and the flat ground everything is built on: the meadow
+ * (soft sky, drifting clouds, warm haze) or the Moon (black sky full of stars,
+ * the Earth above the horizon, a harsh white sun and long sharp shadows, grey
+ * cratered dust).
+ */
+export function createWorld(scene: Scene, camera: Camera, env: Environment = MEADOW): World {
+  const moon = env.id === "moon";
+  const haze = moon ? MOON_HAZE : HORIZON;
+  const fogStart = moon ? 260 : 140, fogEnd = moon ? 1100 : 700;
+  scene.clearColor = new Color4(haze.r, haze.g, haze.b, 1);
   scene.ambientColor = new Color3(0, 0, 0);
   scene.fogMode = Scene.FOGMODE_LINEAR;
-  scene.fogColor = HORIZON;
-  scene.fogStart = 140;
-  scene.fogEnd = 700;
+  scene.fogColor = haze;
+  scene.fogStart = fogStart;
+  scene.fogEnd = fogEnd;
 
   const ambient = new HemisphericLight("ambient", new Vector3(0.2, 1, 0.1), scene);
-  ambient.intensity = 0.74;
-  ambient.diffuse = new Color3(0.93, 0.97, 1);
-  ambient.groundColor = new Color3(0.78, 0.72, 0.64);
+  ambient.intensity = moon ? 0.5 : 0.74;
+  ambient.diffuse = moon ? new Color3(0.82, 0.86, 1) : new Color3(0.93, 0.97, 1);
+  ambient.groundColor = moon ? new Color3(0.34, 0.34, 0.38) : new Color3(0.78, 0.72, 0.64);
   ambient.specular = Color3.Black();
 
-  const sun = new DirectionalLight("sun", new Vector3(-0.55, -1, 0.4).normalize(), scene);
-  sun.intensity = 0.62;
-  sun.diffuse = new Color3(1, 0.95, 0.84);
+  // On the Moon the sun is lower, brighter and white: long, sharp shadows.
+  const sun = new DirectionalLight("sun", (moon ? new Vector3(-0.8, -0.55, 0.45) : new Vector3(-0.55, -1, 0.4)).normalize(), scene);
+  sun.intensity = moon ? 0.95 : 0.62;
+  sun.diffuse = moon ? new Color3(1, 1, 0.98) : new Color3(1, 0.95, 0.84);
   sun.specular = Color3.Black();
 
   // Two 1024 cascades: crisp near the builder at a sixth of the cost of three 2048 ones.
@@ -56,7 +68,7 @@ export function createWorld(scene: Scene, camera: Camera): World {
   shadows.cascadeBlendPercentage = 0.08;
   shadows.bias = 0.004;
   shadows.normalBias = 0.02;
-  shadows.setDarkness(0.42);
+  shadows.setDarkness(moon ? 0.62 : 0.42);
   shadows.usePercentageCloserFiltering = true;
   shadows.filteringQuality = CascadedShadowGenerator.QUALITY_MEDIUM;
 
@@ -64,7 +76,7 @@ export function createWorld(scene: Scene, camera: Camera): World {
   const sky = CreateSphere("sky", { diameter: 1800, segments: 16, sideOrientation: Mesh.BACKSIDE }, scene);
   const skyMat = new StandardMaterial("sky", scene);
   skyMat.disableLighting = true;
-  skyMat.emissiveTexture = skyTexture(scene);
+  skyMat.emissiveTexture = moon ? starTexture(scene) : skyTexture(scene);
   skyMat.diffuseColor = Color3.Black();
   skyMat.specularColor = Color3.Black();
   skyMat.fogEnabled = false;
@@ -98,6 +110,24 @@ export function createWorld(scene: Scene, camera: Camera): World {
     }
   }
   cloud.thinInstanceSetBuffer("matrix", new Float32Array(cloudMatrices), 16, true);
+  // No air on the Moon: no clouds. The Earth hangs above the horizon instead.
+  cloud.setEnabled(!moon);
+  if (moon) {
+    const earth = CreateSphere("earth", { diameter: 150, segments: 32 }, scene);
+    const earthMat = new StandardMaterial("earth", scene);
+    earthMat.disableLighting = true;
+    earthMat.emissiveTexture = earthTexture(scene);
+    earthMat.diffuseColor = Color3.Black();
+    earthMat.specularColor = Color3.Black();
+    earthMat.fogEnabled = false;
+    earth.material = earthMat;
+    earth.applyFog = false;
+    earth.infiniteDistance = true;
+    earth.isPickable = false;
+    // Far off to the north-east, a fair way up the sky, turned to show its oceans.
+    earth.position.set(330, 250, 680);
+    earth.rotation.set(0.35, 2.2, 0.2);
+  }
 
   // Ground.
   const ground = new Mesh("ground", scene);
@@ -110,7 +140,7 @@ export function createWorld(scene: Scene, camera: Camera): World {
   data.indices = [0, 1, 2, 0, 2, 3];
   data.applyToMesh(ground);
   const groundMat = new StandardMaterial("ground", scene);
-  groundMat.diffuseTexture = groundTexture(scene);
+  groundMat.diffuseTexture = moon ? moonGroundTexture(scene) : groundTexture(scene);
   groundMat.specularColor = Color3.Black();
   ground.material = groundMat;
   ground.receiveShadows = true;
@@ -127,8 +157,8 @@ export function createWorld(scene: Scene, camera: Camera): World {
     const h = Math.max(0, camera.globalPosition.y);
     if (Math.abs(h - lastHeight) < 2) return;
     lastHeight = h;
-    scene.fogStart = 140 + h;
-    scene.fogEnd = 700 + h * 1.5;
+    scene.fogStart = fogStart + h;
+    scene.fogEnd = fogEnd + h * 1.5;
     shadows.shadowMaxZ = 110 + h * 0.9;
   };
 

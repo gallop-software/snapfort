@@ -140,6 +140,18 @@ Decided with the user: typed messages only (no quick-chat wheel, no voice for no
 - Filter on the server (`src/net/chat.ts`, unit tested): swear words and slurs (with look-alike characters, stretched letters and dots between letters folded), links, email addresses and phone numbers become ♥♥♥; control characters, invisible formatting and stacked accents are stripped.
 - Architecture: no new Durable Object. The World object already has every connection and every builder's position, so chat is two more messages (`say` in, `said` / `hush` out) on the same socket. It keeps only in memory when each builder last talked and the last three lines to everyone; nothing touches SQLite.
 
+## The Full Game and the Moon (user, 2026-11-23)
+
+Decided with the user: one way to pay, a **one-time $7 "Full Game"** (no subscriptions: simplest to build and to understand), tax included in the price, Stripe as merchant of record (Managed Payments), support email dev@webplant.media. A separate Stripe account "SnapFort" (organization Web Plant Media, alongside the other Web Plant Media LLC brands) keeps its customers, keys, statement name (SNAPFORT.IO) and disputes apart from the other businesses.
+
+- **Paid worlds**: the meadow stays free; the Full Game unlocks building in every paid world. Anyone can *visit* a paid world (walk, look, chat, watch, be thrown): the best advert for it. The first is **the Moon** (`snapfort.io/moon`): a third of the gravity (a jump clears a storey and floats down; falls knock you down only from 4 m), trebuchets reach 1.6× as far with slow lobs of the same shape, builders hit fly about 100 m, rubble drifts; black starry sky, the Earth above the horizon, a low white sun, grey cratered ground. Same building rules, its own flag and chat.
+- Worlds are `src/game/environments.ts` (gravity, jump, stone flight, range, throws, knockdown drop, rubble). Rules that depend on the world take it as an argument (two worlds can share a server process). Each world is its own World object ("main", "moon"); the Worker tells a world which it is on connect and it saves that.
+- **No accounts: a SnapFort key** (SNAP-XXXX-XXXX-XXXX, about 59 bits) is made just before checkout, shown after paying with Copy, saved in the browser, and typed in (Settings, Have a key?) on other devices. Lost keys: `/admin/keys?email=` (ADMIN_SECRET). Email sign-in can come later.
+- **Ledger** Durable Object: every key, pending or paid, with the session and the buyer's email. Paid when the page comes back from checkout (`/api/claim` asks Stripe) or when Stripe's webhook says so (`/api/stripe`, signature checked with Web Crypto), whichever is first. Keys bought in test mode only work while the site is in test mode.
+- The World checks the key on hello (and on a `key` message, so buying opens building without rejoining); visitors' `act`, `board` and `fire` are refused (`denied: "locked"`); the page fades the hotbar and explains.
+- **While Stripe is in the sandbox**, the public sees "Opens soon"; `?testpay` shows the Unlock button (test card 4242 4242 4242 4242). **Going live**: finish Stripe activation, put a live restricted key in `STRIPE_SECRET_KEY`, create the product/price/webhook in live mode, set `STRIPE_PRICE_ID` and `STRIPE_WEBHOOK_SECRET`, deploy.
+- `/terms`: what the Full Game is, refunds (14 days, by email), support, privacy (the purchase email is kept only to find lost keys; Stripe holds card details; chat is not stored).
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

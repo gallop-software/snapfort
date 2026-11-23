@@ -649,6 +649,25 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.show("paused");
     } else if (hud.view === "paused" || hud.view === "unlock") backToBuilding();
   });
+  // Stepped away (Esc out of the chat line, another window): any key carries on, not only a
+  // click. Browsers never let Esc itself take the mouse back, but any other key may.
+  window.addEventListener("keydown", (e) => {
+    if (!away || input.locked || outdated || mode === "menu" || e.code === "Escape" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    if ((e.target as HTMLElement | null)?.closest("input, textarea, select")) return;
+    e.preventDefault();
+    sfx.unlock();
+    const code = e.code;
+    void input.lock().then((locked) => {
+      // The key that brought them back counts as held (W keeps walking) until it is let go.
+      if (locked && !(e as KeyboardEvent & { released?: boolean }).released) input.press(code, true);
+    });
+    const release = (up: KeyboardEvent) => {
+      if (up.code !== code) return;
+      (e as KeyboardEvent & { released?: boolean }).released = true;
+      window.removeEventListener("keyup", release);
+    };
+    window.addEventListener("keyup", release);
+  });
   input.onMouseDown = (button) => {
     sfx.unlock();
     // Middle click pings the spot under the crosshair.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_MAX, cleanChat } from "../src/net/chat";
+import { CHAT_MAX, cleanChat, FLOOD_COUNT, FLOOD_MS, flooding } from "../src/net/chat";
 
 describe("chat filter", () => {
   it("keeps ordinary building talk as it is", () => {
@@ -44,5 +44,18 @@ describe("chat filter", () => {
     expect(cleanChat("Vi\u1EC7t Nam")).toBe("Vi\u1EC7t Nam");
     expect(cleanChat("   ")).toBe("");
     expect(cleanChat(42)).toBe("");
+  });
+});
+
+describe("flood guard", () => {
+  it("lets messages go back to back, and holds back only a flood", () => {
+    const times: number[] = [];
+    for (let i = 0; i < FLOOD_COUNT; i++) {
+      expect(flooding(times, i * 10)).toBe(false);
+      times.push(i * 10);
+    }
+    expect(flooding(times, 100)).toBe(true);
+    // A few seconds later, talking again is fine.
+    expect(flooding(times, FLOOD_MS + 10)).toBe(false);
   });
 });

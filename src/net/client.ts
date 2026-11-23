@@ -49,7 +49,7 @@ export interface NetHandlers {
   /** Someone (perhaps you) said something. */
   said(said: WireSaid): void;
   /** Your message was not passed on. */
-  hush(reason: "wait" | "busy" | "repeat", wait: number): void;
+  hush(reason: "flood", wait: number): void;
 }
 
 /** How often this builder's position goes out while they move, ms. */

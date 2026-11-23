@@ -114,16 +114,18 @@ check("…and the speaker and builders nearby see the line too", (await lines(a)
 check("…as a line only: no bubble over the speaker, even for builders nearby", !(await bubbles(b)).some((x) => x.text.includes("castle")) && !(await bubbles(a)).some((x) => x.text.includes("castle")));
 check("…but no bubble for the far builder", !(await bubbles(c)).some((x) => x.name === nameA));
 await c.screenshot({ path: "qa/shots/chat-everyone.png" });
-// Again at once: the line says when, and stays open with the text.
+// Back to back: no waiting between messages.
 await a.keyboard.press("Enter"); await frames(a, 2);
 check("…and the line stays set to everyone for next time", (await a.textContent("#chat-to")) === "Everyone");
 await a.keyboard.type("me again");
 await a.keyboard.press("Enter");
-await frames(a, 3);
-check("talking to everyone again within 10 s is held back, saying when, and keeps the text", (await boxOpen(a)) && /again in \d+ s/.test(await a.textContent("#chat-note")) && (await sf(a, () => document.getElementById("chat-input").value)) === "me again", await a.textContent("#chat-note"));
+await say(a, "me again", "all");
+check("messages go back to back, the same words twice too", (await lines(c)).filter((l) => l.includes("me again")).length === 2, JSON.stringify(await lines(c)));
+await a.keyboard.press("Enter"); await frames(a, 2);
+await a.keyboard.type("never sent");
 await a.keyboard.press("Escape");
 await wait(300);
-check("Esc closes the line without sending", !(await boxOpen(a)) && !(await lines(c)).some((l) => l.includes("me again")));
+check("Esc closes the line without sending", !(await boxOpen(a)) && !(await lines(c)).some((l) => l.includes("never sent")));
 // Esc also frees the mouse (the browser's rule): carry on.
 if (!(await sf(a, () => window.snapfort.input.locked))) { await wait(1200); await a.click("#resume").catch(() => a.mouse.click(550, 350)); await wait(1300); }
 check("…and building carries on after it", await sf(a, () => window.snapfort.input.locked));
@@ -140,20 +142,22 @@ await wait(2100);
 await say(b, "visit www.example.com or call 555 123 4567");
 check("links and phone numbers are masked", (await bubbles(a)).find((x) => x.name === nameB)?.text === "visit ♥♥♥ or call ♥♥♥", (await bubbles(a)).find((x) => x.name === nameB)?.text);
 await wait(2100);
-// Straight to the server, skipping the page's own check: too fast is refused.
-await sf(b, () => { window.snapfort.net.say("one", "near", null); window.snapfort.net.say("two", "near", null); });
-await wait(400);
-check("the server refuses a second nearby message within 2 s", (await toast(b)) === "Wait a moment" && !(await bubbles(a)).some((x) => x.text === "two"), await toast(b));
-await wait(2100);
-await sf(b, () => window.snapfort.net.say("one", "near", null));
-await wait(400);
-check("…and the same message twice in a row", (await toast(b)) === "You just said that", await toast(b));
-await wait(2100);
-await sf(b, () => window.snapfort.net.say("first to all", "all", null));
-await say(c, "second to all", "all");
-check("two messages to everyone within a second: the second is told the chat is busy", (await toast(c)) === "Chat is busy: try again in a moment" && (await lines(a)).some((l) => l.includes("first to all")) && !(await lines(a)).some((l) => l.includes("second to all")), await toast(c));
+// A flood (a script, not typing): the sixth message within 5 s is held back.
+await wait(5100);
+await sf(c, () => { for (let i = 1; i <= 5; i++) window.snapfort.net.say(`flood ${i}`, "all", null); });
+await say(c, "flood 6", "all");
+check("a flood is held back on the server: five messages in a few seconds go, the sixth does not", (await lines(a)).some((l) => l.includes("flood 5")) && !(await lines(a)).some((l) => l.includes("flood 6")) && (await toast(c)).startsWith("Slow down"), await toast(c));
 await c.keyboard.press("Enter"); await frames(c, 2);
-{ const st = await sf(c, () => ({ v: document.getElementById("chat-input").value, open: !document.getElementById("chat-box").hidden, locked: window.snapfort.input.locked })); check("…and the message is waiting in the line to send again", st.v === "second to all" && (await c.textContent("#chat-to")) === "Everyone", JSON.stringify(st) + " " + (await c.textContent("#chat-to"))); }
+{ const st = await sf(c, () => document.getElementById("chat-input").value); check("…and the held message is waiting in the line to send again", st === "flood 6" && (await c.textContent("#chat-to")) === "Everyone", JSON.stringify(st)); }
+await c.keyboard.press("Escape"); await wait(300);
+if (!(await sf(c, () => window.snapfort.input.locked))) { await wait(1200); await c.click("#resume").catch(() => {}); await wait(1300); }
+// Typing fast by hand: the page holds the sixth itself and keeps it in the line.
+await wait(5100);
+for (let i = 1; i <= 5; i++) await say(c, `quick ${i}`, "all");
+await c.keyboard.press("Enter"); await frames(c, 2);
+await c.keyboard.type("quick 6");
+await c.keyboard.press("Enter"); await frames(c, 3);
+check("five quick messages by hand all go; a sixth at once is held in the line, saying to slow down", (await lines(a)).some((l) => l.includes("quick 5")) && (await boxOpen(c)) && (await c.textContent("#chat-note")).startsWith("Slow down") && (await sf(c, () => document.getElementById("chat-input").value)) === "quick 6", await c.textContent("#chat-note"));
 await c.keyboard.press("Escape"); await wait(300);
 if (!(await sf(c, () => window.snapfort.input.locked))) { await wait(1200); await c.click("#resume").catch(() => {}); await wait(1300); }
 
@@ -169,7 +173,7 @@ check("…the pinger sees it too, the far builder does not", (await pins(a)).som
 await b.screenshot({ path: "qa/shots/chat-ping.png" });
 await a.mouse.down({ button: "middle" }); await a.mouse.up({ button: "middle" });
 await frames(a, 2);
-check("pinging again at once says to wait", (await toast(a)).includes("Wait a moment"), await toast(a));
+check("pinging again at once works too (the marker moves)", !(await toast(a)).startsWith("Slow down") && (await pins(b)).filter((x) => x.name === nameA).length === 1);
 // Looking at the sky: nothing to ping.
 await wait(2100);
 await stand(a, 2.5, 0, 0, -1.2);

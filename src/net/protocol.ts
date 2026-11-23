@@ -116,8 +116,8 @@ export type ServerMessage =
   | { t: "ack"; seq: number; rejected: number[]; extra: WireOp[] }
   /** Someone said something (you too: your own message comes back filtered). */
   | ({ t: "said" } & WireSaid)
-  /** Your message was not passed on: too soon after your last (`wait` seconds), the world chat is busy, or you just said it. */
-  | { t: "hush"; reason: "wait" | "busy" | "repeat"; wait?: number }
+  /** Your message was not passed on: too many in a few seconds (try again in `wait` seconds). */
+  | { t: "hush"; reason: "flood"; wait?: number }
   | { t: "join"; player: WirePlayer }
   | { t: "leave"; id: string }
   | { t: "moves"; m: WireMove[] }

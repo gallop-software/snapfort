@@ -1,6 +1,6 @@
 /**
  * Chat rules shared by the game and the server: how long a message may be, who
- * hears it, how often a builder may talk, and the filter every message passes.
+ * hears it, the guard against flooding, and the filter every message passes.
  * Nothing said is ever saved: the server passes messages on and keeps only the
  * last few seconds of world-wide lines in memory, for builders who just arrived.
  */
@@ -16,14 +16,20 @@ export const NEAR_RANGE = 80;
 export const PIN_RANGE = 150;
 /** Typed nearby messages are pinned to the built piece the crosshair is on, when it is this close, m. */
 export const PIN_AIM_RANGE = 60;
-/** Shortest time between one builder's nearby messages (and pings), ms. */
-export const NEAR_EVERY = 2_000;
-/** Shortest time between one builder's messages to everyone, ms. */
-export const ALL_EVERY = 10_000;
-/** Shortest time between any two messages to everyone in the whole world, ms. */
-export const WORLD_ALL_EVERY = 1_000;
-/** The same message twice within this long is refused, ms. */
-export const REPEAT_MS = 30_000;
+/**
+ * No wait between messages (user, 2026-11-22: talk back to back). Only a
+ * flood is held back: more than FLOOD_COUNT messages (pings too) within
+ * FLOOD_MS, which typing by hand does not reach, so one script cannot fill
+ * the lines for everyone.
+ */
+export const FLOOD_COUNT = 5;
+export const FLOOD_MS = 5_000;
+
+/** Keeps `times` (send times, ms) to the last FLOOD_MS; true when one more now would be a flood. */
+export function flooding(times: number[], now: number): boolean {
+  while (times.length > 0 && now - times[0]! >= FLOOD_MS) times.shift();
+  return times.length >= FLOOD_COUNT;
+}
 /** How long bubbles, pins and world-wide lines stay on screen, ms. */
 export const CHAT_SHOW_MS = 8_000;
 /** World-wide lines this recent are shown to a builder who just arrived, ms. */

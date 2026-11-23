@@ -7,7 +7,7 @@ import { DOWN_TIME, planFall, RISE_TIME } from "../src/game/fall";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import { applyAction } from "../src/net/authority";
-import { ALL_EVERY, cleanChat, FEED_LINES, NEAR_EVERY, NEAR_RANGE, PIN_RANGE, RECENT_MS, REPEAT_MS, WORLD_ALL_EVERY } from "../src/net/chat";
+import { cleanChat, FEED_LINES, FLOOD_MS, flooding, NEAR_RANGE, PIN_RANGE, RECENT_MS } from "../src/net/chat";
 import {
   chunkOf,
   cleanColor,
@@ -124,12 +124,11 @@ export class World extends DurableObject<Env> {
   private towersCost = 0;
 
   /**
-   * Chat, in memory only (nothing said is ever saved): when each builder last
-   * talked and what they said, when anyone last talked to everyone, and the
-   * last few world-wide lines for builders who just arrived.
+   * Chat, in memory only (nothing said is ever saved): when each builder sent
+   * their last few messages (against floods), and the last few world-wide
+   * lines for builders who just arrived.
    */
-  private readonly talk = new Map<string, { near: number; all: number; text: string; at: number }>();
-  private lastWorldLine = 0;
+  private readonly talk = new Map<string, number[]>();
   private recentLines: { at: number; said: WireSaid }[] = [];
 
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -382,22 +381,10 @@ export class World extends DurableObject<Env> {
     if (!text && !at) return;
 
     const now = Date.now();
-    const talk = this.talk.get(player.id) ?? { near: 0, all: 0, text: "", at: 0 };
-    const wait = (to === "all" ? talk.all + ALL_EVERY : talk.near + NEAR_EVERY) - now;
-    if (wait > 0) return send(ws, { t: "hush", reason: "wait", wait: Math.ceil(wait / 1000) });
-    if (text && text === talk.text && now - talk.at < REPEAT_MS) return send(ws, { t: "hush", reason: "repeat" });
-    if (to === "all" && now - this.lastWorldLine < WORLD_ALL_EVERY) return send(ws, { t: "hush", reason: "busy" });
-
-    talk.near = now;
-    if (to === "all") {
-      talk.all = now;
-      this.lastWorldLine = now;
-    }
-    if (text) {
-      talk.text = text;
-      talk.at = now;
-    }
-    this.talk.set(player.id, talk);
+    const times = this.talk.get(player.id) ?? [];
+    this.talk.set(player.id, times);
+    if (flooding(times, now)) return send(ws, { t: "hush", reason: "flood", wait: Math.ceil((times[0]! + FLOOD_MS - now) / 1000) });
+    times.push(now);
 
     const said: WireSaid = { by: player.id, name: player.name, color: player.color, text, to };
     if (at) said.at = round(at);

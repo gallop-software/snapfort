@@ -37,7 +37,7 @@ import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
 import { TouchControls } from "./ui/touch";
 import { NetClient, worldUrl } from "./net/client";
-import { NEAR_EVERY, ALL_EVERY, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
+import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
@@ -749,9 +749,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // ── Chat ─────────────────────────────────────────────────────────────
   const chat = new ChatView(scene, input.touch, (id) => remotes.positionOf(id));
   const here = (): Vec => [player.position.x, player.position.y, player.position.z];
-  /** When this builder last talked nearby (pings too) and to everyone (performance.now() ms). */
-  let lastNearAt = -Infinity;
-  let lastAllAt = -Infinity;
+  /** When this builder sent their last few messages and pings (performance.now() ms), for the flood guard. */
+  const sentTimes: number[] = [];
+  const SLOW_DOWN = "Slow down a little: try again in a moment";
   /** The last message sent, put back in the line if the server could not pass it on. */
   let lastSent: { text: string; to: ChatTo } | null = null;
   chat.onOpenChange = (open) => {
@@ -761,10 +761,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   chat.onSend = (text, to) => {
     if (solo || !net.online) return "Not connected to the world right now";
     const now = performance.now();
-    const wait = to === "all" ? lastAllAt + ALL_EVERY - now : lastNearAt + NEAR_EVERY - now;
-    if (wait > 0) return to === "all" ? `You can talk to everyone again in ${Math.ceil(wait / 1000)} s` : "Wait a moment";
-    lastNearAt = now;
-    if (to === "all") lastAllAt = now;
+    if (flooding(sentTimes, now)) return SLOW_DOWN;
+    sentTimes.push(now);
     lastSent = { text, to };
     // Nearby messages are pinned to the piece the crosshair is on, when it is close.
     net.say(text, to, to === "near" ? aimPoint(PIN_AIM_RANGE, true) : null);
@@ -793,17 +791,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   function ping(): void {
     if (solo || !net.online) return;
     const now = performance.now();
-    if (now - lastNearAt < NEAR_EVERY) {
-      hud.toast("Wait a moment to ping again");
-      return;
-    }
+    if (flooding(sentTimes, now)) return hud.toast(SLOW_DOWN);
     const at = aimPoint(PIN_RANGE);
     const p = here();
     if (!at || Math.hypot(at[0] - p[0], at[1] - p[1], at[2] - p[2]) > PIN_RANGE) {
       hud.toast(at ? "Too far away to ping" : "Aim at something to ping it");
       return sfx.deny();
     }
-    lastNearAt = now;
+    sentTimes.push(now);
     lastSent = null;
     net.say("", "near", at);
   }
@@ -954,14 +949,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (said.at && !said.text) sfx.ping();
       else if (said.by !== myId) sfx.chat();
     },
-    hush(reason, wait) {
-      const forAll = lastSent?.to === "all";
-      hud.toast(
-        reason === "busy" ? "Chat is busy: try again in a moment" : reason === "repeat" ? "You just said that" : forAll ? `You can talk to everyone again in ${wait} s` : "Wait a moment",
-      );
+    hush() {
+      hud.toast(SLOW_DOWN);
       sfx.deny();
       // Not lost: it is back in the line for next time.
-      if (reason !== "repeat" && lastSent) chat.restore(lastSent.text, lastSent.to);
+      if (lastSent) chat.restore(lastSent.text, lastSent.to);
     },
   });
 

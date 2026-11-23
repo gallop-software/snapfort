@@ -39,10 +39,11 @@ const lines = (page) => sf(page, () => [...document.querySelectorAll(".chat-line
 const toast = (page) => sf(page, () => document.getElementById("toast").textContent);
 const boxOpen = (page) => sf(page, () => !document.getElementById("chat-box").hidden);
 const named = async (page, name) => { await sf(page, (name) => { document.getElementById("player-name").value = name; document.getElementById("player-name").dispatchEvent(new Event("change", { bubbles: true })); document.getElementById("player-name").dispatchEvent(new Event("input", { bubbles: true })); }, name); };
-const say = async (page, text, everyone = false) => {
+/** Says something with the keys: Enter, Tab if the line is set to the other audience, type, Enter. */
+const say = async (page, text, to = "near") => {
   await page.keyboard.press("Enter");
   await frames(page, 2);
-  if (everyone) await page.keyboard.press("Tab");
+  if ((await page.textContent("#chat-to")) !== (to === "all" ? "Everyone" : "Nearby")) await page.keyboard.press("Tab");
   await page.keyboard.type(text, { delay: 5 });
   await page.keyboard.press("Enter");
   await wait(400);
@@ -64,7 +65,7 @@ const before = await sf(a, () => ({ p: window.snapfort.player.position.asArray()
 await a.keyboard.press("Enter");
 await frames(a, 2);
 check("Enter opens the chat line, ready to type", (await boxOpen(a)) && (await sf(a, () => document.activeElement?.id === "chat-input" && window.snapfort.input.typing)));
-check("…to builders nearby first, with the keys shown", (await a.textContent("#chat-to")) === "Nearby" && (await a.textContent("#chat-note")).includes("Tab"), await a.textContent("#chat-note"));
+check("…to everyone at first, with the keys shown", (await a.textContent("#chat-to")) === "Everyone" && (await a.textContent("#chat-note")).includes("Tab"), await a.textContent("#chat-note"));
 await a.keyboard.type("wasd zfxc 123 qe g");
 await a.keyboard.down("KeyW"); await wait(400); await a.keyboard.up("KeyW");
 await a.mouse.down(); await a.mouse.up();
@@ -77,6 +78,8 @@ check("…and the click ended typing, keeping what was typed", !(await boxOpen(a
 await a.keyboard.press("Enter"); await frames(a, 2);
 check("Enter opens the line again with the text still there", (await boxOpen(a)) && (await sf(a, () => document.getElementById("chat-input").value)) === "wasd zfxc 123 qe gw");
 await sf(a, () => { document.getElementById("chat-input").value = ""; });
+await a.keyboard.press("Tab");
+check("Tab switches the line to builders nearby", (await a.textContent("#chat-to")) === "Nearby" && (await sf(a, () => document.getElementById("chat-input").placeholder)).includes("nearby"));
 await a.keyboard.type("hello from A");
 await a.keyboard.press("Enter");
 await wait(500);
@@ -99,20 +102,21 @@ await stand(a, 2.5, 0, 0);
 // ── Everyone ─────────────────────────────────────────────────────────────
 await wait(1700);
 await a.keyboard.press("Enter"); await frames(a, 2);
+check("the line opens to whoever it talked to last (nearby)", (await a.textContent("#chat-to")) === "Nearby");
 await a.keyboard.press("Tab");
-check("Tab switches the line to everyone", (await a.textContent("#chat-to")) === "Everyone" && (await sf(a, () => document.getElementById("chat-input").placeholder)).includes("everyone"));
+check("Tab switches back to everyone", (await a.textContent("#chat-to")) === "Everyone" && (await sf(a, () => document.getElementById("chat-input").placeholder)).includes("everyone"));
 await a.keyboard.type("anyone want to build a castle?");
 await a.screenshot({ path: "qa/shots/chat-line.png" });
 await a.keyboard.press("Enter");
 await wait(500);
 check("a message to everyone reaches a builder 300 m away, as a line at the top", (await lines(c)).some((l) => l.includes(nameA) && l.includes("castle")), JSON.stringify(await lines(c)));
 check("…and the speaker and builders nearby see the line too", (await lines(a)).some((l) => l.includes("castle")) && (await lines(b)).some((l) => l.includes("castle")));
-check("…with a bubble (marked as for everyone) over the speaker for builders nearby", (await bubbles(b)).some((x) => x.name === nameA && x.all && x.text.includes("castle")));
+check("…as a line only: no bubble over the speaker, even for builders nearby", !(await bubbles(b)).some((x) => x.text.includes("castle")) && !(await bubbles(a)).some((x) => x.text.includes("castle")));
 check("…but no bubble for the far builder", !(await bubbles(c)).some((x) => x.name === nameA));
 await c.screenshot({ path: "qa/shots/chat-everyone.png" });
 // Again at once: the line says when, and stays open with the text.
 await a.keyboard.press("Enter"); await frames(a, 2);
-await a.keyboard.press("Tab");
+check("…and the line stays set to everyone for next time", (await a.textContent("#chat-to")) === "Everyone");
 await a.keyboard.type("me again");
 await a.keyboard.press("Enter");
 await frames(a, 3);
@@ -124,7 +128,7 @@ check("Esc closes the line without sending", !(await boxOpen(a)) && !(await line
 if (!(await sf(a, () => window.snapfort.input.locked))) { await wait(1200); await a.click("#resume").catch(() => a.mouse.click(550, 350)); await wait(1300); }
 check("…and building carries on after it", await sf(a, () => window.snapfort.input.locked));
 await a.keyboard.press("Enter"); await frames(a, 2);
-check("next time the line opens empty (Esc forgot it), to builders nearby", (await sf(a, () => document.getElementById("chat-input").value)) === "" && (await a.textContent("#chat-to")) === "Nearby");
+check("next time the line opens empty (Esc forgot it), still to everyone", (await sf(a, () => document.getElementById("chat-input").value)) === "" && (await a.textContent("#chat-to")) === "Everyone");
 await a.keyboard.press("Enter"); await frames(a, 2);
 check("Enter on an empty line just closes it", !(await boxOpen(a)));
 
@@ -146,7 +150,7 @@ await wait(400);
 check("…and the same message twice in a row", (await toast(b)) === "You just said that", await toast(b));
 await wait(2100);
 await sf(b, () => window.snapfort.net.say("first to all", "all", null));
-await say(c, "second to all", true);
+await say(c, "second to all", "all");
 check("two messages to everyone within a second: the second is told the chat is busy", (await toast(c)) === "Chat is busy: try again in a moment" && (await lines(a)).some((l) => l.includes("first to all")) && !(await lines(a)).some((l) => l.includes("second to all")), await toast(c));
 await c.keyboard.press("Enter"); await frames(c, 2);
 { const st = await sf(c, () => ({ v: document.getElementById("chat-input").value, open: !document.getElementById("chat-box").hidden, locked: window.snapfort.input.locked })); check("…and the message is waiting in the line to send again", st.v === "second to all" && (await c.textContent("#chat-to")) === "Everyone", JSON.stringify(st) + " " + (await c.textContent("#chat-to"))); }
@@ -212,7 +216,7 @@ await wait(300);
 
 // ── Coming and going ─────────────────────────────────────────────────────
 // At most three lines at once, newest last.
-await sf(b, () => { const s = window.snapfort; const now = performance.now(); for (let i = 1; i <= 5; i++) s.chat.show({ by: "x" + i, name: "Bot " + i, color: "#55aaff", text: "line " + i, to: "all" }, s.myId, [0, 0, 0], 80, now); });
+await sf(b, () => { const s = window.snapfort; const now = performance.now(); for (let i = 1; i <= 5; i++) s.chat.show({ by: "x" + i, name: "Bot " + i, color: "#55aaff", text: "line " + i, to: "all" }, s.myId, now); });
 check("at most three lines for everyone at once, the newest kept", JSON.stringify((await lines(b)).map((l) => l.split(" ").pop())) === JSON.stringify(["3", "4", "5"]), JSON.stringify(await lines(b)));
 // A builder who arrives now sees the recent line to everyone.
 await wait(1100);

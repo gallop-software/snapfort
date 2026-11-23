@@ -740,7 +740,6 @@ body.touch .setting select { font-size: 13px; padding-left: 8px; }
 .chat-bubble b { display: block; font-size: 11px; font-weight: 800; letter-spacing: 0.02em; }
 /* A tail pointing down at the builder. */
 .chat-bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: rgba(31, 42, 55, 0.88); }
-.chat-bubble.all { box-shadow: 0 0 0 2px var(--sun), 0 2px 8px rgba(31, 42, 55, 0.25); }
 .chat-bubble .arrow, .chat-pin .arrow { display: none; }
 /* Off screen: at the edge, centred on its spot there, with an arrow pointing the way. */
 .chat-bubble.edge, .chat-pin.edge { translate: -50% -50%; }

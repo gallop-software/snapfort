@@ -48,10 +48,9 @@ export class ChatView {
   private readonly bubbles: Marker[] = [];
   private readonly pins: Marker[] = [];
   private readonly lines: { el: HTMLElement; until: number }[] = [];
-  private to: ChatTo = "near";
+  /** Who the line talks to: everyone at first, then whichever was picked last, for the rest of the visit. */
+  private to: ChatTo = "all";
   private draft = "";
-  /** Who a message put back in the line was for (a new line starts nearby). */
-  private draftTo: ChatTo = "near";
   private readonly screen = new Vector3();
   private readonly world = new Vector3();
   private readonly viewport = new Viewport(0, 0, 1, 1);
@@ -117,12 +116,11 @@ export class ChatView {
     return !this.box.hidden;
   }
 
-  /** Opens the text line, to builders nearby; a message typed and not sent is still there. */
+  /** Opens the text line, to whoever it talked to last; a message typed and not sent is still there. */
   open(): void {
     if (this.isOpen) return;
     this.box.hidden = false;
-    this.setTo(this.draftTo);
-    this.draftTo = "near";
+    this.setTo(this.to);
     this.input.value = this.draft;
     this.showNote(null);
     document.body.classList.add("chatting");
@@ -134,7 +132,6 @@ export class ChatView {
   close(): void {
     if (!this.isOpen) return;
     this.draft = this.input.value;
-    if (this.draft) this.draftTo = this.to;
     this.box.hidden = true;
     document.body.classList.remove("chatting");
     if (document.activeElement === this.input) this.input.blur();
@@ -146,21 +143,16 @@ export class ChatView {
   /** Puts a message back in the line (it could not go), to send again later. */
   restore(text: string, to: ChatTo): void {
     this.draft = text;
-    this.draftTo = to;
-    if (this.isOpen) {
-      this.input.value = text;
-      this.setTo(to);
-    }
+    if (this.isOpen) this.input.value = text;
+    this.setTo(to);
   }
 
-  /** Shows something said: a bubble, a pin, a line at the top. */
-  show(said: WireSaid, me: string, mePosition: Vec, nearRange: number, now: number): void {
+  /** Shows something said: nearby as a bubble over the speaker (and a pin), to everyone as a line at the top. */
+  show(said: WireSaid, me: string, now: number): void {
     if (said.at) this.pin(said, now);
     if (!said.text) return;
     if (said.to === "all") this.line(said, now);
-    // A bubble for nearby messages, and for messages to everyone from builders nearby.
-    const at = said.by === me ? mePosition : this.positionOf(said.by);
-    if (said.to === "near" || (at && dist(at, mePosition) <= nearRange)) this.bubble(said, me, now);
+    else this.bubble(said, me, now);
   }
 
   /** Moves bubbles and pins to where their builders and spots are on screen, and lets old things go. */
@@ -241,7 +233,7 @@ export class ChatView {
     const old = this.bubbles.findIndex((b) => b.by === said.by);
     if (old >= 0) this.bubbles.splice(old, 1)[0]!.el.remove();
     const node = el("div", "");
-    node.className = `chat-bubble${said.to === "all" ? " all" : ""}${said.by === me ? " mine" : ""}`;
+    node.className = `chat-bubble${said.by === me ? " mine" : ""}`;
     node.innerHTML = `<i class="arrow"></i><div><b></b><span></span></div>`;
     const name = node.querySelector("b")!;
     name.textContent = said.name;

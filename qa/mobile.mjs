@@ -77,7 +77,7 @@ for (const [name, device] of screens) {
   const play = await layoutProblems(p, controlIds);
   check(`${name}: playing, every control on screen and none overlapping`, play.length === 0, play.slice(0, 4).join("; "));
   // The chat line open, with a line for everyone showing.
-  await p.evaluate(() => { const s = window.snapfort; s.chat.show({ by: "x", name: "Somebody Long Named", color: "#55aaff", text: "a long message to everyone that goes on and on to the limit of eighty chars", to: "all" }, s.myId, [0, 0, 0], 80, performance.now()); });
+  await p.evaluate(() => { const s = window.snapfort; s.chat.show({ by: "x", name: "Somebody Long Named", color: "#55aaff", text: "a long message to everyone that goes on and on to the limit of eighty chars", to: "all" }, s.myId, performance.now()); });
   await p.tap("#t-chat"); await wait(300);
   const chatting = await layoutProblems(p, [...controlIds.filter((id) => !["t-undo", "t-redo"].includes(id)), "chat-box", "chat-feed"]);
   const focused = await p.evaluate(() => document.activeElement?.id === "chat-input" && !document.getElementById("chat-box").hidden);
@@ -281,17 +281,19 @@ check("the Chat button opens the line, focused for the keyboard", await sf(() =>
 const chatFont = await sf(() => parseFloat(getComputedStyle(document.getElementById("chat-input")).fontSize));
 check("…with text big enough that iPhones do not zoom into it", chatFont >= 16, `${chatFont}px`);
 check("…and no keyboard hints (they are for computers)", await sf(() => document.getElementById("chat-note").hidden));
+check("…to everyone at first", (await p.textContent("#chat-to")) === "Everyone");
 await p.keyboard.type("hi from my phone");
 await tap("#chat-to");
-check("tapping Nearby switches to Everyone and keeps the keyboard up", (await p.textContent("#chat-to")) === "Everyone" && (await sf(() => document.activeElement?.id === "chat-input")));
-await tap("#chat-to");
-check("…and back to Nearby", (await p.textContent("#chat-to")) === "Nearby");
+check("tapping Everyone switches to Nearby and keeps the keyboard up", (await p.textContent("#chat-to")) === "Nearby" && (await sf(() => document.activeElement?.id === "chat-input")));
+await tap("#chat-to"); await tap("#chat-to");
+check("…and taps go back and forth", (await p.textContent("#chat-to")) === "Nearby");
 await tap("#chat-send"); await wait(500);
 const ownBubble = await sf(() => [...document.querySelectorAll(".chat-bubble.mine span")].map((x) => x.textContent));
 check("Send sends: the message shows over the builder's own head, and the line closes", ownBubble.includes("hi from my phone") && (await sf(() => document.getElementById("chat-box").hidden && document.activeElement?.id !== "chat-input")), JSON.stringify(ownBubble));
 check("…and the touch controls work again", await sf(() => !window.snapfort.input.typing));
 check("…and the bubble stays clear of the pieces bar at the top", await sf(() => { const b = document.querySelector(".chat-bubble.mine")?.getBoundingClientRect(); const bar = document.getElementById("hotbar-wrap").getBoundingClientRect(); return !!b && b.top >= bar.bottom - 1; }));
 await tap("#t-chat"); await wait(200);
+check("the line opens to whoever it talked to last (nearby)", (await p.textContent("#chat-to")) === "Nearby");
 await p.keyboard.type("draft");
 await tap("#chat-close"); await wait(200);
 check("✕ closes the line", await sf(() => document.getElementById("chat-box").hidden));

@@ -37,7 +37,7 @@ import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
 import { TouchControls } from "./ui/touch";
 import { NetClient, worldUrl } from "./net/client";
-import { NEAR_EVERY, ALL_EVERY, NEAR_RANGE, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
+import { NEAR_EVERY, ALL_EVERY, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
@@ -842,7 +842,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       }
       showTowers(extras.towers);
       chat.clear();
-      for (const said of extras.chat) chat.show(said, myId, here(), NEAR_RANGE, now);
+      for (const said of extras.chat) chat.show(said, myId, now);
     },
     snapshot(pieces) {
       if (solo) return;
@@ -950,7 +950,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       sfx.deny();
     },
     said(said) {
-      chat.show(said, myId, here(), NEAR_RANGE, performance.now());
+      chat.show(said, myId, performance.now());
       if (said.at && !said.text) sfx.ping();
       else if (said.by !== myId) sfx.chat();
     },

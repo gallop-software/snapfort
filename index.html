@@ -53,7 +53,7 @@
           <div id="thanks" hidden>
             <b>Thanks! The Full Game is yours.</b>
             <div class="store-line">Your key <code id="thanks-key"></code><button type="button" id="thanks-copy" class="small">Copy</button></div>
-            <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?).</p>
+            <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?). <span id="thanks-emailed" hidden>We've emailed it to you as well.</span></p>
             <div class="store-line"><a id="thanks-moon" class="small" href="/moon">Go to the Moon</a><button type="button" id="thanks-close" class="small ghost">OK</button></div>
           </div>
           <nav id="worlds" aria-label="Worlds">
@@ -146,6 +146,12 @@
                 <input id="store-key-input" type="text" placeholder="SNAP-XXXX-XXXX-XXXX" spellcheck="false" autocapitalize="characters" aria-label="Your SnapFort key" />
                 <button type="submit" class="small">Use</button>
                 <button type="button" id="store-enter-cancel" class="small ghost" aria-label="Cancel">✕</button>
+              </form>
+              <div class="store-line" id="store-lost-link"><button type="button" id="store-lost-open" class="link">Lost your key? We'll email it</button></div>
+              <form class="store-line" id="store-lost" autocomplete="on">
+                <input id="store-lost-email" type="email" placeholder="The email you paid with" spellcheck="false" autocapitalize="none" aria-label="The email you paid with" />
+                <button type="submit" class="small">Send</button>
+                <button type="button" id="store-lost-cancel" class="small ghost" aria-label="Cancel">✕</button>
               </form>
               <div id="store-message" hidden></div>
             </div>

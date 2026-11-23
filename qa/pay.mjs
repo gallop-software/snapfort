@@ -7,11 +7,14 @@
  * in the environment. Run: npm run qa:pay
  */
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { chromium } from "playwright-core";
 
 const base = new URL(process.argv[2] ?? "http://localhost:5173/");
 const world = `pay-${Date.now().toString(36)}`;
+/** A fresh buyer address each run (one email per address every 5 minutes). */
+const buyerEmail = `qa-buyer-${Date.now().toString(36)}@example.com`;
 const vars = Object.fromEntries(readFileSync(".dev.vars", "utf8").split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const results = [];
@@ -21,6 +24,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const api = (path, body) => fetch(new URL(path, base), body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
 const stripeGet = (path) => fetch(`https://api.stripe.com/v1/${path}`, { headers: { Authorization: `Bearer ${process.env.STRIPE_API_KEY}` } }).then((r) => r.json());
 const sign = (body, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${createHmac("sha256", vars.STRIPE_WEBHOOK_SECRET).update(`${t}.${body}`).digest("hex")}`;
+/** Emails the local dev server "sent" (Cloudflare's simulator writes each one to a file), newest last. */
+function sentEmails() {
+  const root = ".wrangler/tmp/email";
+  if (!existsSync(root)) return [];
+  return readdirSync(root).flatMap((d) => {
+    const dir = join(root, d, "email-text");
+    return existsSync(dir) ? readdirSync(dir).map((f) => join(dir, f)) : [];
+  }).sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs).map((f) => readFileSync(f, "utf8"));
+}
 const webhook = (body, signature) => fetch(new URL("/api/stripe", base), { method: "POST", headers: { "Content-Type": "application/json", "Stripe-Signature": signature }, body });
 
 async function open(path, { key, viewport = { width: 1100, height: 800 } } = {}) {
@@ -52,13 +64,30 @@ const pendingKey = session.client_reference_id;
 check("starting to buy opens a Stripe checkout for a new key", !!sessionId && /^SNAP-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(pendingKey ?? ""), `${sessionId?.slice(0, 16)}… ${pendingKey}`);
 check("…the key is not valid before paying", (await api("/api/key", { key: pendingKey })).valid === false);
 check("…and claiming the unpaid session says so", (await api(`/api/claim?session=${sessionId}`)).status === "unpaid");
-const event = JSON.stringify({ id: "evt_qa", type: "checkout.session.completed", livemode: false, data: { object: { id: sessionId, client_reference_id: pendingKey, payment_status: "paid", livemode: false, customer_details: { email: "qa-webhook@example.com" } } } });
+const event = JSON.stringify({ id: "evt_qa", type: "checkout.session.completed", livemode: false, data: { object: { id: sessionId, client_reference_id: pendingKey, payment_status: "paid", livemode: false, customer_details: { email: buyerEmail } } } });
 check("a webhook with a wrong signature is refused", (await webhook(event, sign(event).replace(/v1=(.)/, (_, c) => `v1=${c === "0" ? "1" : "0"}`))).status === 400);
 check("…so is an old one (a replay)", (await webhook(event, sign(event, Math.floor(Date.now() / 1000) - 3600))).status === 400);
 check("…and one with no signature", (await webhook(event, "")).status === 400);
 check("a genuine 'paid' webhook makes the key valid (a buyer who closed the tab still gets it)", (await webhook(event, sign(event))).status === 200 && (await api("/api/key", { key: pendingKey })).valid === true);
+const mailed = sentEmails().filter((m) => m.includes(pendingKey));
+check("…and the buyer is emailed the key, once, branded SnapFort with how to use it elsewhere", mailed.length === 1 && mailed[0].includes("Thanks! The Full Game is yours.") && mailed[0].includes("Have a key?") && mailed[0].includes("/moon"), `${mailed.length} emails with the key`);
+await webhook(event, sign(event));
+check("Stripe sending the same webhook again does not email again", sentEmails().filter((m) => m.includes(pendingKey)).length === 1);
+// "Lost your key?"
+check("'Lost your key?' turns down something that is not an email", (await api("/api/lost", { email: "nope" })).status === 400);
+const before = sentEmails().length;
+const lost = await api("/api/lost", { email: ` ${buyerEmail.toUpperCase()} ` });
+await wait(800);
+const resent = sentEmails().slice(before);
+check("…for the email that bought it, the key is emailed again (any capitals or spaces)", lost.ok === true && resent.length === 1 && resent[0].includes(pendingKey) && resent[0].includes("You asked for"), `${resent.length} emails`);
+const again = await api("/api/lost", { email: buyerEmail });
+await wait(500);
+check("…asking again at once answers the same, but sends nothing more (no inbox flooding)", again.ok === true && sentEmails().length === before + 1);
+const stranger = await api("/api/lost", { email: `nobody-${Date.now()}@example.com` });
+await wait(500);
+check("…an email that bought nothing gets the same answer, and no email (nobody can find out who bought)", stranger.ok === true && sentEmails().length === before + 1);
 check("keys can be typed loosely (lower case, spaces, no SNAP-)", (await api("/api/key", { key: ` ${pendingKey.slice(5).toLowerCase().replace(/-/g, " ")} ` })).valid === true);
-check("finding keys by email is for the admin only", (await fetch(new URL("/admin/keys?email=qa-webhook@example.com", base))).status === 403);
+check("finding keys by email is for the admin only", (await fetch(new URL(`/admin/keys?email=${buyerEmail}`, base))).status === 403);
 
 // ── Visiting and buying in the browser ───────────────────────────────────
 const plain = await open("/moon");
@@ -138,6 +167,15 @@ await other.fill("#store-key-input", ownedKey.toLowerCase());
 await other.click("#store-enter button[type=submit]"); await wait(1500);
 check("…the bought key unlocks it, with no reload", (await builder(other)) && (await other.isVisible("#store-owned")), await other.textContent("#store-message"));
 await other.context().close();
+
+// "Lost your key?" in Settings.
+const asker = await open("/moon");
+await asker.click("#store-have-key");
+await asker.click("#store-lost-open");
+await asker.fill("#store-lost-email", "someone@example.com");
+await asker.click("#store-lost button[type=submit]"); await wait(800);
+check("Settings: 'Lost your key?' takes an email and says the key is on its way, without showing it", (await asker.textContent("#store-message")).includes("on its way") && !(await builder(asker)));
+await asker.context().close();
 
 // The free meadow needs nothing.
 const meadow = await open("/");

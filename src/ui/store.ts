@@ -38,6 +38,12 @@ export class Store {
       void this.enter(this.input.value);
     });
     document.getElementById("store-enter-cancel")!.addEventListener("click", () => this.showEnter(false));
+    document.getElementById("store-lost-open")!.addEventListener("click", () => this.showLost(true));
+    document.getElementById("store-lost-cancel")!.addEventListener("click", () => this.showLost(false));
+    document.getElementById("store-lost")!.addEventListener("submit", (e) => {
+      e.preventDefault();
+      void this.lost((document.getElementById("store-lost-email") as HTMLInputElement).value);
+    });
     for (const id of ["store-copy", "thanks-copy"]) document.getElementById(id)!.addEventListener("click", () => void this.copy(id));
     document.getElementById("thanks-close")!.addEventListener("click", () => (document.getElementById("thanks")!.hidden = true));
   }
@@ -99,11 +105,27 @@ export class Store {
     this.say("Unlocked on this device.");
   }
 
+  /** "Lost your key?": the key goes to the email it was bought with (never shown here). */
+  async lost(email: string): Promise<void> {
+    const address = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return this.say("Type the email address you paid with.", true);
+    this.say("Sending…");
+    try {
+      const response = await fetch("/api/lost", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: address }) });
+      if (!response.ok) return this.say(((await response.json()) as { error?: string }).error ?? "Could not send it. Try again in a moment.", true);
+      this.showLost(false);
+      this.say("If that email bought the Full Game, your key is on its way. Check your inbox (and spam).");
+    } catch {
+      this.say("Could not send it. Check your connection and try again.", true);
+    }
+  }
+
   private async claim(session: string): Promise<void> {
     try {
-      const data = (await (await fetch(`/api/claim?session=${encodeURIComponent(session)}`)).json()) as { status?: string; key?: string; error?: string };
+      const data = (await (await fetch(`/api/claim?session=${encodeURIComponent(session)}`)).json()) as { status?: string; key?: string; error?: string; emailed?: boolean };
       if (data.status === "paid" && data.key) {
         this.own(data.key);
+        document.getElementById("thanks-emailed")!.hidden = !data.emailed;
         document.getElementById("thanks-key")!.textContent = data.key;
         document.getElementById("thanks")!.hidden = false;
         return;
@@ -150,9 +172,18 @@ export class Store {
   }
 
   private showEnter(on: boolean): void {
+    this.row.classList.remove("losing");
     this.row.classList.toggle("entering", on);
     if (on) this.input.focus();
     else this.input.value = "";
+  }
+
+  private showLost(on: boolean): void {
+    this.row.classList.remove("entering");
+    this.row.classList.toggle("losing", on);
+    const email = document.getElementById("store-lost-email") as HTMLInputElement;
+    if (on) email.focus();
+    else email.value = "";
   }
 
   private say(text: string, bad = false): void {

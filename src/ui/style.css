@@ -860,10 +860,14 @@ button.small, a.small {
   cursor: pointer;
 }
 button.small.ghost { background: rgba(31, 42, 55, 0.08); color: var(--ink); }
-#store-enter { display: none; flex-wrap: nowrap; }
-#full-game.entering #store-enter { display: flex; }
+#store-enter, #store-lost, #store-lost-link { display: none; flex-wrap: nowrap; }
+#full-game.entering #store-enter, #full-game.entering #store-lost-link, #full-game.losing #store-lost { display: flex; }
+#full-game.losing .store-offer { display: none; }
+#store-lost input { flex: 1; min-width: 0; height: 32px; }
+#thanks-emailed[hidden] { display: none; }
 #full-game.entering .store-offer, body.owned .store-offer { display: none; }
 #store-enter input { flex: 1; min-width: 0; height: 32px; text-transform: uppercase; }
+#store-enter input::placeholder { text-transform: none; }
 #store-message { font-size: 12px; font-weight: 700; color: var(--teal); }
 #store-message.bad { color: var(--coral); }
 #store-message[hidden], #store-owned[hidden], #store-buy[hidden], #store-soon[hidden] { display: none; }

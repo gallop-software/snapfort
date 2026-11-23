@@ -1,5 +1,6 @@
 import { environmentOf } from "../src/game/environments";
 import { cleanKey } from "../src/net/keys";
+import { looksLikeEmail, sendKeyEmail } from "./mail";
 import { stripe, stripeLive, stripeReady, verifyWebhook, type CheckoutSession } from "./stripe";
 import type { Env } from "./world";
 
@@ -17,7 +18,7 @@ const CHECKOUT_NOTE = "One-time purchase, yours to keep. Your SnapFort key appea
  * and look up keys, with the ADMIN_SECRET.
  */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/ws") {
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
@@ -25,7 +26,7 @@ export default {
     }
     if (url.pathname.startsWith("/api/")) {
       try {
-        return await api(url, request, env);
+        return await api(url, request, env, ctx);
       } catch (error) {
         console.error(error);
         return Response.json({ error: "Something went wrong. Try again in a moment." }, { status: 502 });
@@ -68,7 +69,20 @@ function world(env: Env, request: Request) {
   return env.WORLD.get(env.WORLD.idFromName(id));
 }
 
-async function api(url: URL, request: Request, env: Env): Promise<Response> {
+/** Where links in emails go: the real site, or this dev server. */
+const siteOf = (url: URL) => (url.hostname === "localhost" || url.hostname === "127.0.0.1" ? url.origin : "https://snapfort.io");
+
+/**
+ * Marks a key paid and, the first time, emails it to the buyer (after the
+ * response, so neither the page nor Stripe waits for the email).
+ */
+async function markPaid(env: Env, ctx: ExecutionContext, url: URL, key: string, session: CheckoutSession): Promise<void> {
+  const email = session.customer_details?.email ?? null;
+  const first = await ledger(env).paid(key, session.id, email, session.livemode);
+  if (first === "new" && email) ctx.waitUntil(sendKeyEmail(env.EMAIL, email, [key], "bought", siteOf(url)));
+}
+
+async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const live = stripeLive(env);
   switch (url.pathname) {
     // Whether the Full Game can be bought here now: always on a live site; in
@@ -107,8 +121,8 @@ async function api(url: URL, request: Request, env: Env): Promise<Response> {
       const key = cleanKey(session.client_reference_id);
       if (!key) return Response.json({ error: "Unknown purchase." }, { status: 400 });
       if (session.payment_status === "unpaid") return Response.json({ status: "unpaid" });
-      await ledger(env).paid(key, session.id, session.customer_details?.email ?? null, session.livemode);
-      return Response.json({ status: "paid", key });
+      await markPaid(env, ctx, url, key, session);
+      return Response.json({ status: "paid", key, emailed: !!session.customer_details?.email });
     }
 
     // A key typed (or saved) on a page: is it good here?
@@ -117,6 +131,24 @@ async function api(url: URL, request: Request, env: Env): Promise<Response> {
       const body = (await request.json().catch(() => ({}))) as { key?: string };
       const key = cleanKey(body.key);
       return Response.json({ key, valid: !!key && (await ledger(env).check(key, live)) });
+    }
+
+    // "Lost your key?": the keys bought with this email are sent to it. The page never sees them,
+    // and the answer is the same either way, so nobody can find out who bought or take a key.
+    case "/api/lost": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      const body = (await request.json().catch(() => ({}))) as { email?: string };
+      const email = body.email?.trim().toLowerCase();
+      if (!looksLikeEmail(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400 });
+      const where = request.headers.get("cf-connecting-ip");
+      const book = ledger(env);
+      // At most one email to an address every 5 minutes (5 a day), and 20 requests a day from one
+      // connection (on the real site; a dev server has no visitor address).
+      if ((!where || (await book.mayMail(`ip:${where}`, 0, 20))) && (await book.mayMail(email, 5 * 60_000, 5))) {
+        const keys = await book.paidKeys(email, live);
+        if (keys.length > 0) ctx.waitUntil(sendKeyEmail(env.EMAIL, email, keys, "asked", siteOf(url)));
+      }
+      return Response.json({ ok: true });
     }
 
     // Stripe telling us a checkout was paid (covers a buyer who closed the tab before coming back).
@@ -128,7 +160,7 @@ async function api(url: URL, request: Request, env: Env): Promise<Response> {
       if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
         const session = event.data.object;
         const key = cleanKey(session.client_reference_id);
-        if (key && session.payment_status !== "unpaid") await ledger(env).paid(key, session.id, session.customer_details?.email ?? null, session.livemode);
+        if (key && session.payment_status !== "unpaid") await markPaid(env, ctx, url, key, session);
       }
       return Response.json({ received: true });
     }

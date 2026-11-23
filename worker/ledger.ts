@@ -37,6 +37,8 @@ export class Ledger extends DurableObject {
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS keys (
       key TEXT PRIMARY KEY, session TEXT, email TEXT, live INTEGER NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL)`);
     ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS keys_email ON keys (email)");
+    // When keys were emailed, to whom (an address, or "ip:" and where a request came from): against floods.
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS mail (who TEXT NOT NULL, at INTEGER NOT NULL)");
   }
 
   /** A new key, not yet paid for. */
@@ -51,10 +53,13 @@ export class Ledger extends DurableObject {
     this.ctx.storage.sql.exec("UPDATE keys SET session = ? WHERE key = ?", session, key);
   }
 
-  /** Marks a key paid (again is fine). False when there is no such key. */
-  paid(key: string, session: string, email: string | null, live: boolean): boolean {
+  /**
+   * Marks a key paid (again is fine). Returns "new" the first time (so its email
+   * goes out once), "again" after that, or null when there is no such key.
+   */
+  paid(key: string, session: string, email: string | null, live: boolean): "new" | "again" | null {
     const row = this.get(key);
-    if (!row) return false;
+    if (!row) return null;
     this.ctx.storage.sql.exec(
       "UPDATE keys SET status = 'paid', session = ?, email = COALESCE(?, email), live = ? WHERE key = ?",
       session,
@@ -62,6 +67,28 @@ export class Ledger extends DurableObject {
       live ? 1 : 0,
       key,
     );
+    return row.status === "paid" ? "again" : "new";
+  }
+
+  /** The paid keys bought with this email, in the site's mode (test or live). */
+  paidKeys(email: string, live: boolean): string[] {
+    return this.findByEmail(email)
+      .filter((k) => k.status === "paid" && k.live === live)
+      .map((k) => k.key);
+  }
+
+  /**
+   * True (and noted) when an email may go to `who` now: at most one every
+   * `gap` ms and `perDay` a day. Stops anyone using "Lost your key?" to flood
+   * an inbox, or flooding the Email Service from one place.
+   */
+  mayMail(who: string, gap: number, perDay: number): boolean {
+    const now = Date.now();
+    const sql = this.ctx.storage.sql;
+    sql.exec("DELETE FROM mail WHERE at < ?", now - 86_400_000);
+    const sent = sql.exec<{ at: number }>("SELECT at FROM mail WHERE who = ? ORDER BY at DESC", who).toArray();
+    if (sent.length >= perDay || (sent[0] && now - sent[0].at < gap)) return false;
+    sql.exec("INSERT INTO mail (who, at) VALUES (?, ?)", who, now);
     return true;
   }
 

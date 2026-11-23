@@ -10,6 +10,7 @@ import { environmentOf, MEADOW, type Environment } from "../src/game/environment
 import { cleanKey } from "../src/net/keys";
 import type { Ledger } from "./ledger";
 import { stripeLive, type StripeEnv } from "./stripe";
+import type { MailBinding } from "./mail";
 import { applyAction } from "../src/net/authority";
 import { cleanChat, FEED_LINES, FLOOD_MS, flooding, NEAR_RANGE, PIN_RANGE, RECENT_MS } from "../src/net/chat";
 import {
@@ -35,6 +36,8 @@ export interface Env extends StripeEnv {
   LEDGER: DurableObjectNamespace<Ledger>;
   ASSETS: Fetcher;
   ADMIN_SECRET?: string;
+  /** Cloudflare Email Service: sends buyers their keys. */
+  EMAIL?: MailBinding;
 }
 
 /** Kept with each socket, so it survives the object hibernating. */

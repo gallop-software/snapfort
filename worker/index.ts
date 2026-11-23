@@ -7,9 +7,6 @@ import type { Env } from "./world";
 export { Ledger } from "./ledger";
 export { World } from "./world";
 
-/** What buying shows on Stripe's page: a reminder of what comes next, and where the terms are. */
-const CHECKOUT_NOTE = "One-time purchase, yours to keep. Your SnapFort key appears as soon as you have paid. Terms and refunds: snapfort.io/terms";
-
 /**
  * SnapFort.io on Cloudflare: the game's files are served as static assets; /ws
  * joins a shared world (the meadow, or ?env=moon for the Moon), each its own
@@ -105,7 +102,7 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
         client_reference_id: key,
         metadata: { key },
         payment_intent_data: { description: `SnapFort Full Game · your key ${key}`, metadata: { key } },
-        custom_text: { submit: { message: CHECKOUT_NOTE } },
+        // (No custom text on Stripe's page: Managed Payments, where Stripe is the seller, does not allow it.)
         success_url: `${back}?paid={CHECKOUT_SESSION_ID}`,
         cancel_url: back,
       });

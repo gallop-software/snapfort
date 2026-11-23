@@ -28,9 +28,9 @@
   ],
   // Cloudflare Email Service: buyers' keys, from keys@snapfort.io (the domain is onboarded for sending in the dashboard).
   "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["keys@snapfort.io"] }],
-  // The Full Game's price in Stripe (sandbox for now; the live one replaces it when payments go live).
+  // The Full Game's price in Stripe (live; the sandbox price is price_1Uf2XoCyWClSfIgHYvxYH7vn, for .dev.vars testing).
   // STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are Worker secrets (wrangler secret put), and .dev.vars locally.
-  "vars": { "STRIPE_PRICE_ID": "price_1Uf2XoCyWClSfIgHYvxYH7vn" },
+  "vars": { "STRIPE_PRICE_ID": "price_1Uf3hPE0m6KckiDcrejn1CjG" },
   "routes": [
     { "pattern": "snapfort.io", "custom_domain": true },
     { "pattern": "www.snapfort.io", "custom_domain": true }

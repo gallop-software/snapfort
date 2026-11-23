@@ -3,8 +3,8 @@
  * browser (test card 4242…), the key coming back and unlocking the Moon, the
  * key on another device, and the server's checks (keys, claims, webhooks).
  * Needs the Gallop dev server with STRIPE_SECRET_KEY (a test key) and
- * STRIPE_WEBHOOK_SECRET in .dev.vars, and STRIPE_API_KEY (the same test key)
- * in the environment. Run: npm run qa:pay
+ * STRIPE_WEBHOOK_SECRET in .dev.vars
+ * (both read from .dev.vars, the same test key the dev server uses). Run: npm run qa:pay
  */
 import { createHmac } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -22,7 +22,7 @@ const errors = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const api = (path, body) => fetch(new URL(path, base), body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, ...(await r.json().catch(() => ({}))) }));
-const stripeGet = (path) => fetch(`https://api.stripe.com/v1/${path}`, { headers: { Authorization: `Bearer ${process.env.STRIPE_API_KEY}` } }).then((r) => r.json());
+const stripeGet = (path) => fetch(`https://api.stripe.com/v1/${path}`, { headers: { Authorization: `Bearer ${vars.STRIPE_SECRET_KEY}` } }).then((r) => r.json());
 const sign = (body, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${createHmac("sha256", vars.STRIPE_WEBHOOK_SECRET).update(`${t}.${body}`).digest("hex")}`;
 /** Emails the local dev server "sent" (Cloudflare's simulator writes each one to a file), newest last. */
 function sentEmails() {

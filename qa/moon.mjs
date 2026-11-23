@@ -3,7 +3,7 @@
  * server), and how it plays for Full Game owners: low gravity (a storey-high
  * jump), trebuchets reaching further with slow lobs, builders thrown far. The
  * meadow stays as it was. Needs the Gallop dev server with Stripe test keys in
- * .dev.vars and STRIPE_API_KEY in the environment (a paid key is made through
+ * .dev.vars (a paid key is made through
  * the same webhook Stripe uses). Run: npm run qa:moon
  */
 import { createHmac } from "node:crypto";
@@ -23,7 +23,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function paidKey() {
   const r = await fetch(new URL("/api/buy", base), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: "/moon", testpay: true }) }).then((x) => x.json());
   const id = r.url.match(/cs_test_[A-Za-z0-9]+/)[0];
-  const session = await fetch(`https://api.stripe.com/v1/checkout/sessions/${id}`, { headers: { Authorization: `Bearer ${process.env.STRIPE_API_KEY}` } }).then((x) => x.json());
+  const session = await fetch(`https://api.stripe.com/v1/checkout/sessions/${id}`, { headers: { Authorization: `Bearer ${vars.STRIPE_SECRET_KEY}` } }).then((x) => x.json());
   const body = JSON.stringify({ id: "evt_moon_qa", type: "checkout.session.completed", livemode: false, data: { object: { id, client_reference_id: session.client_reference_id, payment_status: "paid", livemode: false, customer_details: { email: "qa-moon@example.com" } } } });
   const t = Math.floor(Date.now() / 1000);
   await fetch(new URL("/api/stripe", base), { method: "POST", headers: { "Stripe-Signature": `t=${t},v1=${createHmac("sha256", vars.STRIPE_WEBHOOK_SECRET).update(`${t}.${body}`).digest("hex")}` }, body });

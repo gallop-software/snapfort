@@ -132,6 +132,7 @@ Touch-only devices (no mouse: `(pointer: coarse)` and not `(any-pointer: fine)`;
 
 Decided with the user: typed messages only (no quick-chat wheel, no voice for now), no groups (everyone builds in one world, so there is no side to talk to privately), no muting, no admin silencing for now, and nothing ever saved. Talking works like building: aim, then say.
 
+- Chat in sight (user, 2026-11-23: "is Enter intuitive? I think you need a chat icon"): on computers a chip in the bottom-left corner (bubble, Enter, Chat; clickable when the mouse is free), "/" opens chat too, the chip (or the phone's chat button) glows when someone else talks, and the first time a hint says how to reply; the first-game tips end with "Press Enter to chat".
 - Enter (or the Chat button on phones) opens one text line, Everyone or Nearby (Tab or a tap switches). It starts on Everyone, and whichever was picked last stays for the rest of the visit (user, 2026-11-22), not saved between visits. At most 80 characters. There is no message list and nothing scrolls.
 - Nearby: a bubble over the speaker's head for 8 s, for builders within 80 m; off screen it waits at the edge with an arrow (behind you: along the bottom). Said while the crosshair is on a built piece within 60 m, the message is also pinned there.
 - Ping: middle click (Ping button on phones) marks the spot under the crosshair for builders nearby, with the pinger's name and distance, for 8 s. One pin per builder.

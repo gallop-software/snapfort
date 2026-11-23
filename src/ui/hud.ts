@@ -324,10 +324,10 @@ export class Hud {
     this.bannerTimer = window.setTimeout(() => this.bannerEl.classList.remove("show"), 2600);
   }
 
-  toast(message: string): void {
+  toast(message: string, ms = 1100): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.add("show");
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 1100);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), ms);
   }
 }

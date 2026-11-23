@@ -9,6 +9,8 @@ export interface TipProgress {
   placed: number;
   /** Kinds of piece placed (wall, floor, ramp, roof, trebuchet). */
   kinds: ReadonlySet<string>;
+  /** The chat line has been opened. */
+  chatted: boolean;
 }
 
 interface Step {
@@ -43,6 +45,11 @@ const STEPS: Step[] = [
     desk: "Pieces need support: knock out the bottom and what's above falls",
     touch: "Pieces need support: knock out the bottom and what's above falls",
     done: (_now, _at, shownFor) => shownFor > 7000,
+  },
+  {
+    desk: "Press <kbd>Enter</kbd> to chat with other builders",
+    touch: "Tap the <b>chat button</b> (top right) to talk to other builders",
+    done: (now, _at, shownFor) => now.chatted || shownFor > 9000,
   },
 ];
 

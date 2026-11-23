@@ -59,7 +59,23 @@ await p.keyboard.press("KeyZ"); await wait(100);
 await p.keyboard.down("KeyA"); await p.mouse.down(); await wait(1600); await p.mouse.up(); await p.keyboard.up("KeyA"); await wait(400);
 check("…holding to place moves it on: pieces need support", (await tip(p)).includes("support"), await tip(p));
 await wait(7600);
-check("…and then the tips are done", (await tip(p)) === "" && (await sf(p, () => localStorage.getItem("snapfort.tips"))) === "done");
+check("…then, last: press Enter to chat", (await tip(p)).includes("chat"), await tip(p));
+check("a chat chip (Enter) is in the corner while playing", (await p.isVisible("#chat-chip")) && (await p.textContent("#chat-chip")).includes("Enter"));
+await p.keyboard.press("Slash"); await wait(300);
+check("'/' opens the chat line too, with nothing typed in it", (await sf(p, () => !document.getElementById("chat-box").hidden && document.getElementById("chat-input").value === "")));
+await p.keyboard.press("Enter"); await wait(300);
+check("…opening chat finishes the tips", (await tip(p)) === "" && (await sf(p, () => localStorage.getItem("snapfort.tips"))) === "done");
+// Someone else talks: the chip glows, and the first time a hint says how to reply.
+const other = await open("/");
+await other.click("#play-free"); await wait(600);
+await sf(other, () => window.snapfort.net.say("hello from the other builder", "all", null));
+await wait(600);
+check("when someone else talks, the chip glows and a hint says to press Enter to reply", (await sf(p, () => document.getElementById("chat-chip").classList.contains("ping"))) && (await sf(p, () => document.getElementById("toast").textContent)).includes("press Enter to reply"));
+await wait(4300); // the first hint shows for 4 s
+await sf(other, () => window.snapfort.net.say("and again", "all", null));
+await wait(500);
+check("…the hint only once (the glow each time)", (await sf(p, () => document.getElementById("chat-chip").classList.contains("ping"))) && !(await sf(p, () => document.getElementById("toast").classList.contains("show") && document.getElementById("toast").textContent.includes("reply"))));
+await other.context().close();
 await p.reload(); await p.waitForSelector("body.ready"); await p.click("#play-free"); await wait(800);
 check("a returning player sees no tips", (await tip(p)) === "");
 await p.context().close();

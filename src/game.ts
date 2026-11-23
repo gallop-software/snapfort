@@ -652,6 +652,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (code === "KeyU" && !builder) return openPanel("unlock");
     // Enter talks (while editing it still confirms the cut).
     if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
+    // "/" too, as in Minecraft and Roblox.
+    if (code === "Slash") return chat.open();
     if (code === "KeyH") return toggleCrew();
     // On a trebuchet the hands are busy: no building until getting off.
     if (crewOn) return;
@@ -814,8 +816,34 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   let lastSent: { text: string; to: ChatTo } | null = null;
   chat.onOpenChange = (open) => {
     input.typing = open;
-    if (open) placing = false;
+    if (open) {
+      placing = false;
+      chatted = true;
+    }
   };
+  /** The chat line has been opened (for the first-game tips). */
+  let chatted = false;
+  const chatChip = document.getElementById("chat-chip")!;
+  // With the mouse free (stepped away), the chip can be clicked: back to playing, talking.
+  chatChip.addEventListener("click", () => {
+    sfx.unlock();
+    void input.lock().then((locked) => locked && chat.open());
+  });
+  let pingTimer = 0;
+  /** Someone else said something: the chat button glows, and the first time, a hint to reply. */
+  function chatNoticed(): void {
+    const button = touch ? document.getElementById("t-chat") : chatChip;
+    if (!button || chat.isOpen) return;
+    button.classList.remove("ping");
+    void button.offsetWidth;
+    button.classList.add("ping");
+    clearTimeout(pingTimer);
+    pingTimer = window.setTimeout(() => button.classList.remove("ping"), 2800);
+    if (input.locked && localStorage.getItem("snapfort.replyHint") !== "seen") {
+      localStorage.setItem("snapfort.replyHint", "seen");
+      hud.toast(touch ? "Someone's talking: tap the chat button to reply" : "Someone's talking: press Enter to reply", 4000);
+    }
+  }
   chat.onSend = (text, to) => {
     if (solo || !net.online) return "Not connected to the world right now";
     const now = performance.now();
@@ -1007,7 +1035,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     said(said) {
       chat.show(said, myId, performance.now());
       if (said.at && !said.text) sfx.ping();
-      else if (said.by !== myId) sfx.chat();
+      else if (said.by !== myId) {
+        sfx.chat();
+        chatNoticed();
+      }
     },
     access(on) {
       setBuilder(on);
@@ -1326,7 +1357,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     flag.update(dt);
     chat.update(now, here());
     tips.update(
-      { moved: Math.hypot(player.position.x - tipStart.x, player.position.z - tipStart.z), placed: placedTotal, kinds: placedKinds },
+      { moved: Math.hypot(player.position.x - tipStart.x, player.position.z - tipStart.z), placed: placedTotal, kinds: placedKinds, chatted },
       input.locked && builder && !crewOn && !siege.captured,
       now,
     );

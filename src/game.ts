@@ -40,6 +40,7 @@ import { NetClient, worldUrl } from "./net/client";
 import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { Store } from "./ui/store";
+import { Tips } from "./ui/tips";
 import { MEADOW, type Environment } from "./game/environments";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
@@ -156,6 +157,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** Siege (hidden for now) is played alone: the build is local and nothing is sent or received. */
   let solo = false;
   let placedCount = 0;
+  /** Kinds of piece placed this session, and pieces placed in all (for the first-game tips). */
+  const placedKinds = new Set<string>();
+  let placedTotal = 0;
   let lastKnock = 0;
   let lastCrumble = 0;
   const siege = new Siege(state, {
@@ -280,6 +284,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     rig.yaw = top ? Math.atan2(top[1] - player.position.x, top[3] - player.position.z) : 0;
     rig.pitch = 0.22;
     hud.setSiege(null);
+    // The first-game tips count walking from where the builder starts.
+    tipStart.copyFrom(player.position);
   }
 
   function selectTool(index: number): void {
@@ -314,9 +320,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // ── Who may build here ───────────────────────────────────────────────
   /** May build here: always in a free world; in a paid one, with the Full Game (the server decides on joining). */
   let builder = !env.paid;
+  /** A visitor tried to build: the unlock panel, with the button to buy. */
   function lockedNote(): void {
-    hud.toast(`Building on the ${env.name} comes with the Full Game: unlock it in Settings (${touch ? "the gear" : "Esc"})`);
     sfx.deny();
+    openPanel("unlock");
   }
   /** Visiting (no building: nothing selected, the hotbar faded) or building. */
   function setBuilder(on: boolean): void {
@@ -391,6 +398,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         rushAt = performance.now();
       }
       placedCount++;
+      placedTotal++;
+      placedKinds.add(piece.type);
       flash.play(aimSpec);
       sfx.place();
     }
@@ -501,6 +510,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    * click on the game captures the mouse again and play carries on.
    */
   let away = false;
+  /** The panel to show once play has stopped (it stops first: the mouse is released, or on touch the controls hide). */
+  let nextView: "unlock" | "settings" | "paused" | null = null;
+  /** Stops playing (if playing) and shows a panel. */
+  function openPanel(view: "unlock" | "settings" | "paused"): void {
+    if (input.locked) {
+      nextView = view;
+      input.unlock();
+    } else hud.show(view);
+  }
   let unlockedAt = 0;
   const isAway = () => document.hidden || !document.hasFocus();
 
@@ -519,6 +537,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
     chat.close();
     finishEdit(false);
+    // A panel asked for on the way out of play (the unlock panel, the settings to type a key in).
+    if (nextView) {
+      const view = nextView;
+      nextView = null;
+      away = false;
+      return hud.show(view);
+    }
     if (siege.captured) return hud.showCaptured({ seconds: siege.elapsed, waves: siege.wave, placed: placedCount });
     if (mode === "menu") return hud.show("menu");
     unlockedAt = performance.now();
@@ -564,7 +589,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (away) {
       away = false;
       hud.show("paused");
-    } else if (hud.view === "paused") backToBuilding();
+    } else if (hud.view === "paused" || hud.view === "unlock") backToBuilding();
   });
   input.onMouseDown = (button) => {
     sfx.unlock();
@@ -623,6 +648,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (command && code === "KeyZ") return event.shiftKey ? redo() : undo();
     if (command && code === "KeyY") return redo();
     if (command) return;
+    // U: unlock the Full Game (while visiting a paid world).
+    if (code === "KeyU" && !builder) return openPanel("unlock");
     // Enter talks (while editing it still confirms the cut).
     if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
     if (code === "KeyH") return toggleCrew();
@@ -1195,13 +1222,18 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // The Full Game: a saved key goes with joining; buying or typing one in sends it at once.
   const store = new Store();
   store.onOwned = (key) => net.sendKey(key);
+  // "Have a key?" on the menu or the unlock panel: the settings, with the key box open.
+  store.onHaveKey = () => {
+    openPanel(mode === "menu" ? "settings" : "paused");
+    store.showEnter(true);
+  };
+  document.getElementById("visit-buy")!.addEventListener("click", () => openPanel("unlock"));
+  document.getElementById("unlock-later")!.addEventListener("click", () => (mode === "menu" ? hud.show("menu") : backToBuilding()));
+  const tips = new Tips(input.touch);
+  const tipStart = player.position.clone();
   net.key = store.key;
   document.body.dataset.env = env.id;
   for (const a of document.querySelectorAll<HTMLAnchorElement>("#worlds a")) a.classList.toggle("current", a.dataset.env === env.id);
-  if (env.id === "moon") {
-    document.getElementById("menu-about")!.textContent =
-      "The Moon: a third of the gravity. Jump a storey high, throw stones further, send rivals flying. Anyone can visit; building here comes with the Full Game.";
-  }
   net.connect();
   void store.init();
 
@@ -1287,6 +1319,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     debris.update(dt);
     flag.update(dt);
     chat.update(now, here());
+    tips.update(
+      { moved: Math.hypot(player.position.x - tipStart.x, player.position.z - tipStart.z), placed: placedTotal, kinds: placedKinds },
+      input.locked && builder && !crewOn && !siege.captured,
+      now,
+    );
     updateCrewHud(now);
     view.flush();
 

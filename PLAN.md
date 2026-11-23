@@ -153,6 +153,12 @@ Decided with the user: one way to pay, a **one-time $7 "Full Game"** (no subscri
 - **Keys by email** (user, 2026-11-23: "they should just have to be sent an email"): Cloudflare Email Service (binding `EMAIL`, from keys@snapfort.io, replies to dev@webplant.media; snapfort.io onboarded for sending in the dashboard; Workers Paid). The key is emailed once when a purchase is first marked paid (return from checkout or webhook, whichever is first). "Lost your key?" in Settings takes an email and sends that address its keys; the page never shows them and answers the same whether or not the email bought anything. Limits: one email per address every 5 minutes (5 a day), 20 requests a day per connection. The email is branded like the game (`worker/mail.ts`, plain-text copy too).
 - `/terms`: what the Full Game is, refunds (14 days, by email), support, privacy (the purchase email is kept only to find lost keys; Stripe holds card details; chat is not stored).
 
+## A calmer menu, and selling the Moon (user, 2026-11-23: "too much info, hard to scroll"; "make paying very clear, simple and easy")
+
+- The start screen only picks a world and plays: two world cards with pictures rendered from the game (`public/worlds/*.jpg`, made with `qa/world-images.mjs`), "You're here" on the current one, one big button, "Playing as Name ●" (opens Settings), and links to Controls, Settings, Terms. Controls (the key list or the touch help, and the building rules) and Settings are panels of their own; Esc while playing shows the settings as before.
+- On the Moon without the Full Game: **Unlock the Moon · $7** is the big button on the menu, above Visit the Moon; while visiting, a bar at the top keeps **Unlock · $7** in sight (U on a keyboard, a tap on phones); trying to build (click, a piece key, H, G) opens the unlock panel: the Moon's picture, four things you get, **Unlock · $7**, Have a key?, Terms, Keep visiting.
+- First-game tips, one at a time, each moving on once done: move, place a wall, try another piece, hold to keep placing, pieces need support. Never shown again in that browser (`snapfort.tips`); a ✕ hides them.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

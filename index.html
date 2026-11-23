@@ -41,6 +41,8 @@
       <div id="siege" hidden></div>
       <div id="banner"></div>
       <div id="toast"></div>
+      <div id="visit-bar" hidden><span class="what"><b>Visiting the Moon</b> · building here comes with the Full Game</span><button type="button" id="visit-buy">Unlock · $7<kbd class="desk">U</kbd></button></div>
+      <div id="tip" hidden></div>
       <div id="edit-hint" hidden><span class="desk">Editing: click or drag tiles to cut them · <b>G</b> confirm · <b>Right click</b> reset</span><span class="mobile">Editing: aim at tiles and tap <b>Cut</b> · <b>Done</b> confirms · <b>Reset</b> puts them back</span></div>
       <!-- The hotbar stays centred; the material badge sits just to its right, however wide it is. -->
       <div id="hotbar-wrap"><div id="hotbar"></div><div id="material"></div></div>
@@ -56,11 +58,33 @@
             <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?). <span id="thanks-emailed" hidden>We've emailed it to you as well.</span></p>
             <div class="store-line"><a id="thanks-moon" class="small" href="/moon">Go to the Moon</a><button type="button" id="thanks-close" class="small ghost">OK</button></div>
           </div>
-          <nav id="worlds" aria-label="Worlds">
-            <a href="/" data-env="meadow">Meadow <small>Free</small></a>
-            <a href="/moon" data-env="moon">Moon <small>Full Game</small></a>
-          </nav>
-          <p id="menu-about">Build the tallest tower in one shared world. Knock down the competition with trebuchets.</p>
+          <div id="worlds">
+            <a class="world" data-env="meadow" href="/">
+              <span class="pic" style="background-image: url(/worlds/meadow.jpg)"><span class="badge">Free</span></span>
+              <span class="info"><b>Meadow</b><small>Build the tallest tower. Knock rivals down with trebuchets.</small></span>
+            </a>
+            <a class="world" data-env="moon" href="/moon">
+              <span class="pic" style="background-image: url(/worlds/moon.jpg)"><span class="badge paid">Full Game</span></span>
+              <span class="info"><b>Moon</b><small>Low gravity: jump a storey, throw stones further, send rivals flying.</small></span>
+            </a>
+          </div>
+          <div id="moon-offer" hidden>
+            <button type="button" id="offer-buy" class="buy-big">Unlock the Moon · $7</button>
+            <span class="offer-note">One time, yours to keep · <button type="button" class="link" id="offer-key">Have a key?</button></span>
+          </div>
+          <div class="buttons">
+            <button id="play-free" class="primary" type="button" disabled>Loading…</button>
+            <button id="play-siege" class="secondary" type="button" disabled hidden>Defend the fort</button>
+          </div>
+          <p id="touch-note" hidden>SnapFort needs a keyboard and mouse. Open snapfort.io on a computer to build.</p>
+          <div id="menu-links">
+            <button type="button" class="link me" id="playing-as">Playing as <b id="me-name"></b><i id="me-dot"></i></button>
+            <span class="links"><button type="button" class="link" id="open-controls">Controls</button><button type="button" class="link" id="open-settings">Settings</button><a class="link" href="/terms" target="_blank" rel="noopener">Terms</a></span>
+          </div>
+        </div>
+
+        <div id="view-controls" hidden>
+          <h2>Controls</h2>
           <div id="touch-help" class="mobile">
             <div><b>Left thumb</b> move (push all the way to run)</div>
             <div><b>Right thumb</b> look and aim</div>
@@ -89,12 +113,9 @@
             <div class="keyrow"><kbd>Middle click</kbd><span>Ping a spot</span></div>
             <div class="keyrow"><kbd>Same key</kbd><span>Put piece away</span></div>
           </div>
-          <div class="buttons">
-            <button id="play-free" class="primary" type="button" disabled>Loading…</button>
-            <button id="play-siege" class="secondary" type="button" disabled hidden>Defend the fort</button>
-          </div>
-          <p id="touch-note" hidden>SnapFort needs a keyboard and mouse. Open snapfort.io on a computer to build.</p>
           <p class="small">Pieces go where your crosshair points. Anything that loses its connection to the ground falls, and ramps turn only on a floor. Metal builds up to storey 10, brick to 30, wood all the way up.</p>
+
+          <div class="buttons"><button id="controls-back" class="primary" type="button">Back</button></div>
         </div>
 
         <div id="view-paused" hidden>
@@ -102,9 +123,29 @@
           <div class="buttons">
             <button id="resume" class="primary" type="button">Back to building</button>
           </div>
+          <p class="paused-links"><button type="button" class="link" id="paused-controls">Controls</button></p>
         </div>
 
-        <div id="settings">
+        <div id="view-settings" hidden>
+          <p>Settings</p>
+          <div class="buttons"><button id="settings-back" class="primary" type="button">Done</button></div>
+        </div>
+
+        <div id="view-unlock" hidden>
+          <div class="unlock-pic" style="background-image: url(/worlds/moon.jpg)"><span class="badge paid">Full Game</span></div>
+          <h2>Build on the Moon</h2>
+          <ul class="perks">
+            <li>Jump a whole storey in low gravity</li>
+            <li>Trebuchets throw 1.6&times; further</li>
+            <li>Send rivals flying 100 m</li>
+            <li>Every paid world we add, included</li>
+          </ul>
+          <div class="buttons"><button id="unlock-buy" class="buy-big" type="button">Unlock · $7</button></div>
+          <p class="unlock-note">One-time purchase, no subscription · <button type="button" class="link" id="unlock-key">Have a key?</button> · <a class="link" href="/terms" target="_blank" rel="noopener">Terms</a></p>
+          <button type="button" class="link" id="unlock-later">Keep visiting</button>
+        </div>
+
+        <div id="settings" hidden>
           <div class="setting">
             <label for="player-name">Name</label>
             <input id="player-name" type="text" maxlength="20" autocomplete="off" spellcheck="false" />

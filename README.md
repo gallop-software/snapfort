@@ -44,6 +44,7 @@ npm run qa:mobile       # phones and tablets: fit on screen, and every touch con
 npm run qa:chat         # chat: nearby, everyone, pings, limits, the filter
 npm run qa:moon         # the Moon: look, visitors, low gravity, long throws
 npm run qa:pay          # buying the Full Game in Stripe's test mode, keys, webhooks
+npm run qa:menu         # the menu, the Moon's unlock, first-game tips
 ```
 
 ## Deploying

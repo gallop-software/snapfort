@@ -137,10 +137,11 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       const body = (await request.json().catch(() => ({}))) as { email?: string };
       const email = body.email?.trim().toLowerCase();
       if (!looksLikeEmail(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400 });
-      const where = request.headers.get("cf-connecting-ip");
+      const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      const where = local ? null : request.headers.get("cf-connecting-ip");
       const book = ledger(env);
       // At most one email to an address every 5 minutes (5 a day), and 20 requests a day from one
-      // connection (on the real site; a dev server has no visitor address).
+      // connection (on the real site; on a dev server every request comes from this computer).
       if ((!where || (await book.mayMail(`ip:${where}`, 0, 20))) && (await book.mayMail(email, 5 * 60_000, 5))) {
         const keys = await book.paidKeys(email, live);
         if (keys.length > 0) ctx.waitUntil(sendKeyEmail(env.EMAIL, email, keys, "asked", siteOf(url)));

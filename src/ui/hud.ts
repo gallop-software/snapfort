@@ -51,7 +51,7 @@ export function clock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-type View = "menu" | "paused" | "captured";
+type View = "menu" | "paused" | "captured" | "controls" | "settings" | "unlock";
 
 /** The plain HTML overlay: hotbar, crosshair, readouts, messages and the menu panel. */
 export class Hud {
@@ -65,7 +65,12 @@ export class Hud {
     menu: el("view-menu"),
     paused: el("view-paused"),
     captured: el("view-captured"),
+    controls: el("view-controls"),
+    settings: el("view-settings"),
+    unlock: el("view-unlock"),
   };
+  /** Where Back goes from Controls (the menu, or the settings while playing). */
+  private controlsFrom: View = "menu";
   private toastTimer = 0;
   private bannerTimer = 0;
 
@@ -89,9 +94,16 @@ export class Hud {
     el("resume").addEventListener("click", () => actions.resume());
     // A click beside the settings panel (on the dimmed world) also goes back to building.
     this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay && this.view === "paused") actions.resume();
+      if (e.target === this.overlay && (this.view === "paused" || this.view === "unlock")) actions.resume();
     });
     el("captured-menu").addEventListener("click", () => actions.menu());
+    // The menu's links: Controls and Settings are panels of their own, with a way back.
+    el("open-controls").addEventListener("click", () => this.openControls("menu"));
+    el("paused-controls").addEventListener("click", () => this.openControls("paused"));
+    el("controls-back").addEventListener("click", () => this.show(this.controlsFrom));
+    el("open-settings").addEventListener("click", () => this.show("settings"));
+    el("playing-as").addEventListener("click", () => this.show("settings"));
+    el("settings-back").addEventListener("click", () => this.show("menu"));
     const slider = el<HTMLInputElement>("mouse-speed");
     slider.addEventListener("input", () => {
       const speed = Number(slider.value);
@@ -114,9 +126,21 @@ export class Hud {
   view: View | "playing" | "away" = "menu";
   private identity: Identity = { name: "", color: "" };
 
+  private openControls(from: View): void {
+    this.controlsFrom = from;
+    this.show("controls");
+  }
+
+  /** "Playing as Name ●" on the menu. */
+  private paintMe(): void {
+    el("me-name").textContent = this.identity.name;
+    el("me-dot").style.background = this.identity.color;
+  }
+
   /** Shows the player's name and colour on the menu, with the colours to choose from. */
   showIdentity(identity: Identity, colors: readonly string[]): void {
     this.identity = { ...identity };
+    this.paintMe();
     el<HTMLInputElement>("player-name").value = identity.name;
     const box = el("player-colors");
     box.replaceChildren(
@@ -142,6 +166,7 @@ export class Hud {
     const name = input.value.trim();
     if (name) this.identity.name = name;
     input.value = this.identity.name;
+    this.paintMe();
     this.actions.setIdentity({ ...this.identity });
   }
 
@@ -265,7 +290,8 @@ export class Hud {
     this.view = view;
     const playing = view === "playing";
     const away = view === "away";
-    el("settings").hidden = view === "captured";
+    // The settings show in their own panel, and while playing (Esc / the gear).
+    el("settings").hidden = view !== "paused" && view !== "settings";
     document.body.classList.toggle("playing", playing);
     this.overlay.hidden = playing || away;
     for (const [name, node] of Object.entries(this.views)) node.hidden = name !== view;

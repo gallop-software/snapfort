@@ -92,12 +92,12 @@ check("finding keys by email is for the admin only", (await fetch(new URL(`/admi
 // ── Visiting and buying in the browser ───────────────────────────────────
 const plain = await open("/moon");
 check("on the Moon without the Full Game, you visit: no building", (await builder(plain)) === false && (await plain.textContent("#play-free")) === "Visit the Moon");
-check("…and while Stripe is in test mode the public sees 'Opens soon', no buy button", (await plain.isVisible("#store-soon")) && !(await plain.isVisible("#store-buy-button")));
+check("…and while Stripe is in test mode the public sees 'Unlocks open soon', and cannot buy", await sf(plain, () => { const b = document.getElementById("offer-buy"); return b.disabled && b.textContent === "Unlocks open soon"; }));
 await plain.context().close();
 
 const page = await open("/moon?testpay");
-check("with ?testpay the Unlock button shows", await page.isVisible("#store-buy-button"));
-await page.click("#store-buy-button");
+check("with ?testpay, the Moon's menu has a big Unlock the Moon · $7 button", (await page.isVisible("#offer-buy")) && (await page.textContent("#offer-buy")) === "Unlock the Moon · $7" && !(await sf(page, () => document.getElementById("offer-buy").disabled)));
+await page.click("#offer-buy");
 await page.waitForURL(/checkout\.stripe\.com/, { timeout: 30000 });
 check("Unlock opens Stripe's checkout", true, new URL(page.url()).host);
 const frameWith = async (sel) => { for (let i = 0; i < 80; i++) { for (const f of page.frames()) if (await f.$(sel).catch(() => null)) return f; await wait(250); } throw new Error(`no ${sel} on the checkout page`); };
@@ -140,7 +140,7 @@ if (back) {
   const after = await sf(page, () => ({ thanks: !document.getElementById("thanks").hidden, key: document.getElementById("thanks-key").textContent, saved: localStorage.getItem("snapfort.key"), url: location.href }));
   check("paying brings you back to the Moon with a thank-you and your key", after.thanks && /^SNAP-/.test(after.key) && after.saved === after.key && !after.url.includes("paid="), JSON.stringify(after));
   check("…and building is open at once", await builder(page));
-  check("…the key is in Settings with a Copy button", (await page.isVisible("#store-owned")) && (await page.textContent("#store-key")) === after.key);
+  check("…the key is in Settings with a Copy button", (await sf(page, () => !document.getElementById("store-owned").hidden)) && (await page.textContent("#store-key")) === after.key);
   await page.screenshot({ path: "qa/shots/pay-thanks.png" });
   boughtKey = after.key;
 }
@@ -148,29 +148,29 @@ await page.context().close();
 // The key for the rest: the one just bought, or one paid through the webhook.
 const ownedKey = boughtKey ?? pendingKey;
 const owner = await open("/moon", { key: ownedKey });
-check("with a paid key saved, the Moon opens for building, and Settings shows the key", (await builder(owner)) && (await owner.isVisible("#store-owned")) && (await owner.textContent("#store-key")) === ownedKey);
+check("with a paid key saved, the Moon opens for building, and Settings shows the key", (await builder(owner)) && (await sf(owner, () => !document.getElementById("store-owned").hidden)) && (await owner.textContent("#store-key")) === ownedKey);
 await owner.click("#play-free"); await wait(500);
 const n0 = await sf(owner, () => window.snapfort.state.size);
 await owner.mouse.down(); await owner.mouse.up(); await wait(800);
 check("a buyer builds on the Moon, and the world keeps it", (await sf(owner, () => window.snapfort.state.size)) === n0 + 1 && (await sf(owner, () => window.snapfort.synced.inFlight)) === 0);
 await owner.reload(); await owner.waitForSelector("body.ready"); await wait(1500);
-check("after a reload it is still unlocked", (await builder(owner)) && (await owner.isVisible("#store-owned")));
+check("after a reload it is still unlocked, and the menu no longer offers to buy", (await builder(owner)) && (await sf(owner, () => !document.getElementById("store-owned").hidden)) && !(await owner.isVisible("#offer-buy")));
 await owner.context().close();
 
 // Another device: type the key in.
 const other = await open("/moon");
-await other.click("#store-have-key");
+await other.click("#offer-key");
 await other.fill("#store-key-input", "snap-0000-0000-0000");
 await other.click("#store-enter button[type=submit]"); await wait(800);
 check("another device: a wrong key is turned down", (await other.textContent("#store-message")).includes("not") && !(await builder(other)));
 await other.fill("#store-key-input", ownedKey.toLowerCase());
 await other.click("#store-enter button[type=submit]"); await wait(1500);
-check("…the bought key unlocks it, with no reload", (await builder(other)) && (await other.isVisible("#store-owned")), await other.textContent("#store-message"));
+check("…the bought key unlocks it, with no reload", (await builder(other)) && (await sf(other, () => !document.getElementById("store-owned").hidden)), await other.textContent("#store-message"));
 await other.context().close();
 
 // "Lost your key?" in Settings.
 const asker = await open("/moon");
-await asker.click("#store-have-key");
+await asker.click("#offer-key");
 await asker.click("#store-lost-open");
 await asker.fill("#store-lost-email", "someone@example.com");
 await asker.click("#store-lost button[type=submit]"); await wait(800);

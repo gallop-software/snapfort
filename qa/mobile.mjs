@@ -123,7 +123,7 @@ for (const [name, device] of [["iPhone 13 portrait", devices["iPhone 13"]], ["Pi
   const p = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
   const url = new URL(base); url.searchParams.set("world", "mfit-desk");
   await p.goto(url.toString()); await p.waitForSelector("body.ready");
-  check("a computer gets no touch controls, and the key list", !(await p.evaluate(() => document.body.classList.contains("touch") || !!document.getElementById("touch"))) && (await p.isVisible(".keys")));
+  check("a computer gets no touch controls, and the key list", !(await p.evaluate(() => document.body.classList.contains("touch") || !!document.getElementById("touch"))) && (await p.click("#open-controls"), await p.isVisible(".keys")));
   check("…and not the phone help (thumbs and buttons)", !(await p.isVisible("#touch-help")));
   await p.context().close();
 }

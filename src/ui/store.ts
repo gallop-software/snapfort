@@ -22,6 +22,8 @@ export class Store {
   private readonly testpay: boolean;
   /** Called when ownership changes (bought, or a key typed in). */
   onOwned: (key: string) => void = () => {};
+  /** "Have a key?" from the menu or the unlock panel: the game opens the settings to type it in. */
+  onHaveKey: () => void = () => {};
 
   private readonly row = document.getElementById("full-game")!;
   private readonly message = document.getElementById("store-message")!;
@@ -31,7 +33,8 @@ export class Store {
     const params = new URLSearchParams(location.search);
     if (params.has("testpay")) sessionStorage.setItem(TESTPAY, "1");
     this.testpay = sessionStorage.getItem(TESTPAY) === "1";
-    document.getElementById("store-buy-button")!.addEventListener("click", () => void this.buy());
+    for (const id of ["store-buy-button", "offer-buy", "unlock-buy"]) document.getElementById(id)!.addEventListener("click", () => void this.buy());
+    for (const id of ["offer-key", "unlock-key"]) document.getElementById(id)!.addEventListener("click", () => this.onHaveKey());
     document.getElementById("store-have-key")!.addEventListener("click", () => this.showEnter(true));
     document.getElementById("store-enter")!.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -79,7 +82,13 @@ export class Store {
 
   /** Off to Stripe's checkout page. */
   async buy(): Promise<void> {
+    if (!this.canBuy) return;
     this.say("Opening checkout…");
+    for (const id of ["offer-buy", "unlock-buy"]) {
+      const button = document.getElementById(id) as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "Opening checkout…";
+    }
     try {
       const response = await fetch("/api/buy", {
         method: "POST",
@@ -87,9 +96,13 @@ export class Store {
         body: JSON.stringify({ path: location.pathname, testpay: this.testpay }),
       });
       const data = (await response.json()) as { url?: string; error?: string };
-      if (!data.url) return this.say(data.error ?? "Checkout is not available right now.", true);
+      if (!data.url) {
+        this.render();
+        return this.say(data.error ?? "Checkout is not available right now.", true);
+      }
       location.assign(data.url);
     } catch {
+      this.render();
       this.say("Could not reach checkout. Check your connection and try again.", true);
     }
   }
@@ -171,7 +184,7 @@ export class Store {
     }
   }
 
-  private showEnter(on: boolean): void {
+  showEnter(on: boolean): void {
     this.row.classList.remove("losing");
     this.row.classList.toggle("entering", on);
     if (on) this.input.focus();
@@ -199,5 +212,13 @@ export class Store {
     document.getElementById("store-soon")!.hidden = this.owned || this.canBuy;
     document.getElementById("store-key")!.textContent = this.key ?? "";
     document.body.classList.toggle("owned", this.owned);
+    // The Moon's offer on the menu, and the buttons that buy: ready, or not open yet.
+    document.getElementById("moon-offer")!.hidden = this.owned || document.body.dataset.env !== "moon";
+    const label = this.canBuy ? null : "Unlocks open soon";
+    for (const [id, text] of [["offer-buy", `Unlock the Moon · ${PRICE}`], ["unlock-buy", `Unlock · ${PRICE}`]] as const) {
+      const button = document.getElementById(id) as HTMLButtonElement;
+      button.disabled = !this.canBuy;
+      button.textContent = label ?? text;
+    }
   }
 }

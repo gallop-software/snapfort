@@ -61,7 +61,7 @@ async function jumpHeight(page) {
 const key = await paidKey();
 check("(a Full Game key for the builder)", /^SNAP-/.test(key ?? ""), key);
 const b = await open("builder", "/moon", key);
-const v = await open("visitor", "/moon");
+const v = await open("visitor", "/moon?testpay");
 const m = await open("meadow", "/");
 
 // ── The look ─────────────────────────────────────────────────────────────
@@ -80,9 +80,14 @@ const built = await put(b, [["wall", 0, 0, 0, 0], ["wall", 0, 1, 0, 0], ["wall",
 await wait(800);
 check("an owner's building appears for the visitor", built === 3 && (await ids(b)) === (await ids(v)) && (await ids(v)).split(",").length === 3);
 await v.mouse.down(); await v.mouse.up(); await frames(v, 2);
-check("a visitor clicking to build is told it comes with the Full Game", (await toast(v)).includes("Full Game"), await toast(v));
-await v.keyboard.press("Digit1"); await frames(v, 2);
-check("…a piece key does not pick a piece", (await sf(v, () => document.querySelector("#hotbar .slot.selected"))) === null);
+await wait(400);
+check("a visitor clicking to build gets the unlock panel, with a big Unlock · $7 button", (await v.isVisible("#view-unlock")) && (await v.isVisible("#unlock-buy")) && (await v.textContent("#unlock-buy")).includes("$7"));
+await v.click("#unlock-later"); await wait(1300);
+check("…'Keep visiting' goes straight back to the Moon", await sf(v, () => window.snapfort.input.locked));
+check("…and while visiting, a bar with Unlock · $7 stays in sight", await v.isVisible("#visit-buy"));
+await v.keyboard.press("Digit1"); await wait(500);
+check("…a piece key does not pick a piece: it offers the unlock too", (await sf(v, () => document.querySelector("#hotbar .slot.selected"))) === null && (await v.isVisible("#view-unlock")));
+await v.click("#unlock-later"); await wait(1300);
 // Straight to the server, past the page's own check: refused.
 const before = await ids(b);
 await sf(v, () => window.snapfort.history.do({ kind: "place", piece: { type: "wall", x: 4, y: 0, z: 4, rot: 0, id: window.snapfort.nextId(), material: "wood", edit: 0 } }));

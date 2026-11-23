@@ -242,31 +242,9 @@ body.scoped #crosshair {
   text-align: center;
 }
 
-/* Wide windows: the key list sits beside the title, button and settings, so the menu stays short. */
-@media (min-width: 900px) {
-  .panel:has(#view-menu:not([hidden])) {
-    width: min(1000px, calc(100vw - 32px));
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-    grid-template-rows: repeat(6, auto);
-    column-gap: 36px;
-    align-content: start;
-  }
-  .panel:has(#view-menu:not([hidden])) > *,
-  #view-menu:not([hidden]) > * { grid-column: 1; }
-  #view-menu:not([hidden]) { display: contents; }
-  #view-menu:not([hidden]) > .keys {
-    grid-column: 2;
-    grid-row: 1 / 7;
-    align-self: center;
-    margin: 0;
-    padding: 18px 20px;
-    border-radius: 18px;
-    background: rgba(31, 42, 55, 0.05);
-  }
-  #view-menu:not([hidden]) > #menu-about { margin-bottom: 16px; }
-  #view-menu:not([hidden]) > p.small { margin-top: 14px; }
-}
+/* The menu is wider, for the two world cards side by side; Controls too, for the key list. */
+.panel:has(#view-menu:not([hidden])), .panel:has(#view-controls:not([hidden])) { width: min(720px, calc(100vw - 32px)); }
+.panel:has(#view-unlock:not([hidden])) { width: min(600px, calc(100vw - 32px)); }
 .panel h1 {
   margin: 0;
   font-size: 44px;
@@ -698,18 +676,17 @@ body.touch .setting input[type="text"] { font-size: 16px; } /* iOS zooms into sm
 body.touch .setting select { font-size: 13px; padding-left: 8px; }
 @media (max-height: 560px) {
   body.touch #overlay { padding: calc(env(safe-area-inset-top, 0px) + 8px) calc(env(safe-area-inset-right, 0px) + 8px) 8px calc(env(safe-area-inset-left, 0px) + 8px); }
-  body.touch .panel {
-    width: min(920px, calc(100vw - 16px));
-    padding: 14px 18px;
+  body.touch .panel { width: min(920px, calc(100vw - 16px)); padding: 14px 18px; }
+  /* With the settings showing (Settings, or Esc while playing): title and buttons on the left, settings on the right. */
+  body.touch .panel:has(#settings:not([hidden])) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
     column-gap: 20px;
     align-items: start;
   }
   body.touch .panel > h1 { grid-column: 1; grid-row: 1; font-size: 30px; margin: 0; }
-  body.touch .panel > #view-menu,
   body.touch .panel > #view-paused,
-  body.touch .panel > #view-captured { grid-column: 1; grid-row: 2; }
+  body.touch .panel > #view-settings { grid-column: 1; grid-row: 2; }
   body.touch .panel > #settings { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
   body.touch .panel p { margin: 4px 0 10px; font-size: 13px; }
   body.touch .panel p.small { display: none; }
@@ -807,23 +784,6 @@ body.touch #chat-input { font-size: 16px; }
 body.touch #chat-box button { height: 38px; }
 
 /* ───────────── Worlds and the Full Game ───────────── */
-#worlds { display: flex; justify-content: center; gap: 8px; margin: 14px 0 0; }
-#worlds a {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(31, 42, 55, 0.14);
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 800;
-  text-decoration: none;
-}
-#worlds a small { font-size: 11px; font-weight: 700; opacity: 0.6; }
-#worlds a.current { border-color: var(--ink); background: var(--ink); color: var(--cream); }
-#worlds a.current small { opacity: 0.8; }
 
 .store { display: grid; gap: 6px; min-width: 0; }
 .store-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
@@ -893,15 +853,176 @@ body.visiting #hotbar { opacity: 0.45; }
 /* Phones held sideways (short screens): the world picker small, the description dropped (the picker says it),
    and the Full Game row on one line. */
 @media (max-height: 560px) {
-  body.touch #worlds { margin-top: 6px; }
-  body.touch #worlds a { padding: 4px 11px; font-size: 13px; }
-  body.touch #menu-about { display: none; }
   body.touch .store-offer { flex-wrap: nowrap; gap: 8px; }
   body.touch .store button.buy { height: 30px; padding: 0 11px; font-size: 13px; }
   body.touch .store .note, body.touch .store button.link, body.touch .store a.link { font-size: 12px; white-space: nowrap; }
   body.touch #settings .setting { padding: 4px 0; }
 }
-/* Tablets: no key list on touch, so the settings take the right-hand column of the wide menu. */
-@media (min-width: 900px) {
-  body.touch .panel:has(#view-menu:not([hidden])) > #settings { grid-column: 2; grid-row: 1 / 7; align-self: start; margin-top: 0; }
+
+/* ───────────── The menu: world cards, one button, links ───────────── */
+#worlds { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0 16px; }
+.world {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  box-shadow: 0 0 0 2px rgba(31, 42, 55, 0.1), 0 4px 0 rgba(31, 42, 55, 0.12);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.world:hover { transform: translateY(-2px); }
+.world.current { box-shadow: 0 0 0 3px var(--coral), 0 4px 0 rgba(240, 118, 90, 0.4); }
+.world .pic { position: relative; display: block; aspect-ratio: 16 / 9; background: #ccc center / cover no-repeat; }
+.world .info { display: grid; gap: 3px; padding: 10px 13px 12px; }
+.world .info b { font-size: 18px; font-weight: 900; }
+.world .info small { font-size: 12.5px; font-weight: 600; line-height: 1.35; opacity: 0.72; }
+.badge {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+}
+.badge.paid { background: var(--sun); color: var(--ink); }
+body.owned .world[data-env="moon"] .badge::after { content: " ✓"; }
+.world.current .pic::after {
+  content: "You're here";
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+#moon-offer { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: -2px 0 14px; }
+#moon-offer[hidden] { display: none; }
+.offer-note { font-size: 13px; font-weight: 600; opacity: 0.75; }
+button.buy-big {
+  height: 54px;
+  padding: 0 30px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--coral);
+  color: #fff;
+  font: inherit;
+  font-size: 19px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 5px 0 #c95a41;
+}
+button.buy-big:hover:not(:disabled) { transform: translateY(-1px); }
+button.buy-big:active:not(:disabled) { transform: translateY(3px); box-shadow: none; }
+button.buy-big:disabled { background: #c9bfae; box-shadow: 0 4px 0 #a39a8a; cursor: default; }
+/* On the Moon without the Full Game, Unlock is the big button and Visit the quieter one. */
+body[data-env="moon"]:not(.owned) #view-menu .buttons .primary { background: var(--teal); box-shadow: 0 4px 0 #1d6562; font-size: 17px; }
+
+#menu-links { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; font-size: 13px; }
+#menu-links .links { display: flex; gap: 14px; }
+.panel button.link, .panel a.link { padding: 0; border: 0; background: none; color: var(--teal); font: inherit; font-size: 13px; font-weight: 800; text-decoration: none; cursor: pointer; }
+.panel button.link:hover, .panel a.link:hover { text-decoration: underline; }
+#playing-as { color: var(--ink); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+#playing-as b { font-weight: 800; }
+#me-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(31, 42, 55, 0.2); }
+.panel h2 { margin: 14px 0 12px; font-size: 24px; font-weight: 900; }
+.paused-links { margin: 10px 0 0; }
+
+/* ───────────── Unlock the Moon ───────────── */
+#view-unlock { display: grid; justify-items: center; }
+#view-unlock[hidden] { display: none; }
+.unlock-pic { position: relative; width: 100%; aspect-ratio: 16 / 9; margin-top: 16px; border-radius: 18px; background: #111 center / cover no-repeat; box-shadow: 0 4px 0 rgba(31, 42, 55, 0.2); }
+.perks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin: 0 0 18px; padding: 0; list-style: none; text-align: left; font-size: 14px; font-weight: 700; }
+.perks li::before { content: "✓"; margin-right: 7px; color: var(--teal); font-weight: 900; }
+.unlock-note { margin: 12px 0 6px !important; font-size: 12.5px !important; }
+#unlock-later { margin-top: 2px; font-size: 14px; }
+
+/* While visiting the Moon: always in sight, with the button to buy. */
+#visit-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  background: rgba(31, 42, 55, 0.86);
+  color: var(--cream);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: auto;
+  box-shadow: 0 4px 14px rgba(31, 42, 55, 0.3);
+}
+body.visiting.playing #visit-bar { display: flex; }
+#visit-bar b { color: var(--sun); }
+#visit-buy { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--coral); color: #fff; font: inherit; font-size: 14px; font-weight: 900; cursor: pointer; }
+#visit-buy kbd { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.9); color: var(--ink); font: inherit; font-size: 11px; font-weight: 800; }
+body.touch #visit-bar { top: calc(env(safe-area-inset-top, 0px) + 72px); font-size: 12px; padding-left: 12px; }
+body.touch #visit-bar .what { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+body.touch.chatting #visit-bar { display: none; }
+
+/* ───────────── First-game tips ───────────── */
+#tip {
+  position: absolute;
+  left: 50%;
+  bottom: 124px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, 92vw);
+  padding: 8px 8px 8px 14px;
+  border-radius: 14px;
+  background: rgba(255, 246, 228, 0.95);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 4px 0 rgba(31, 42, 55, 0.25);
+  pointer-events: auto;
+}
+#tip[hidden] { display: none; }
+#tip kbd { padding: 1px 7px; border-radius: 6px; background: var(--ink); color: var(--cream); font: inherit; font-size: 12px; font-weight: 800; }
+#tip b { color: var(--coral); }
+.tip-n { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--teal); color: #fff; font-size: 11px; font-weight: 800; }
+.tip-skip { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: rgba(31, 42, 55, 0.08); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+body.touch #tip { bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-width: 44vw; font-size: 12px; padding: 6px 6px 6px 10px; }
+body.chatting #tip { display: none; }
+
+/* Short phone screens: smaller cards (picture beside the words), the unlock panel without the title. */
+@media (max-height: 560px) {
+  body.touch #worlds { gap: 10px; margin: 10px 0 10px; }
+  body.touch .world { flex-direction: row; }
+  body.touch .world .pic { width: 42%; flex: none; aspect-ratio: auto; min-height: 64px; }
+  body.touch .world .info { padding: 7px 9px; }
+  body.touch .world .info b { font-size: 15px; }
+  body.touch .world .info small { font-size: 10.5px; }
+  body.touch .badge { left: 6px; top: 6px; padding: 2px 7px; font-size: 10px; }
+  body.touch .world.current .pic::after { display: none; }
+  body.touch #moon-offer { margin-bottom: 8px; flex-direction: row; justify-content: center; }
+  body.touch button.buy-big { height: 42px; padding: 0 20px; font-size: 16px; }
+  body.touch #menu-links { margin-top: 10px; font-size: 12px; }
+  body.touch .panel:has(#view-unlock:not([hidden])) > h1 { display: none; }
+  body.touch .unlock-pic { margin-top: 0; aspect-ratio: auto; height: 84px; }
+  body.touch #view-unlock h2 { margin: 8px 0 6px; font-size: 19px; }
+  body.touch .perks { margin-bottom: 10px; font-size: 12px; gap: 3px 14px; }
+  body.touch .panel:has(#view-controls:not([hidden])) > h1 { display: none; }
+  /* Typing a key (or an email for a lost one): just that row, full width, so the box has room. */
+  body.touch #settings:has(#full-game.entering, #full-game.losing) .setting:not(#full-game) { display: none; }
+  body.touch #full-game.entering, body.touch #full-game.losing { grid-template-columns: 1fr; row-gap: 8px; }
+  body.touch #store-enter input, body.touch #store-lost input { min-width: 0; height: 38px; }
+  body.touch #store-lost-link .link { white-space: normal; text-align: left; }
+  body.touch #view-controls h2 { margin: 0 0 8px; font-size: 19px; }
 }

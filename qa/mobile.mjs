@@ -304,6 +304,17 @@ check("Ping marks the spot the crosshair is on", await sf(() => document.querySe
 await p.screenshot({ path: "qa/shots/mobile-chat.png" });
 check("chatting never scrolled or zoomed the page", await sf(() => scrollX === 0 && scrollY === 0 && (visualViewport?.scale ?? 1) === 1));
 
+// The picture is never stretched: when the screen changes size with no resize event (as when an
+// iPhone app opened from the home screen settles into full screen after launch), it follows.
+const aspects = () => sf(() => { const c = document.getElementById("game"); const e = window.snapfort.engine; return [c.clientWidth / c.clientHeight, e.getRenderWidth() / e.getRenderHeight()]; });
+await sf(() => { const c = document.getElementById("game"); c.style.width = "70%"; c.style.height = "90%"; });
+await wait(800);
+const squeezed = await aspects();
+await sf(() => { const c = document.getElementById("game"); c.style.width = ""; c.style.height = ""; });
+await wait(800);
+const restored = await aspects();
+check("the picture follows a screen size change that comes with no resize event (never stretched)", Math.abs(squeezed[0] - squeezed[1]) < 0.01 && Math.abs(restored[0] - restored[1]) < 0.01, `screen ${squeezed[0].toFixed(3)} drawn ${squeezed[1].toFixed(3)}; back ${restored[0].toFixed(3)} / ${restored[1].toFixed(3)}`);
+
 // Settings and back.
 await tap("#t-settings"); await wait(500);
 check("the gear opens the settings, and the controls hide", await p.isVisible("#view-paused") && !(await p.isVisible("#t-place")));

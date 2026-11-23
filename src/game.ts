@@ -1157,6 +1157,32 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   net.connect();
 
   let statsTimer = 0;
+  let fitTimer = 0;
+  /** The canvas's size in CSS pixels when the drawing size was last set. */
+  let fittedSize = "";
+  /** Sets the drawing size again if the canvas's size on screen has changed. */
+  function checkCanvasSize(): void {
+    const size = `${canvas.clientWidth}x${canvas.clientHeight}`;
+    if (size === fittedSize || canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
+    fittedSize = size;
+    engine.resize();
+  }
+  /**
+   * Keeps the picture drawn at the canvas's real size, so it is never stretched.
+   * Browsers announce most size changes with a resize event, but an iPhone app
+   * opened from the home screen often settles into full-screen landscape after
+   * launch without one (the picture came out stretched). So the canvas itself
+   * is watched, rotating and the visible area changing count too, and the size
+   * is checked twice a second as a last resort.
+   */
+  function fitCanvas(): void {
+    // Once now too: the screen may have changed while the game was loading.
+    checkCanvasSize();
+    new ResizeObserver(checkCanvasSize).observe(canvas);
+    for (const target of [window, window.visualViewport]) target?.addEventListener("resize", checkCanvasSize);
+    window.addEventListener("orientationchange", () => setTimeout(checkCanvasSize, 300));
+    window.addEventListener("pageshow", checkCanvasSize);
+  }
   const stats = showStats();
   /** Which graphics chip is drawing, for the ?stats readout. */
   const gpuName = (() => {
@@ -1215,6 +1241,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     updateCrewHud(now);
     view.flush();
 
+    // Now and then, make sure the picture is drawn at the canvas's real size (see fitCanvas).
+    fitTimer -= dt;
+    if (fitTimer <= 0) {
+      fitTimer = 0.5;
+      checkCanvasSize();
+    }
+
     statsTimer -= dt;
     if (statsTimer <= 0 && stats) {
       statsTimer = 0.25;
@@ -1234,7 +1267,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   graphics.apply(settings.graphics);
   debris.limit = graphics.effective === "saver" ? 40 : 140;
   hud.showGraphics(settings.graphics, graphics.autoMode);
-  window.addEventListener("resize", () => engine.resize());
+  fitCanvas();
   engine.runRenderLoop(() => scene.render());
   await scene.whenReadyAsync();
   // Wait a moment for the shared world, so the first pieces placed are not lost when it arrives.

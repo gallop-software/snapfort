@@ -190,6 +190,18 @@ Decided with the user: worlds may be very different (skins, clothing, weapons, v
 - **Reference pictures**: `node qa/refs.mjs` draws every world from fixed spots with the same build and compares with `qa/refs/`; `--save` after a change that was meant. The refactor itself (2026-11-23) changed no pixel in either world.
 - Rooms: the Meadow's saved world is still `main`, the Moon's `moon` (`Environment.room`; never change one).
 
+## The Moon's own look, space, and rovers (user, 2026-11-23: "thrown so high you just end up floating into outer space"; "get on a rover and drive around"; "if you drive up a ramp, you float into outer space")
+
+The first world built on the worlds structure. Everything here is in `src/worlds/moon/` and nowhere else; the Meadow's reference pictures did not change by a pixel.
+
+- **Look** (`page/`): the three material slots are Lattice (gold foil over a truss, any storey), Regolith (blocks baked from moon dust, to storey 30) and Titanium (hull plate, to storey 10), with the same limits and strengths as everywhere. Roofs are domes (`roof: "dome"`: a shape from the core's short list in `src/game/roofs.ts`, same square base; the server lands a falling builder on the dome). The siege engine is the Launcher (the trebuchet slot: new model and sound, same aim, reload and range). Builders wear space suits with the player's colour on the chest, arm bands and helmet stripe. Grey dust; sounds that come through the suit, not the air.
+- **Thrown into space** (`space.ts`): a stone's hit sends a builder 170 m up and out, tumbling, for 5 s; then the suit's rockets fly them back down in 5.5 s, feet first, 10 m from where they were hit, onto whatever is built there. Under a roof it is an ordinary fall. The server plans the whole flight (the `thrown` server door) and every page plays it. The shared flight code learned one thing for this: a flight may end in a controlled glide (`Fall.glideFrom`): no tumbling, no lying down afterwards, and the outfit's "glide" extra shows (the rocket flames).
+- **Rovers** (`roverRules.ts`, `rovers.ts`, `page/rover.ts`): six on pads in a ring 22 m from where builders arrive (the nearest open ground when someone has built on a pad). Anyone drives, visitors too: H (or the Drive button on phones) beside one, H again to get off. One driver each; it stays where it is left, and goes home after 3 minutes unused. Driving goes where you look: forward, back to brake and reverse, the run key flat out (18 and 30 m/s). The driver's page works out the movement against the build, as it does for a builder on foot; the server passes it on and refuses anything faster than a rover can go.
+- **Lift-off**: leave the ground rising faster than 6 m/s (any ramp at speed) and the rover does not come back down: it gathers speed along its way. 110 m above where it left the ground, or past the edge of the building area on the ground or in the air, the driver is thrown clear and their rockets fly them straight back down (`rocketsBack`, into the building area). The empty rover drifts off, shrinking, and is back on its pad 5 s later. A stone landing by a rover throws its driver into space like anyone else. A rover parked on a floor that goes drops to what is below.
+- **Decided along the way**: rovers are not solid (builders walk through a parked one, and one rover through another), so nothing can be trapped by parking; a rover walled in on its pad stays there until someone drives or frees it; rovers do not break. Nothing about rovers is saved: when the Moon's room sleeps (nobody there) they are back on their pads.
+- **The doors added for this** (generic; nothing in shared code mentions rovers or rockets): server hooks `open`, `thrown`, `joined`, `left`, `message`, `removed` and the `Room` they are handed (`src/worlds/serverDoors.ts`); the page hook `start` returning a world's own feature (`drive`, `update`, `board`, `prompt`, `busy`, `message`) and the `PageGame` it is handed (`src/worlds/pageDoors.ts`); one general message each way (`{ t: "w", d }`) that the shared code only carries. The planned shared "objects layer" was not needed: the Moon keeps its own rovers over that message, so the next world's vehicles (if any) can be entirely different.
+- QA: `npm run qa:moon` (look, visitors, low gravity, the launcher, thrown into space and back), `npm run qa:rover` (pads, boarding, one driver, driving, lift-off, eject at height and at the edge, rockets back, the rover home, late joiners, the phone button), unit tests beside the world (`src/worlds/moon/world.test.ts`).
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)
@@ -197,6 +209,7 @@ Decided with the user: worlds may be very different (skins, clothing, weapons, v
 - [x] Fortnite-style build mode: build-in-front placement, ramp rushing, editing, materials, collapse (built 2026-11-21, waiting for the user to try it)
 - [ ] Phase 2 — castle kit
 - [ ] Phase 3 — save and share
+- [x] Worlds that own their code; the Moon's own look, space throws and rovers (user asked 2026-11-23; built and live 2026-11-23)
 - [x] Phase 4 — one shared world for up to 100 builders (user asked 2026-11-22; built 2026-11-22, not deployed yet)
 
 ## Notes for whoever picks this up

@@ -38,7 +38,8 @@ export const MEADOW: Environment = {
   name: "Meadow",
   paid: false,
   gravity: 26,
-  jumpHeight: 2.6,
+  // Over one wall (a storey, 3.75 m) with room to spare (user, 2026-11-23).
+  jumpHeight: 4.2,
   stoneGravity: 18,
   flightTime: 1,
   range: 1,
@@ -48,7 +49,8 @@ export const MEADOW: Environment = {
 };
 
 /**
- * The Moon: a third of the pull. A jump clears a storey and floats down,
+ * The Moon: a third of the pull. A jump goes about 1.6 times as high as in the
+ * meadow (nearly two storeys) and floats down,
  * stones fly slow, high lobs and reach much further, and anyone hit sails a
  * long way. (A sixth, like the real Moon, made building fiddly and throws
  * leave the world.)
@@ -58,7 +60,7 @@ export const MOON: Environment = {
   name: "Moon",
   paid: true,
   gravity: 26 / 3,
-  jumpHeight: 4.2,
+  jumpHeight: 6.8,
   stoneGravity: 18 / 3,
   flightTime: Math.sqrt(3),
   range: 1.6,

@@ -46,7 +46,7 @@ export class Player {
   private fall: { fall: Fall; start: number } | null = null;
   private readonly desired = new Vector3();
   private readonly forwardDir = new Vector3();
-  /** The world's pull, and how high a jump lifts the feet (the meadow: about two thirds of a storey; the Moon: a storey). */
+  /** The world's pull, and how high a jump lifts the feet (the meadow: over one wall; the Moon: about 1.6 times that). */
   private readonly gravity: Vector3;
   private readonly jumpHeight: number;
   constructor(scene: Scene, shadows: ShadowGenerator, env: Environment = MEADOW) {

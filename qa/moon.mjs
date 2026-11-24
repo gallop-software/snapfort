@@ -103,7 +103,25 @@ check("visitors can chat", await sf(b, () => [...document.querySelectorAll(".cha
 // ── Low gravity ──────────────────────────────────────────────────────────
 await stand(b, 40, -40); await stand(m, 40, -40);
 const moonJump = await jumpHeight(b), meadowJump = await jumpHeight(m);
-check("on the Moon a jump clears a storey (3.75 m); in the meadow it does not", moonJump > 3.75 && moonJump < 5 && meadowJump > 2.2 && meadowJump < 3.2, `Moon ${moonJump.toFixed(2)} m, meadow ${meadowJump.toFixed(2)} m`);
+check("in the meadow a jump clears a wall (3.75 m tall); on the Moon about 1.6 times as high", meadowJump > 3.9 && meadowJump < 4.8 && moonJump > 6.2 && moonJump < 7.6 && Math.abs(moonJump / meadowJump - 1.62) < 0.15, `meadow ${meadowJump.toFixed(2)} m, Moon ${moonJump.toFixed(2)} m`);
+/** Stands just in front of a wall, jumps, presses forward near the top: over it, or not? */
+async function overWall(page, x, z) {
+  await sf(page, ([x, z]) => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "wall", x, y: 0, z, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); }, [x, z]);
+  await wait(500);
+  const wallZ = z * 5;
+  await sf(page, ([x, wallZ]) => { const s = window.snapfort; s.player.teleport(x * 5 + 2.5, 0.95, wallZ - 1.4); s.rig.yaw = 0; s.rig.pitch = 0.1; }, [x, wallZ]);
+  await frames(page, 30);
+  await page.keyboard.down("Space"); await frames(page, 3); await page.keyboard.up("Space");
+  await wait(330);
+  await page.keyboard.down("KeyW"); await wait(900); await page.keyboard.up("KeyW");
+  await wait(1500);
+  const p = await sf(page, () => ({ z: window.snapfort.player.position.z, feet: window.snapfort.player.feetY }));
+  return { over: p.z > wallZ + 0.5 && p.feet < 1, z: p.z - wallZ };
+}
+const meadowOver = await overWall(m, 8, -8);
+check("in the meadow: jump next to a wall, press forward, and you are over it", meadowOver.over, `${meadowOver.z.toFixed(1)} m past the wall`);
+const moonOver = await overWall(b, 8, -8);
+check("…on the Moon too, easily", moonOver.over, `${moonOver.z.toFixed(1)} m past the wall`);
 
 // ── Trebuchets ───────────────────────────────────────────────────────────
 // A wall 170 m away: beyond any ground trebuchet's reach in the meadow (120 m), within it on the Moon (192 m).

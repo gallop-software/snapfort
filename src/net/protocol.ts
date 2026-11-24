@@ -39,9 +39,10 @@ export type WirePiece = [string, number, number, number, number, number, number,
 export type WireOp = ["p", WirePiece] | ["r", string] | ["e", string, number];
 
 /**
- * Why a player with a good key is not building: "full", every seat of the key
- * was already in use when they came; "elsewhere", their seat was taken by
- * another device (or the key was replaced).
+ * Why a player with a good key has no seat on it (in a paid world they visit;
+ * in a free one they play free): "full", every seat of the key was already in
+ * use when they came; "elsewhere", their seat was taken by another device (or
+ * the key was replaced).
  */
 export type SeatReason = "elsewhere" | "full";
 
@@ -97,9 +98,10 @@ export type ClientMessage =
   /**
    * A key bought or typed in while here: asks again whether building is open.
    * `take`: with every seat of the key in use, take the seat of whoever has
-   * played longest ("Use it here").
+   * played longest ("Use it here"). No key (null): it was removed from this
+   * device, so its seat is free.
    */
-  | { t: "key"; key: string; take?: boolean }
+  | { t: "key"; key: string | null; take?: boolean }
   | { t: "act"; seq: number; ops: WireOp[] }
   /** [x, y, z, yaw, flags], encoded like WireMove without the id. */
   | { t: "move"; m: [number, number, number, number, number] }
@@ -130,7 +132,7 @@ export type ServerMessage =
       env?: string;
       /** May you build here (false: visiting a paid world without the Full Game). */
       builder?: boolean;
-      /** Not building because every seat of your key is in use; and how many seats it has. */
+      /** No seat because every seat of your key is in use (a paid world: visiting; a free one: playing free); and how many seats it has. */
       full?: boolean;
       seats?: number;
     }
@@ -155,7 +157,7 @@ export type ServerMessage =
   | { t: "towers"; list: WireTower[] }
   /** A board or fire request was turned down ("locked": building here needs the Full Game). */
   | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
-  /** Whether you may build here (the answer to a "key" message; or "elsewhere": your key is now played on another device). */
+  /** Whether you may build here (the answer to a "key" message; or "elsewhere": your seat went to another device). With a reason, you have no seat on your key, building or not. */
   | { t: "access"; builder: boolean; reason?: SeatReason; seats?: number }
   /** A world's own message, from its server half to its page half: the shared code only carries it. */
   | { t: "w"; d: unknown }

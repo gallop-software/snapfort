@@ -190,6 +190,13 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       return cookieKey(request) && (fromCookie || cleanKey(cookieKey(request)) === key) ? withKeyCookie(response, null) : response;
     }
 
+    // "Remove from this device": the page forgets the key it saved; this forgets the cookie (which
+    // the page cannot reach), so the key does not come back on the next visit. The key stays good.
+    case "/api/forget": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      return withKeyCookie(Response.json({ ok: true }), null);
+    }
+
     // "Replace my key" (a leaked key): a one-time link goes to the buyer's email; nothing changes
     // until it is used. Whoever knows the key can ask, but only the buyer's inbox can confirm.
     case "/api/replace": {

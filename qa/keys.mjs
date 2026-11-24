@@ -4,8 +4,9 @@
  * browser forget), a player on every seat (with all seats in use one more
  * device waits; "Use it here" takes the seat of whoever has played longest,
  * "Add a seat" buys one more), keys with several seats, "Email me a link"
- * unlocks another device, and "Replace my key" retires a leaked key
- * everywhere. Uses the emails the dev
+ * unlocks another device, "Replace my key" retires a leaked key everywhere,
+ * a seat counts in the free meadow too (where everyone builds regardless), and
+ * "Remove from this device" takes a key off one device. Uses the emails the dev
  * server really sends (Cloudflare's local simulator writes each to a file).
  * Dev server running, with Stripe test keys in .dev.vars: npm run qa:keys
  */
@@ -282,9 +283,45 @@ check("an email link with the old key says it no longer works", !(await builder(
   await wait(500);
 }
 
-// ── The meadow needs none of it ─────────────────────────────────────────
-await go(a, new URL(`/?world=${world}`, base).toString());
+// ── The meadow: free for everyone, and a seat is a seat there too ───────
+const meadow = new URL(`/?world=${world}`, base).toString();
+await go(a, meadow);
 check("the meadow: everyone builds, key or not", await builder(a));
+{
+  const one = await paidKey();
+  const waiting = (page) => sf(page, () => window.snapfort.waiting);
+  const m1 = await device("M1"), m2 = await device("M2"), m3 = await device("M3");
+  for (const page of [m1, m2, m3]) await page.context().addInitScript((k) => { if (!sessionStorage.getItem("qa.seeded")) { sessionStorage.setItem("qa.seeded", "1"); localStorage.setItem("snapfort.key", k); } }, one);
+  await go(m1, meadow); await play(m1); await wait(800);
+  check("a paid player in the meadow builds, on a seat of their key", (await builder(m1)) && (await waiting(m1)) === null);
+  await go(m2, `${moon}&testpay`); await play(m2); await wait(800);
+  check("…that seat is in use: with the same one-seat key on the Moon, a second device waits", !(await builder(m2)) && (await m2.textContent("#visit-bar")).includes("in use on another device"), await m2.textContent("#visit-bar"));
+  await go(m3, meadow); await play(m3);
+  check("a third device with the key in the meadow builds all the same, told it plays free", (await builder(m3)) && (await waiting(m3)) === "full" && (await toast(m3)).includes("in use on another device: you are playing free here") && !(await m3.isVisible("#visit-bar")), await toast(m3));
+  await m2.keyboard.press("KeyU"); await wait(1200);
+  check("'Use it here' on the Moon takes the seat from the meadow: the Moon builds, the meadow plays on, free", (await builder(m2)) && (await builder(m1)) && (await waiting(m1)) === "elsewhere" && (await toast(m1)).includes("seat was taken by another device: you are playing free here"), await toast(m1));
+
+  // ── Remove from this device ───────────────────────────────────────────
+  await m2.evaluate(() => document.exitPointerLock()); await wait(1300);
+  check("Settings on a device with a key has 'Remove from this device'", await m2.isVisible("#store-remove-open"));
+  await m2.click("#store-remove-open"); await wait(300);
+  check("…it asks first, and nothing has changed yet", (await m2.isVisible("#store-remove-yes")) && (await saved(m2)) === one && (await builder(m2)), await m2.textContent("#store-remove"));
+  await m2.click("#store-remove-cancel"); await wait(200);
+  check("…✕ leaves the key where it is", !(await m2.isVisible("#store-remove-yes")) && (await saved(m2)) === one && (await cookieKey(m2)) === one);
+  await m2.click("#store-remove-open"); await m2.click("#store-remove-yes"); await wait(1200);
+  check("Remove: the device has no key (storage and cookie), and Settings offers Unlock again", (await saved(m2)) === null && !(await cookieKey(m2)) && !(await m2.isVisible("#store-owned")) && (await m2.isVisible("#store-have-key")) && (await m2.textContent("#store-message")).includes("Removed from this device"), await m2.textContent("#store-message"));
+  check("…on the Moon it is back to visiting at once, offered the unlock (not 'Use it here')", !(await builder(m2)) && (await waiting(m2)) === null && (await m2.textContent("#visit-buy")).includes("Unlock"), await m2.textContent("#visit-bar"));
+  check("…the key itself still works", (await api("/api/key", { key: one })).valid === true);
+  {
+    let seated = 0;
+    for (let i = 0; i < 44 && !seated; i++) { await wait(500); seated = [await waiting(m1), await waiting(m3)].filter((w) => w === null).length; }
+    await wait(1000);
+    check("…its seat is free: one of the two in the meadow gets it by itself, the other still plays free", [await waiting(m1), await waiting(m3)].filter((w) => w === null).length === 1, `${await waiting(m1)} · ${await waiting(m3)}`);
+  }
+  await go(m2, moon);
+  check("…and after a reload the device still has no key", (await saved(m2)) === null && !(await cookieKey(m2)) && !(await builder(m2)));
+  for (const page of [m1, m2, m3]) await page.context().close();
+}
 
 check("no errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok);

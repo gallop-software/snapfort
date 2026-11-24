@@ -177,7 +177,7 @@
           <div class="setting" id="full-game">
             <span class="label">Full Game</span>
             <div class="store">
-              <div class="store-line" id="store-owned" hidden><span class="tick">✓ Yours</span><code id="store-key"></code><button type="button" id="store-copy" class="small">Copy</button><span id="store-seats" class="note"></span><span class="store-links"><button type="button" class="link store-add-seats">Add seats</button><button type="button" id="store-other-key" class="link">Switch key</button><button type="button" id="store-own-buy" class="link store-own-buy">Buy my own · $7</button><button type="button" id="store-replace" class="link store-replace">Replace my key</button></span></div>
+              <div class="store-line" id="store-owned" hidden><span class="tick">✓ Yours</span><code id="store-key"></code><button type="button" id="store-copy" class="small">Copy</button><span id="store-seats" class="note"></span><span class="store-links"><button type="button" class="link store-add-seats">Add seats</button><button type="button" id="store-other-key" class="link">Switch key</button><button type="button" id="store-own-buy" class="link store-own-buy">Buy my own · $7</button><button type="button" id="store-replace" class="link store-replace">Replace my key</button><button type="button" id="store-remove-open" class="link store-remove">Remove from this device</button></span></div>
               <div class="store-line store-offer">
                 <span id="store-buy" hidden><button type="button" id="store-buy-button" class="buy">Unlock · $7</button></span>
                 <span id="store-soon" class="note" hidden>Opens soon</span>
@@ -189,7 +189,8 @@
                 <button type="submit" class="small">Use</button>
                 <button type="button" id="store-enter-cancel" class="small ghost" aria-label="Cancel">✕</button>
               </form>
-              <div class="store-line" id="store-lost-link"><button type="button" id="store-lost-open" class="link">No key handy? Email me a link</button><button type="button" class="link store-add-seats phone-owned">Add seats</button><button type="button" class="link store-own-buy phone-owned">Buy my own · $7</button><button type="button" class="link store-replace phone-owned">Replace my key</button></div>
+              <div class="store-line" id="store-lost-link"><button type="button" id="store-lost-open" class="link">No key handy? Email me a link</button><button type="button" class="link store-add-seats phone-owned">Add seats</button><button type="button" class="link store-own-buy phone-owned">Buy my own · $7</button><button type="button" class="link store-replace phone-owned">Replace my key</button><button type="button" class="link store-remove phone-owned">Remove from this device</button></div>
+              <div class="store-line" id="store-remove"><span class="note">Remove the key from this device? It stays yours: copy it first, or have it emailed to you later.</span><button type="button" id="store-remove-yes" class="small">Remove</button><button type="button" id="store-remove-cancel" class="small ghost" aria-label="Cancel">✕</button></div>
               <form class="store-line" id="store-lost" autocomplete="on">
                 <input id="store-lost-email" type="email" placeholder="The email you paid with" spellcheck="false" autocapitalize="none" aria-label="The email you paid with" />
                 <button type="submit" class="small">Send</button>

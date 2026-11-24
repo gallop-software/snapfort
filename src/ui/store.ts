@@ -18,7 +18,8 @@ const seatsText = (n: number) => (n === 1 ? "1 seat" : `${n} seats`);
  * server), buying it (off to Stripe Checkout and back), and typing in a key
  * bought on another device, or switching to another key (someone sharing a
  * friend's key who then buys their own: any new key replaces the one this
- * device had). A key has seats: as many can build with it at once as were
+ * device had), or removing the key from this device (a borrowed or shared
+ * one: the key stays good everywhere else). A key has seats: as many can build with it at once as were
  * bought, together or added later. Drives the Full Game row in the settings,
  * the count of players on the unlock panel and the thank-you note after buying.
  */
@@ -40,6 +41,8 @@ export class Store {
   private readonly testpay: boolean;
   /** Called when ownership changes (bought, or a key typed in). */
   onOwned: (key: string) => void = () => {};
+  /** Called when the key is removed from this device. */
+  onRemoved: () => void = () => {};
   /** "Have a key?" from the menu or the unlock panel: the game opens the settings to type it in. */
   onHaveKey: () => void = () => {};
   /** "Add seats": the game opens the unlock panel, set to adding. */
@@ -71,6 +74,9 @@ export class Store {
     document.getElementById("store-enter-cancel")!.addEventListener("click", () => this.showEnter(false));
     document.getElementById("store-lost-open")!.addEventListener("click", () => this.showLost(true));
     for (const button of document.querySelectorAll(".store-replace")) button.addEventListener("click", () => void this.replace());
+    for (const button of document.querySelectorAll(".store-remove")) button.addEventListener("click", () => this.showRemove(true));
+    document.getElementById("store-remove-yes")!.addEventListener("click", () => void this.remove());
+    document.getElementById("store-remove-cancel")!.addEventListener("click", () => this.showRemove(false));
     document.getElementById("store-lost-cancel")!.addEventListener("click", () => this.showLost(false));
     document.getElementById("store-lost")!.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -324,6 +330,31 @@ export class Store {
     localStorage.removeItem(KEY);
   }
 
+  /**
+   * "Remove from this device", once confirmed: the device forgets the key (what
+   * the page saved, and the cookie, which only the server can clear), and its
+   * seat is free at once. The key itself is untouched: it works wherever else
+   * it is, and here again when typed in or sent by email.
+   */
+  async remove(): Promise<void> {
+    if (!this.key) return;
+    this.say("Removing…");
+    try {
+      // First the cookie: were it left, the key would be back on the next visit.
+      if (!(await fetch("/api/forget", { method: "POST" })).ok) throw new Error("not forgotten");
+    } catch {
+      return this.say("Could not remove it. Check your connection and try again.", true);
+    }
+    this.forget();
+    this.owned = false;
+    this.seats = 0;
+    this.adding = false;
+    this.showRemove(false);
+    this.render();
+    this.onRemoved();
+    this.say("Removed from this device. The key still works: type it in, or have it emailed, to use it here again.");
+  }
+
   private async copy(id: string): Promise<void> {
     if (!this.key) return;
     try {
@@ -336,15 +367,21 @@ export class Store {
     }
   }
 
+  private showRemove(on: boolean): void {
+    this.row.classList.remove("entering", "losing");
+    this.row.classList.toggle("removing", on);
+    if (on) this.say("");
+  }
+
   showEnter(on: boolean): void {
-    this.row.classList.remove("losing");
+    this.row.classList.remove("losing", "removing");
     this.row.classList.toggle("entering", on);
     if (on) this.input.focus();
     else this.input.value = "";
   }
 
   private showLost(on: boolean): void {
-    this.row.classList.remove("entering");
+    this.row.classList.remove("entering", "removing");
     this.row.classList.toggle("losing", on);
     const email = document.getElementById("store-lost-email") as HTMLInputElement;
     if (on) email.focus();

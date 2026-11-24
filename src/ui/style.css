@@ -849,6 +849,9 @@ button.small.ghost { background: rgba(31, 42, 55, 0.08); color: var(--ink); }
 #store-enter, #store-lost, #store-lost-link { display: none; flex-wrap: nowrap; }
 #full-game.entering #store-enter, #full-game.entering #store-lost-link, #full-game.losing #store-lost { display: flex; }
 #full-game.losing .store-offer { display: none; }
+#store-remove { display: none; }
+#full-game.removing #store-remove { display: flex; }
+#store-remove .note { flex: 1 1 160px; }
 #store-lost input { flex: 1; min-width: 0; height: 32px; }
 #thanks-emailed[hidden] { display: none; }
 #full-game.entering .store-offer, body.owned .store-offer { display: none; }
@@ -860,7 +863,7 @@ button.small.ghost { background: rgba(31, 42, 55, 0.08); color: var(--ink); }
 /* On phones the row under the key only fits "Switch key": the other two are in the panel it opens. */
 .store .phone-owned { display: none; }
 body.touch.owned .store .phone-owned:not([hidden]) { display: inline; }
-body.touch #store-owned .store-own-buy, body.touch #store-owned .store-replace { display: none; }
+body.touch #store-owned .store-own-buy, body.touch #store-owned .store-replace, body.touch #store-owned .store-remove { display: none; }
 body.touch #store-lost-link { flex-wrap: wrap; }
 /* Under the key: switch to another key or buy your own (for someone sharing a key), or replace a leaked one. */
 .store-links { display: flex; flex-wrap: wrap; gap: 4px 12px; flex-basis: 100%; }
@@ -1090,8 +1093,9 @@ body.chatting #tip { display: none; }
   body.touch .perks { margin-bottom: 10px; font-size: 12px; gap: 3px 14px; }
   body.touch .panel:has(#view-controls:not([hidden])) > h1 { display: none; }
   /* Typing a key (or an email for a lost one): just that row, full width, so the box has room. */
-  body.touch #settings:has(#full-game.entering, #full-game.losing) .setting:not(#full-game) { display: none; }
-  body.touch #full-game.entering, body.touch #full-game.losing { grid-template-columns: 1fr; row-gap: 8px; }
+  body.touch #settings:has(#full-game.entering, #full-game.losing, #full-game.removing) .setting:not(#full-game) { display: none; }
+  body.touch #full-game.entering, body.touch #full-game.losing, body.touch #full-game.removing { grid-template-columns: 1fr; row-gap: 8px; }
+  body.touch #store-remove .note { white-space: normal; }
   body.touch #store-enter input, body.touch #store-lost input { min-width: 0; height: 38px; }
   body.touch #store-lost-link .link { white-space: normal; text-align: left; }
   body.touch #view-controls h2 { margin: 0 0 8px; font-size: 19px; }

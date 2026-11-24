@@ -50,9 +50,9 @@ interface Attachment extends WirePlayer {
   /** The trebuchet they are on, and when it can throw again (ms): kept here so they survive the object sleeping. */
   crew?: string;
   readyAt?: number;
-  /** May build and work trebuchets here (in a paid world: owns the Full Game; else a visitor). */
+  /** May build and work trebuchets here (in a paid world: has a seat on a Full Game key; else a visitor). */
   builder?: boolean;
-  /** The Full Game key they build with (in a paid world): freed when they leave. */
+  /** The Full Game key they have a seat on (in any world, free ones too): freed when they leave. Without one they play free. */
   key?: string;
   /** The browser tab (the same across reloads): joining again from it replaces this connection. */
   tab?: string;
@@ -107,7 +107,7 @@ const TOWERS_MS = 1_500;
 /** One logged change: time, who, the operation and what undoes it. */
 type LogEntry = [number, string, WireOp, WireOp];
 
-/** Whether a player may build here, and with which key (a paid world); `full`: their key is good but every seat is in use. */
+/** Whether a player may build here, and the key they have a seat on (paid: in any world); `full`: their key is good but every seat is in use. */
 interface Access {
   builder: boolean;
   key?: string;
@@ -260,7 +260,8 @@ export class World extends DurableObject<Env> {
         return this.act(ws, player, msg.seq, msg.ops);
       case "key": {
         // A key bought, typed in, or taken back ("Use it here") while here: building opens without
-        // joining again (and, one player at a time, moves here from wherever the key was).
+        // joining again (and, one player at a time, moves here from wherever the key was). No key:
+        // it was removed from this device, so its seat is free and they play free from here on.
         const before = player.key;
         const access = await this.mayBuild(msg.key, player.id, player.tab, msg.take === true);
         // Switched to another key (their own, after sharing one): the old one is free for whoever
@@ -518,43 +519,48 @@ export class World extends DurableObject<Env> {
   }
 
   /**
-   * Anyone may build in a free world; in a paid one, only with a key that is
-   * paid for and has a seat free (a key has as many seats as were bought for
-   * it). With every seat in use the player stays a visitor (`full`), unless
-   * they `take` a seat: then whoever has played longest goes back to visiting.
+   * Who is paid is worked out the same way in every world: a key that is paid
+   * for, with a seat free, seats the player (a key has as many seats as were
+   * bought for it), wherever they are. With every seat in use they have none
+   * (`full`), unless they `take` one: then whoever has played longest loses
+   * theirs. What a seat is for is the world's own: a paid world lets only the
+   * seated build (the rest visit); a free one lets everyone, and just knows
+   * who is paid (`key`) and who plays free.
    */
   private async mayBuild(rawKey: unknown, playerId: string, tab: string | undefined, take: boolean): Promise<Access> {
-    if (!this.environment.paid) return { builder: true };
+    const free = !this.environment.paid;
     const key = cleanKey(rawKey);
-    if (!key) return { builder: false };
+    if (!key) return { builder: free };
     try {
-      const seats = await this.ledger().claim(key, stripeLive(this.env), this.name, playerId, tab ?? null, take);
-      if (seats === "full") return { builder: false, full: true, seats: await this.ledger().seatsOf(key, stripeLive(this.env)) };
-      return seats > 0 ? { builder: true, key, seats } : { builder: false };
+      const live = stripeLive(this.env);
+      const seats = await this.ledger().claim(key, live, this.name, playerId, tab ?? null, take);
+      if (seats === "full") return { builder: free, full: true, seats: await this.ledger().seatsOf(key, live) };
+      return seats > 0 ? { builder: true, key, seats } : { builder: free };
     } catch {
-      return { builder: false };
+      return { builder: free };
     }
   }
 
-  /** The key ledger asks: is this player still here, building with this key? (A seat nobody sits on is freed.) */
+  /** The key ledger asks: is this player still here, on a seat of this key? (A seat nobody sits on is freed.) */
   builds(playerId: string, key: string): boolean {
     for (const player of this.players.values()) if (player.id === playerId) return player.builder === true && player.key === key;
     return false;
   }
 
   /**
-   * The key ledger sends a player back to visiting: their seat was taken by
-   * another device (or the key was replaced). Their page shows why, with a way to take
-   * it back.
+   * The key ledger takes a player's seat away: it was taken by another device
+   * (or the key was replaced). In a paid world they go back to visiting, and
+   * their page shows why, with a way to take it back; in a free one they play
+   * on, free.
    */
   async demote(playerId: string): Promise<void> {
     for (const [ws, player] of this.players) {
       if (player.id !== playerId) continue;
-      player.builder = false;
+      player.builder = !this.environment.paid;
       delete player.key;
       ws.serializeAttachment(player);
-      this.release(player.id);
-      send(ws, { t: "access", builder: false, reason: "elsewhere" });
+      if (!player.builder) this.release(player.id);
+      send(ws, { t: "access", builder: player.builder, reason: "elsewhere" });
     }
   }
 

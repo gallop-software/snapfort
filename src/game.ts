@@ -337,11 +337,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     offerUnlock();
   }
   /**
-   * Owning the Full Game but visiting here, for want of a seat: every seat of
-   * the key was in use on coming here ("full"), or this device's seat was
-   * taken by another ("elsewhere"). Null: building, or no key.
+   * Owning the Full Game but without a seat on the key: every seat was in use
+   * on coming here ("full"), or this device's seat was taken by another
+   * ("elsewhere"). In a paid world that means visiting; in a free one,
+   * playing free. Null: seated, or no key.
    */
   let waiting: SeatReason | null = null;
+  /** Said once in a free world, where nothing else shows it: the key has no seat left for this device. */
+  const playingFree = () => hud.toast(`${seatsTaken()}: you are playing free here`, 4500);
   /** Why they wait, in a few words. */
   function seatsTaken(): string {
     if (waiting === "elsewhere") return "Your seat was taken by another device";
@@ -1067,9 +1070,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       }
       showTowers(extras.towers);
       if (extras.seats) store.learnSeats(extras.seats);
+      const waited = waiting;
       waiting = extras.full ? "full" : null;
       setBuilder(extras.builder);
       paintVisitBar();
+      // (Joining again, after a dropped connection, does not say it twice.)
+      if (waiting && extras.builder && !waited) playingFree();
       chat.clear();
       for (const said of extras.chat) chat.show(said, myId, now);
       feature?.joined?.();
@@ -1204,12 +1210,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       const before = waiting;
       if (seats) store.learnSeats(seats);
       // (Asking again while waiting and still finding no seat changes nothing: they still know why.)
-      waiting = on ? null : before && reason === "full" ? before : (reason ?? null);
+      // In a free world building stays open with no seat: the reason alone says there is none.
+      waiting = !reason ? null : before && reason === "full" ? before : reason;
       setBuilder(on);
       paintVisitBar();
       // (A message the store just showed, like "you have a new key", is not covered up.)
       const storeSpoke = performance.now() - noticeAt < 4000;
-      if (waiting && waiting !== before) hud.toast(seatsTaken(), 4000);
+      if (waiting && waiting !== before) on ? playingFree() : hud.toast(seatsTaken(), 4000);
       else if (on && env.paid && !storeSpoke) hud.toast(before ? `Building here again: you have a seat` : `Unlocked: build anywhere on the ${env.name}!`, 3000);
     },
     hush() {
@@ -1425,6 +1432,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // The Full Game: a saved key goes with joining; buying or typing one in sends it at once.
   const store = new Store();
   store.onOwned = (key) => net.sendKey(key);
+  // Removed from this device: the world frees its seat at once (in a paid world, back to visiting).
+  store.onRemoved = () => net.dropKey();
   // "Have a key?" on the menu or the unlock panel: the settings, with the key box open.
   store.onHaveKey = () => {
     openPanel(mode === "menu" ? "settings" : "paused");
@@ -1636,7 +1645,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, flag, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, flag, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
     });
   }
 }

@@ -217,6 +217,12 @@ export class NetClient {
     this.raw(take ? { t: "key", key, take } : { t: "key", key });
   }
 
+  /** The key was removed from this device: its seat is free at once, and joining again sends none. */
+  dropKey(): void {
+    this.key = null;
+    this.raw({ t: "key", key: null });
+  }
+
   requestSnapshot(): void {
     this.raw({ t: "sync" });
   }

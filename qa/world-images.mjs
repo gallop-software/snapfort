@@ -25,9 +25,11 @@ async function paidKey() {
 
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const key = await paidKey();
-for (const [name, path, camera, target] of [
+// Each world: its address, where the camera stands and looks, and (the Moon) where a rover stands
+// in the foreground and which way it points: x, z, and the turn about the vertical.
+for (const [name, path, camera, target, rover] of [
   ["meadow", "/", [-9, 4, 2], [3, 24, 75]],
-  ["moon", "/moon", [-14, 3, 6], [18, 30, 75]],
+  ["moon", "/moon", [-14, 3, 6], [17, 21, 75], [-5.5, 17.5, -1.9]],
 ]) {
   const ctx = await browser.newContext({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 2 });
   await ctx.addInitScript((k) => localStorage.setItem("snapfort.key", k), key);
@@ -50,6 +52,18 @@ for (const [name, path, camera, target] of [
   await p.addStyleTag({ content: "#hud, #hotbar-wrap, #stats, #online, #crosshair, #visit-bar, #tip { display: none !important; }" });
   await p.evaluate(() => window.snapfort.player.teleport(40, 0.95, -60));
   await p.waitForTimeout(600);
+  if (rover) {
+    // Stand a rover in the foreground with this builder in its seat (drawn there for the picture; nobody drives it).
+    await p.evaluate(([x, z, yaw]) => {
+      const s = window.snapfort;
+      const r = s.feature.rovers.get(5);
+      r.pose = [x, 0, z, yaw, 0, 0];
+      r.target = [...r.pose];
+      // The seat: 1.02 m up and half a metre behind the rover's middle.
+      s.player.riding = { x: x - Math.sin(yaw) * 0.5, y: 1.02, z: z - Math.cos(yaw) * 0.5, yaw, pitch: 0, roll: 0 };
+    }, rover);
+    await p.waitForTimeout(600);
+  }
   await p.evaluate(([camera, target]) => {
     const s = window.snapfort;
     const cam = s.scene.activeCamera;

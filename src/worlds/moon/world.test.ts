@@ -334,6 +334,26 @@ describe("rovers", () => {
     expect(t.rovers()[2]!.rider).toBe("a");
   });
 
+  it("stop a shot that is aimed at them, driver or no driver, so it lands on the rover and not far beyond", () => {
+    const t = fakeRoom();
+    const parked = t.rovers()[3]!.pose;
+    // From a launcher 100 m off, at the rover's middle: nearly level, so past the rover it would fly on a long way.
+    const from: Vec = [parked[0], 7, parked[2] - 100];
+    const at: Vec = [parked[0], ROVER.middleUp, parked[2]];
+    const flight = planFlight(from, at, MOON);
+    const beyond = findImpact(t.room.build, flight, "none", MOON);
+    expect(Math.hypot(beyond.point[0] - parked[0], beyond.point[2] - parked[2])).toBeGreaterThan(ROVER.tossWithin);
+    const hit = server.shotHits!(t.room, flight)!;
+    expect(hit.time).toBeLessThan(beyond.time);
+    expect(Math.hypot(hit.point[0] - parked[0], hit.point[1] - ROVER.middleUp, hit.point[2] - parked[2])).toBeLessThanOrEqual(ROVER.hitSize + 1e-6);
+    // And landing there throws the rover, empty as it is.
+    server.struck!(t.room, hit.point);
+    expect(t.sent.at(-1)!.msg).toMatchObject({ k: "fall", id: 3, arc: ROVER.tossUp });
+    // A shot at open ground hits no rover; nor does one at a rover already in the air.
+    expect(server.shotHits!(t.room, planFlight(from, [parked[0] + 60, 0, parked[2]], MOON))).toBeNull();
+    expect(server.shotHits!(t.room, flight)).toBeNull();
+  });
+
   it("with a driver in the seat, the shot throws both: the driver into space, the rover across the ground", () => {
     const t = fakeRoom();
     const start = t.rovers()[5]!.pose;

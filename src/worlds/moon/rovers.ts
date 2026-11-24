@@ -2,7 +2,7 @@ import { planFall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
 import { pieceBounds } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
-import type { Vec } from "../../game/trebuchet";
+import { positionAt, type Flight, type Vec } from "../../game/trebuchet";
 import { homes, readPose, ROVER, type RoverPose, type ToPage, type WireRover } from "./roverRules";
 import { landingUnder, rocketsBack } from "./space";
 
@@ -162,6 +162,26 @@ export function roversMessage(room: Room, playerId: string, data: unknown): void
     // The rover does not go on up: it sinks slowly back to the ground under it, for the next driver.
     return comeDown(room, mine, at, at[0], at[2], 0);
   }
+}
+
+/**
+ * A shot hits a rover standing in its way (one with nobody on it too): the
+ * first time the rock comes within a rover's size of one's middle.
+ */
+export function roversInTheWay(room: Room, flight: Flight): { time: number; point: Vec } | null {
+  const rovers = mem(room).rovers.filter((r) => r.lostUntil === 0);
+  if (rovers.length === 0) return null;
+  const speed = Math.hypot(...flight.v) + flight.g * flight.time;
+  // Steps of half a metre at most, to a little past the target.
+  const step = Math.min(0.02, 0.5 / Math.max(speed, 1));
+  for (let t = step; t <= flight.time * 1.5; t += step) {
+    const p = positionAt(flight, t);
+    if (p[1] < -1) return null;
+    for (const r of rovers) {
+      if (Math.hypot(p[0] - r.pose[0], p[1] - (r.pose[1] + ROVER.middleUp), p[2] - r.pose[2]) <= ROVER.hitSize) return { time: t, point: p };
+    }
+  }
+  return null;
 }
 
 /**

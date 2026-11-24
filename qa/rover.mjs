@@ -189,7 +189,28 @@ check("…to land a medium distance off, the right way up, free for the next dri
 await b.keyboard.press("KeyH"); await wait(300);
 await standBy(b, 4); await b.keyboard.press("KeyH"); await wait(700);
 check("…who drives it away", (await me(b)).mine === 4);
-await b.keyboard.press("KeyH"); await wait(9000);
+await b.keyboard.press("KeyH"); await wait(600);
+
+// ── Aiming the launcher at a rover with nobody in it ─────────────────────
+const empty = (await rovers(b)).find((r) => r.id === 5);
+await sf(b, () => { const s = window.snapfort; s.player.teleport(-47.5, 1.4, 104); });
+await wait(500); await b.keyboard.press("KeyH"); await wait(700);
+for (let i = 0; i < 4; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(y - p.y, Math.hypot(x - p.x, z - p.z)); }, [empty.pose[0], empty.pose[1] + 0.8, empty.pose[2]]); await wait(80); }
+const aimed = await sf(b, () => window.snapfort.target);
+check("the launcher's crosshair lands on a parked rover, not on the ground far behind it", !!aimed && Math.hypot(aimed[0] - empty.pose[0], aimed[2] - empty.pose[2]) < 2 && aimed[1] > 0.2, JSON.stringify(aimed?.map((n) => +n.toFixed(1))));
+await b.mouse.down(); await b.mouse.up();
+let emptyUp = 0, emptyTurned = 0, emptyFell = false;
+for (let i = 0; i < 110; i++) {
+  await wait(100);
+  const r = (await rovers(a)).find((x) => x.id === 5);
+  if (r.lost) { emptyFell = true; emptyUp = Math.max(emptyUp, r.pose[1]); emptyTurned = Math.max(emptyTurned, Math.abs(r.pose[4]) + Math.abs(r.pose[5])); }
+  if (emptyFell && !r.lost) break;
+}
+await wait(900);
+const emptyEnd = (await rovers(b)).find((r) => r.id === 5);
+check("…and the shot sends it up in the air, spinning, with nobody in it", emptyFell && emptyUp > 18 && emptyTurned > 1.5, `${emptyUp.toFixed(0)} m up, turned ${emptyTurned.toFixed(1)} rad`);
+check("…to land a medium distance off, ready to drive", !emptyEnd.lost && emptyEnd.rider === null && Math.abs(emptyEnd.pose[1]) < 0.1 && Math.hypot(emptyEnd.pose[0] - empty.pose[0], emptyEnd.pose[2] - empty.pose[2]) > 25, `${Math.hypot(emptyEnd.pose[0] - empty.pose[0], emptyEnd.pose[2] - empty.pose[2]).toFixed(0)} m away`);
+await b.keyboard.press("KeyH"); await wait(600);
 
 
 // ── Still right after a reload ───────────────────────────────────────────
@@ -198,7 +219,7 @@ await b.reload(); await b.waitForSelector("body.ready"); await b.click("#play-fr
 const again = await rovers(b);
 const truth = await rovers(a);
 check("a builder who arrives later sees every rover where it is", again.length === 6 && again.every((r, i) => Math.hypot(r.pose[0] - truth[i].pose[0], r.pose[2] - truth[i].pose[2]) < 0.5 && r.rider === truth[i].rider));
-check("…each where it was left: the first by its driver, one where it sank back to, one at the edge, and the ones nobody touched at home", Math.hypot(again[0].pose[0] - left.pose[0], again[0].pose[2] - left.pose[2]) < 1 && Math.hypot(again[1].pose[0] - down.pose[0], again[1].pose[2] - down.pose[2]) < 1 && again[2].pose[0] < -200 && [3, 5].every((i) => Math.hypot(again[i].pose[0] - start[i].pose[0], again[i].pose[2] - start[i].pose[2]) < 0.5));
+check("…each where it was left: the first by its driver, one where it sank back to, one at the edge, and the ones nobody touched at home", Math.hypot(again[0].pose[0] - left.pose[0], again[0].pose[2] - left.pose[2]) < 1 && Math.hypot(again[1].pose[0] - down.pose[0], again[1].pose[2] - down.pose[2]) < 1 && again[2].pose[0] < -200 && [3].every((i) => Math.hypot(again[i].pose[0] - start[i].pose[0], again[i].pose[2] - start[i].pose[2]) < 0.5));
 
 // ── On a phone: a button ─────────────────────────────────────────────────
 {

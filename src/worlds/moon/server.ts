@@ -1,5 +1,5 @@
 import type { WorldServer } from "../serverDoors";
-import { openRovers, roversDrop, roversJoined, roversLetGo, roversMessage, roversStruck } from "./rovers";
+import { openRovers, roversDrop, roversInTheWay, roversJoined, roversLetGo, roversMessage, roversStruck } from "./rovers";
 import { spaceFlight } from "./space";
 
 /**
@@ -17,6 +17,7 @@ export const server: WorldServer = {
   joined: roversJoined,
   left: roversLetGo,
   message: roversMessage,
+  shotHits: roversInTheWay,
   struck: roversStruck,
   removed: roversDrop,
 };

@@ -2,7 +2,7 @@ import type { BuildState } from "../game/buildState";
 import type { Environment } from "../game/environments";
 import type { Fall } from "../game/fall";
 import type { Piece } from "../game/pieces";
-import type { Vec } from "../game/trebuchet";
+import type { Flight, Vec } from "../game/trebuchet";
 
 /**
  * The server half of a world: rules of its own, beyond the shared ones. Every
@@ -30,6 +30,12 @@ export interface WorldServer {
   left?(room: Room, playerId: string): void;
   /** A world message from a builder's page (see WorldPage.start): anything at all, so check it. */
   message?(room: Room, playerId: string, data: unknown): void;
+  /**
+   * Something of this world's own that a shot hits on its way: when (seconds
+   * into the flight) and where. The shot lands there if that is before
+   * anything the shared rules say it hits. Null when it hits nothing of the world's.
+   */
+  shotHits?(room: Room, flight: Flight): { time: number; point: Vec } | null;
   /** A stone (or whatever this world's engine throws) landed at `point`, after the shared rules dealt with it. */
   struck?(room: Room, point: Vec): void;
   /** Pieces were taken out of the build (removed, broken or fallen). */

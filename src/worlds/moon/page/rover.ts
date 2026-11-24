@@ -4,8 +4,12 @@ import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
-import { BUILDER_GROUP } from "../../../render/physicsGroups";
+import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
+import { PhysicsShapeSphere } from "@babylonjs/core/Physics/v2/physicsShape";
+import { BUILDER_GROUP, FRAME_GROUP } from "../../../render/physicsGroups";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, Ride, WorldFeature } from "../../pageDoors";
 import { ROVER, type RoverPose, type ToPage, type ToServer } from "../roverRules";
@@ -26,6 +30,8 @@ const REPORT_MS = 100;
 
 interface Shown {
   mesh: Mesh;
+  /** What a launcher's crosshair lands on: a ball round the rover's middle. Builders and rovers pass through it. */
+  aimAt: TransformNode;
   /** Where it is drawn, and where it is heading (others' rovers ease toward what the server last said). */
   pose: RoverPose;
   target: RoverPose;
@@ -122,7 +128,17 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       game.shadows.addShadowCaster(mesh);
       // Each rover turns over its own way.
       const sign = (n: number) => (((id + n) & 1) === 0 ? 1 : -1);
-      r = { mesh, pose: [...pose], target: [...pose], rider: null, falling: null, spin: [0.45 * sign(0), 0.95 * sign(1), 0.8 * sign(id >> 1)] };
+      // Something for a crosshair to land on (as a siege engine's frame is): a ball that moves with
+      // the rover, in the group builders and rovers do not bump into.
+      const aimAt = new TransformNode(`rover-aim-${id}`, game.scene);
+      const ball = new PhysicsShapeSphere(Vector3.Zero(), ROVER.hitSize, game.scene);
+      ball.filterMembershipMask = FRAME_GROUP;
+      ball.filterCollideMask = ~BUILDER_GROUP;
+      const solid = new PhysicsBody(aimAt, PhysicsMotionType.ANIMATED, false, game.scene);
+      solid.shape = ball;
+      // It is moved by hand each frame; the physics world takes its place from the node.
+      solid.disablePreStep = false;
+      r = { mesh, aimAt, pose: [...pose], target: [...pose], rider: null, falling: null, spin: [0.45 * sign(0), 0.95 * sign(1), 0.8 * sign(id >> 1)] };
       rovers.set(id, r);
     }
     r.target = [...pose];
@@ -135,6 +151,7 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
   function place(r: Shown): void {
     r.mesh.position.set(r.pose[0], r.pose[1], r.pose[2]);
     r.mesh.rotation.set(-r.pose[4], r.pose[3], r.pose[5]);
+    r.aimAt.position.set(r.pose[0], r.pose[1] + ROVER.middleUp, r.pose[2]);
   }
 
   /** Stops driving (the rover stays where it is). */

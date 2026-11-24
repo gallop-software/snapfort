@@ -228,6 +228,10 @@ All in `src/worlds/moon/` again; the Meadow's reference pictures still match to 
 - **A launcher's shot landing within 7 m of a rover** throws the rover too: 24 m up and 32 m away from the shot over 6 s (first 12 m, 11 m and 4.5 s; raised the same day: "a medium distance away", "a bit higher"), turning over hard, landing the right way up and ready to drive. With a driver in the seat, the driver goes into space as before and the rover across the ground. A rover already in the air is not thrown again. New server door for this: `struck(room, point)`, called after the shared rules have dealt with a shot.
 - One message covers both (`fall`: from, to, seconds, arc); the server works out where it lands (on whatever is built under the spot) and every page draws the same trip. Nobody can get on a rover while it is in the air.
 
+## Shooting a rover (user, 2026-11-24: "I should also be able to hit a rover that has no one sitting in it")
+
+- An empty rover was always thrown by a shot landing within 7 m, but aiming at one did not land the shot there: rovers were not solid to the launcher, so the crosshair looked through them and the nearly level shot came down on the ground far behind. Now each rover carries a ball the crosshair lands on (in the group builders and rovers pass through, like a siege engine's frame), and on the server a shot stops at the first rover within 1.5 m of its line (new server door `shotHits`: something of a world's own that a shot hits before whatever the shared rules say). Driver or no driver, it lands on the rover and throws it.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

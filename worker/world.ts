@@ -688,7 +688,7 @@ export class World extends DurableObject<Env> {
     const flight = planFlight(from, target, this.environment);
     const shot = this.nextShot++;
     this.broadcast({ t: "shot", shot, id: t.id, by: player.id, from: round(from), to: round(target) });
-    this.followStone(shot, flight, t.id, player.id, findImpact(this.build, flight, t.id, this.environment).time, now);
+    this.followStone(shot, flight, t.id, player.id, this.whereItLands(flight, t.id).time, now);
   }
 
   /**
@@ -698,10 +698,17 @@ export class World extends DurableObject<Env> {
   private followStone(shot: number, flight: Flight, ignore: string, by: string, at: number, launched: number): void {
     const wait = Math.max(0, launched + at * 1000 - Date.now());
     setTimeout(() => {
-      const impact = findImpact(this.build, flight, ignore, this.environment);
+      const impact = this.whereItLands(flight, ignore);
       if (impact.time > at + 0.02) return this.followStone(shot, flight, ignore, by, impact.time, launched);
       this.land(shot, impact.point, by);
     }, wait);
+  }
+
+  /** Where a shot comes down: the first piece or the ground (the shared rules), or something of the world's own before that. */
+  private whereItLands(flight: Flight, ignore: string): { time: number; point: Vec } {
+    const impact = findImpact(this.build, flight, ignore, this.environment);
+    const own = serverOf(this.environment).shotHits?.(this.room(), flight);
+    return own && own.time < impact.time ? own : impact;
   }
 
   /** A stone lands: everything in the blast takes a hit, what breaks goes, and what that strands falls. */

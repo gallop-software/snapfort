@@ -1,4 +1,4 @@
-import { environmentOf } from "../src/game/environments";
+import { DEFAULT_WORLD, worldAtPath, worldOf } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
 import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail } from "./mail";
@@ -10,7 +10,7 @@ export { World } from "./world";
 
 /**
  * SnapFort.io on Cloudflare: the game's files are served as static assets; /ws
- * joins a shared world (the meadow, or ?env=moon for the Moon), each its own
+ * joins a shared world (?env=<world id>; the first world when none is named), each its own
  * World Durable Object; /api/* sells and checks the Full Game (Stripe Checkout
  * and the Ledger of keys); /admin/* lets the owner reset or roll back a world
  * and look up keys, with the ADMIN_SECRET.
@@ -57,24 +57,23 @@ const ledger = (env: Env) => env.LEDGER.get(env.LEDGER.idFromName("keys"));
 function forward(target: { stub: DurableObjectStub; name: string }, request: Request): Promise<Response> {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);
-  headers.set("x-snapfort-env", environmentOf(url.searchParams.get("env")).id);
+  headers.set("x-snapfort-env", worldOf(url.searchParams.get("env")).id);
   // Its own name, so the key ledger can reach it (one player at a time per key).
   headers.set("x-snapfort-world", target.name);
   return target.stub.fetch(new Request(request, { headers }));
 }
 
 /**
- * The world to join: "main" (the meadow) or "moon", except on a local dev
- * server, where ?world=<name> opens a separate one (the browser QA uses a
- * fresh world per run).
+ * The world to join: the room of the world named by ?env= (see Environment.room),
+ * except on a local dev server, where ?world=<name> opens a separate one (the
+ * browser QA uses a fresh world per run).
  */
 function world(env: Env, request: Request) {
   const url = new URL(request.url);
   const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  const place = environmentOf(url.searchParams.get("env")).id;
+  const place = worldOf(url.searchParams.get("env"));
   const name = url.searchParams.get("world");
-  const base = place === "meadow" ? "main" : place;
-  const id = local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}${place === "meadow" ? "" : `-${place}`}` : base;
+  const id = local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}${place === DEFAULT_WORLD ? "" : `-${place.id}`}` : place.room;
   return { stub: env.WORLD.get(env.WORLD.idFromName(id)), name: id };
 }
 
@@ -105,7 +104,8 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       const body = (await request.json().catch(() => ({}))) as { path?: string; testpay?: boolean };
       if (!stripeReady(env)) return Response.json({ error: "Buying is not open yet." }, { status: 503 });
       if (!live && !body.testpay) return Response.json({ error: "Buying opens soon." }, { status: 403 });
-      const path = body.path === "/moon" ? "/moon" : "/";
+      // Back to the world they bought from.
+      const path = worldAtPath(body.path).path;
       const back = `${url.origin}${path}`;
       const key = await ledger(env).create(live);
       const session = await stripe<CheckoutSession>(env, "POST", "checkout/sessions", {

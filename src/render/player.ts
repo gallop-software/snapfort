@@ -3,7 +3,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL, WORLD_HALF_CELLS } from "../game/constants";
-import { MEADOW, type Environment } from "../game/environments";
+import type { Environment } from "../game/environments";
+import type { OutfitBuilder } from "../worlds/pageDoors";
 import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
 import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
 import { BUILDER_GROUP } from "./physicsGroups";
@@ -46,10 +47,10 @@ export class Player {
   private fall: { fall: Fall; start: number } | null = null;
   private readonly desired = new Vector3();
   private readonly forwardDir = new Vector3();
-  /** The world's pull, and how high a jump lifts the feet (the meadow: over one wall; the Moon: about 1.6 times that). */
+  /** The world's pull, and how high a jump lifts the feet. */
   private readonly gravity: Vector3;
   private readonly jumpHeight: number;
-  constructor(scene: Scene, shadows: ShadowGenerator, env: Environment = MEADOW) {
+  constructor(scene: Scene, shadows: ShadowGenerator, env: Environment, outfit: OutfitBuilder) {
     this.gravity = new Vector3(0, -env.gravity, 0);
     this.jumpHeight = env.jumpHeight;
     this.controller = new PhysicsCharacterController(SPAWN.clone(), { capsuleHeight: HEIGHT, capsuleRadius: RADIUS }, scene);
@@ -61,7 +62,7 @@ export class Player {
     // The controller's solver ignores speeds above this (default 10 m/s), which would cap running.
     this.controller.maxCharacterSpeedForSolver = 40;
 
-    this.avatar = new Avatar(scene, shadows);
+    this.avatar = new Avatar(scene, shadows, outfit);
   }
 
   /** Advances the character. Call after each physics step. */

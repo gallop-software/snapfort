@@ -1,12 +1,9 @@
-import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
 import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreateLines } from "@babylonjs/core/Meshes/Builders/linesBuilder";
-import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import type { LinesMesh } from "@babylonjs/core/Meshes/linesMesh";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -14,17 +11,11 @@ import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import type { Piece } from "../game/pieces";
-import { MEADOW, type Environment } from "../game/environments";
-import { planFlight, positionAt, TREBUCHET, trebuchetBase, type Flight, type Vec } from "../game/trebuchet";
+import type { Environment } from "../game/environments";
+import { planFlight, positionAt, trebuchetBase, type Flight, type Vec } from "../game/trebuchet";
+import type { SiegeModel } from "../worlds/pageDoors";
 import { TREBUCHET_BASE } from "./geometry";
 
-/** Height of the arm's pivot above the turntable. */
-const PIVOT = 3.4;
-/** Arm angle (about the throwing axis) when wound back, and at the top of a throw. */
-const COCKED = -2.3;
-const THROWN = 0.95;
-/** Seconds for the arm to swing over. */
-const SWING = 0.45;
 /** Trebuchets the buffers hold at first; they double whenever a world has more. */
 const FIRST_CAPACITY = 64;
 
@@ -43,18 +34,12 @@ interface Stone {
   start: number;
 }
 
-/** Paints a mesh one colour (vertex colours), so differently coloured parts can be merged. */
-function paint(mesh: Mesh, r: number, g: number, b: number): Mesh {
-  const colors = new Float32Array(mesh.getTotalVertices() * 4);
-  for (let i = 0; i < colors.length; i += 4) colors.set([r, g, b, 1], i);
-  mesh.setVerticesData(VertexBuffer.ColorKind, colors);
-  return mesh;
-}
-
 /**
- * Trebuchets above their turntable bases (which PieceView draws with the other
- * pieces): the frame turns toward what it aims at, and the arm swings over on
- * a throw and winds back while it reloads. All trebuchets share two
+ * Siege engines above their turntable bases (which PieceView draws with the
+ * other pieces): the frame turns toward what it aims at, and the arm swings
+ * over on a throw and winds back while it reloads. What they look like is the
+ * world's (SiegeModel); the aiming, stones and bookkeeping here are the same
+ * everywhere. All engines share two
  * thin-instance meshes. Also draws stones in flight, and the target marker and
  * arc preview for the trebuchet this player is on.
  */
@@ -74,61 +59,25 @@ export class TrebuchetView {
   private buffersReady = false;
   private readonly stones = new Map<number, Stone>();
   private readonly spareStones: Mesh[] = [];
-  private readonly stoneMaterial: StandardMaterial;
   private readonly marker: Mesh;
   private readonly markerMaterial: StandardMaterial;
   private arc: LinesMesh | null = null;
   private readonly tmp = new Matrix();
   /** A trebuchet not drawn on this page (the one this player is aiming from). */
   hidden: string | null = null;
-  /** The world's pull and stone flights (the Moon's are slower and longer). */
-  environment: Environment = MEADOW;
 
   constructor(
     private readonly scene: Scene,
     state: BuildState,
     private readonly shadows: ShadowGenerator,
+    /** The world's pull and stone flights. */
+    private readonly environment: Environment,
+    private readonly model: SiegeModel,
   ) {
-    const wood: [number, number, number] = [0.6, 0.4, 0.24];
-    const dark: [number, number, number] = [0.36, 0.24, 0.15];
-    const iron: [number, number, number] = [0.42, 0.45, 0.5];
-    const part = (mesh: Mesh, color: [number, number, number], x: number, y: number, z: number, rx = 0) => {
-      mesh.position.set(x, y, z);
-      mesh.rotation.x = rx;
-      return paint(mesh, ...color);
-    };
-
-    // Frame: an A-frame each side holding the axle, on two rails. Throws toward +z.
-    const legLength = Math.hypot(1.6, PIVOT);
-    const legTilt = Math.atan2(1.6, PIVOT);
-    const frameParts: Mesh[] = [];
-    for (const side of [-1, 1]) {
-      const x = side * 0.95;
-      frameParts.push(part(CreateBox("t-rail", { width: 0.3, height: 0.3, depth: 3.8 }, scene), dark, x, 0.15, 0));
-      frameParts.push(part(CreateBox("t-leg", { width: 0.24, height: legLength, depth: 0.24 }, scene), wood, x, PIVOT / 2, 0.8, legTilt));
-      frameParts.push(part(CreateBox("t-leg", { width: 0.24, height: legLength, depth: 0.24 }, scene), wood, x, PIVOT / 2, -0.8, -legTilt));
-    }
-    frameParts.push(part(CreateBox("t-brace", { width: 2.2, height: 0.22, depth: 0.22 }, scene), dark, 0, 0.3, 1.5));
-    frameParts.push(part(CreateBox("t-brace", { width: 2.2, height: 0.22, depth: 0.22 }, scene), dark, 0, 0.3, -1.5));
-    const axle = CreateCylinder("t-axle", { diameter: 0.22, height: 2.3, tessellation: 8 }, scene);
-    axle.rotation.z = Math.PI / 2;
-    frameParts.push(part(axle, iron, 0, PIVOT, 0));
-    this.frame = this.host(Mesh.MergeMeshes(frameParts, true, true)!, "trebuchet-frame");
+    this.frame = this.host(model.frame, "trebuchet-frame");
     this.frameTemplate = this.template(this.frame, "trebuchet-frame-template");
-
-    // Arm, drawn upright from the pivot: the long beam and sling up, the counterweight below.
-    const armParts: Mesh[] = [
-      part(CreateBox("t-beam", { width: 0.22, height: 6, depth: 0.22 }, scene), wood, 0, 1.6, 0),
-      part(CreateBox("t-weight", { width: 1.1, height: 1, depth: 1 }, scene), iron, 0, -1.5, 0),
-      part(CreateBox("t-hanger", { width: 0.12, height: 0.6, depth: 0.12 }, scene), dark, 0, -0.9, 0),
-      part(CreateBox("t-sling", { width: 0.05, height: 0.05, depth: 1.2 }, scene), dark, 0, 4.6, -0.55),
-    ];
-    this.arm = this.host(Mesh.MergeMeshes(armParts, true, true)!, "trebuchet-arm");
+    this.arm = this.host(model.arm, "trebuchet-arm");
     this.armTemplate = this.template(this.arm, "trebuchet-arm-template");
-
-    this.stoneMaterial = new StandardMaterial("stone", scene);
-    this.stoneMaterial.diffuseColor = new Color3(0.38, 0.37, 0.36);
-    this.stoneMaterial.specularColor = Color3.Black();
 
     this.markerMaterial = new StandardMaterial("target-marker", scene);
     this.markerMaterial.disableLighting = true;
@@ -171,7 +120,7 @@ export class TrebuchetView {
     frame.rotation.set(0, yaw, 0);
     const arm = this.armTemplate.clone(`debris-arm-${piece.id}`, frame)!;
     arm.setEnabled(true);
-    arm.position.set(0, PIVOT, 0);
+    arm.position.set(0, this.model.pivot, 0);
     arm.rotation.set(this.armAngle(engine ? (performance.now() - engine.thrownAt) / 1000 : Infinity), 0, 0);
     return base;
   }
@@ -270,7 +219,7 @@ export class TrebuchetView {
       const [x, y, z] = trebuchetBase(engine.piece);
       const root = Matrix.Compose(Vector3.One(), Quaternion.RotationAxis(Vector3.Up(), engine.yaw), new Vector3(x, y + TREBUCHET_BASE, z));
       root.copyToArray(this.frameMatrices, i * 16);
-      Matrix.RotationX(this.armAngle((now - engine.thrownAt) / 1000)).multiplyToRef(Matrix.Translation(0, PIVOT, 0), this.tmp);
+      Matrix.RotationX(this.armAngle((now - engine.thrownAt) / 1000)).multiplyToRef(Matrix.Translation(0, this.model.pivot, 0), this.tmp);
       this.tmp.multiplyToRef(root, this.tmp);
       this.tmp.copyToArray(this.armMatrices, i * 16);
       i++;
@@ -303,13 +252,14 @@ export class TrebuchetView {
 
   /** The arm's angle `t` seconds after a throw: a fast swing over, then winding back for the reload. */
   private armAngle(t: number): number {
-    if (t < SWING) {
-      const k = t / SWING;
-      return COCKED + (THROWN - COCKED) * k * k;
+    const { swing, cocked, thrown } = this.model;
+    if (t < swing) {
+      const k = t / swing;
+      return cocked + (thrown - cocked) * k * k;
     }
-    const back = Math.min(1, (t - SWING) / (TREBUCHET.reload - SWING - 0.3));
+    const back = Math.min(1, (t - swing) / (this.environment.siege.reload - swing - 0.3));
     const ease = back * back * (3 - 2 * back);
-    return THROWN + (COCKED - THROWN) * ease;
+    return thrown + (cocked - thrown) * ease;
   }
 
   private add(piece: Piece): void {
@@ -339,8 +289,7 @@ export class TrebuchetView {
   }
 
   private makeStone(): Mesh {
-    const mesh = CreateSphere("stone", { diameter: TREBUCHET.stoneRadius * 2.4, segments: 8 }, this.scene);
-    mesh.material = this.stoneMaterial;
+    const mesh = this.model.stone(this.environment.siege.stoneRadius);
     mesh.isPickable = false;
     this.shadows.addShadowCaster(mesh);
     return mesh;

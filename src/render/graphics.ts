@@ -1,6 +1,6 @@
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine";
 import type { ResolutionGovernor } from "./resolution";
-import type { World } from "./world";
+import type { Scenery as World } from "../worlds/pageDoors";
 
 /** "auto" picks for this computer; "sharp" is full quality; "saver" keeps old laptops cool and quiet. */
 export type GraphicsMode = "auto" | "sharp" | "saver";

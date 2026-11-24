@@ -177,6 +177,19 @@ Decided with the user: one way to pay, a **one-time $7 "Full Game"** (no subscri
 - **Switching keys** (user, 2026-11-23: "people will share keys, but when they want to buy their own, they need a way of switching"): a device that already has a key can move to another. Settings, under the key: **Switch key** (type or paste another), **Buy my own · $7** (checkout; the new key takes the device over, and the thank-you says so), Replace my key. On phones the row only fits Switch key; the other two are in the key box it opens. While the shared key is being played elsewhere, the visiting bar has **Get my own** (O) beside Use it here, which opens the unlock panel. An email's unlock button switches too. A world frees the old key when a player switches, so the friend taking theirs back no longer sends the switched player to visiting.
 - Wording before buying and in the terms: "One player at a time, on any of your devices." `qa/keys.mjs` checks all of it, using the emails the dev server really sends.
 
+## Worlds that own their code (user, 2026-11-23: "dozens of worlds"; "one environment highly tested, and once it's set, we move on to a new world")
+
+Decided with the user: worlds may be very different (skins, clothing, weapons, vehicles, what happens when you are hit), but the building core is shared and frozen, and a finished world must never be changed by work on another.
+
+- **The core is frozen, add-only**: `src/game/` (pieces, snapping, editing, collapse, how builds are saved and sent), `src/net/`, the shared drawing machinery in `src/render/`, `worker/`. The three material slots and the piece types never change (their numbering is how builds are saved); what fills a slot is the world's.
+- **Each world is a folder**, `src/worlds/<id>/`: `world.ts` (plain data: address, room, paid, menu card, physics, the three materials' names, colours, height limits and hits, the siege engine's name and numbers, roof shape), `server.ts` (its own rules on the server, through fixed hooks), `page/` (everything it draws and plays: scenery, piece skins, outfit, siege engine model, sounds), its own tests (`*.test.ts` beside it) and reference pictures (`qa/refs/<id>-*.png`).
+- **Copy, don't share** (user: shared components "create complications with little nuance differences"): a new world starts as a copy of the closest one and is changed freely. Worlds never import from each other. A bug in copied code is fixed in each world that has it; each world's header says which world it was copied from.
+- **The doors**: `src/game/environments.ts` (what a world is to the rules), `src/worlds/pageDoors.ts` (what the drawing machinery asks a world for) and `src/worlds/serverDoors.ts` (server hooks). Add to them; never change what an existing one means.
+- **The list of worlds** is `src/worlds/index.ts`, the one shared file that names them. The menu's cards, the world switcher, the unlock panel, the key emails and the server's rooms are all written from it (`src/ui/worlds.ts`). The page loads only the code of the world it is in (`src/worlds/load.ts`: each world's page half is its own file in the build).
+- **Guard rails** (`tests/worlds.test.ts`, fail the build): a world importing another world; shared code naming a world (in code, markup or styles; comments may); a world's server half pulling in drawing code; an incomplete world; the numbering of pieces or materials changing.
+- **Reference pictures**: `node qa/refs.mjs` draws every world from fixed spots with the same build and compares with `qa/refs/`; `--save` after a change that was meant. The refactor itself (2026-11-23) changed no pixel in either world.
+- Rooms: the Meadow's saved world is still `main`, the Moon's `moon` (`Environment.room`; never change one).
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

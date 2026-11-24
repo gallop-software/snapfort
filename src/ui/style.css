@@ -853,7 +853,7 @@ body.touch #store-lost-link { flex-wrap: wrap; }
 #thanks[hidden] { display: none; }
 #thanks b { font-size: 16px; }
 #thanks p { margin: 0; font-size: 13px; }
-body[data-env="moon"] #thanks-moon { display: none; }
+#thanks-go[hidden] { display: none; }
 
 /* Visiting a paid world without the Full Game: the hotbar is shown, but faded. */
 body.visiting #hotbar { opacity: 0.45; }
@@ -906,7 +906,7 @@ body.visiting #hotbar { opacity: 0.45; }
   font-weight: 800;
 }
 .badge.paid { background: var(--sun); color: var(--ink); }
-body.owned .world[data-env="moon"] .badge::after { content: " ✓"; }
+body.owned .world.paid .badge::after { content: " ✓"; }
 .world.current .pic::after {
   content: "You're here";
   position: absolute;
@@ -920,8 +920,8 @@ body.owned .world[data-env="moon"] .badge::after { content: " ✓"; }
   font-weight: 800;
 }
 
-#moon-offer { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: -2px 0 14px; }
-#moon-offer[hidden] { display: none; }
+#paid-offer { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: -2px 0 14px; }
+#paid-offer[hidden] { display: none; }
 .offer-note { font-size: 13px; font-weight: 600; opacity: 0.75; }
 button.buy-big {
   height: 54px;
@@ -940,7 +940,7 @@ button.buy-big:hover:not(:disabled) { transform: translateY(-1px); }
 button.buy-big:active:not(:disabled) { transform: translateY(3px); box-shadow: none; }
 button.buy-big:disabled { background: #c9bfae; box-shadow: 0 4px 0 #a39a8a; cursor: default; }
 /* On the Moon without the Full Game, Unlock is the big button and Visit the quieter one. */
-body[data-env="moon"]:not(.owned) #view-menu .buttons .primary { background: var(--teal); box-shadow: 0 4px 0 #1d6562; font-size: 17px; }
+body.paid-world:not(.owned) #view-menu .buttons .primary { background: var(--teal); box-shadow: 0 4px 0 #1d6562; font-size: 17px; }
 
 #menu-links { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; font-size: 13px; }
 #menu-links .links { display: flex; gap: 14px; }
@@ -1029,7 +1029,7 @@ body.chatting #tip { display: none; }
   body.touch .world .info small { font-size: 10.5px; }
   body.touch .badge { left: 6px; top: 6px; padding: 2px 7px; font-size: 10px; }
   body.touch .world.current .pic::after { display: none; }
-  body.touch #moon-offer { margin-bottom: 8px; flex-direction: row; justify-content: center; }
+  body.touch #paid-offer { margin-bottom: 8px; flex-direction: row; justify-content: center; }
   body.touch button.buy-big { height: 42px; padding: 0 20px; font-size: 16px; }
   body.touch #menu-links { margin-top: 10px; font-size: 12px; }
   body.touch .panel:has(#view-unlock:not([hidden])) > h1 { display: none; }

@@ -5,6 +5,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
+import type { OutfitBuilder } from "../worlds/pageDoors";
 import { Avatar, type StandInPose } from "./avatar";
 
 const POSES: readonly StandInPose[] = ["stand", "runA", "runB", "air"];
@@ -28,8 +29,8 @@ interface Host {
 export class StandIns {
   private readonly hosts = new Map<StandInPose, Host>();
 
-  constructor(scene: Scene, shadows: ShadowGenerator) {
-    const model = new Avatar(scene, null, "#ffffff");
+  constructor(scene: Scene, shadows: ShadowGenerator, outfit: OutfitBuilder) {
+    const model = new Avatar(scene, null, outfit, "#ffffff");
     const jacketMat = new StandardMaterial("stand-in-jacket", scene);
     jacketMat.specularColor = Color3.Black();
     const restMat = new StandardMaterial("stand-in-rest", scene);

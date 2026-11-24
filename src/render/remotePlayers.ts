@@ -9,6 +9,7 @@ import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { WireMove, WirePlayer } from "../net/protocol";
 import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
+import type { OutfitBuilder } from "../worlds/pageDoors";
 import { Avatar, downness } from "./avatar";
 import { StandIns } from "./standIns";
 
@@ -80,8 +81,9 @@ export class RemotePlayers {
   constructor(
     private readonly scene: Scene,
     private readonly shadows: ShadowGenerator,
+    private readonly outfit: OutfitBuilder,
   ) {
-    this.standIns = new StandIns(scene, shadows);
+    this.standIns = new StandIns(scene, shadows, outfit);
   }
 
   get count(): number {
@@ -249,7 +251,7 @@ export class RemotePlayers {
   }
 
   private claim(color: string): Avatar {
-    const avatar = this.spare.pop() ?? new Avatar(this.scene, this.shadows, color);
+    const avatar = this.spare.pop() ?? new Avatar(this.scene, this.shadows, this.outfit, color);
     avatar.setColor(color);
     avatar.setEnabled(true);
     return avatar;

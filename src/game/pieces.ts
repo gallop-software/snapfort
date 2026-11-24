@@ -1,4 +1,5 @@
 import { CELL, LEVEL, MAX_LEVEL, WORLD_HALF_CELLS } from "./constants";
+import type { Environment } from "./environments";
 
 /**
  * Piece definitions and grid rules. No rendering in here: this module is shared
@@ -32,39 +33,26 @@ export interface PieceSpec {
   rot: Rot;
 }
 
+/**
+ * The three material slots: light, middle and heavy. New ones go on the end:
+ * the position in this list is how pieces are saved and sent. What each slot
+ * is called, looks like, how high it can go and how strong it is belongs to
+ * the world (Environment.materials); the slots themselves never change.
+ */
 export const MATERIALS = ["wood", "brick", "metal"] as const;
 export type MaterialId = (typeof MATERIALS)[number];
-
-export interface MaterialDef {
-  label: string;
-  /** Base colour, RGB 0..1. */
-  color: readonly [number, number, number];
-}
-
-export const MATERIAL_DEFS: Record<MaterialId, MaterialDef> = {
-  wood: { label: "Wood", color: [0.86, 0.63, 0.4] },
-  brick: { label: "Brick", color: [0.8, 0.45, 0.36] },
-  metal: { label: "Metal", color: [0.63, 0.69, 0.75] },
-};
-
-/**
- * The highest storey (y) each material can be built on. Heavy metal belongs in
- * a tower's base, brick in its middle, and wood goes all the way up: storeys
- * 1–10 for metal, 1–30 for brick, counting the ground storey as 1.
- */
-export const MATERIAL_MAX_LEVEL: Record<MaterialId, number> = { metal: 9, brick: 29, wood: Infinity };
 
 /** Strongest first. */
 const BY_STRENGTH: readonly MaterialId[] = ["metal", "brick", "wood"];
 
-/** Whether `material` may be used for a piece on storey `y`. Trebuchets are not limited. */
-export function materialAllowed(type: PieceType, material: MaterialId, y: number): boolean {
-  return type === "trebuchet" || y <= MATERIAL_MAX_LEVEL[material];
+/** Whether `material` may be used for a piece on storey `y` in this world. Siege engines are not limited. */
+export function materialAllowed(type: PieceType, material: MaterialId, y: number, env: Environment): boolean {
+  return type === "trebuchet" || y <= env.materials[material].maxLevel;
 }
 
 /** The material actually used when `selected` is chosen for a piece on storey `y`: the strongest allowed there, no stronger than chosen. */
-export function materialFor(type: PieceType, selected: MaterialId, y: number): MaterialId {
-  for (const m of BY_STRENGTH.slice(BY_STRENGTH.indexOf(selected))) if (materialAllowed(type, m, y)) return m;
+export function materialFor(type: PieceType, selected: MaterialId, y: number, env: Environment): MaterialId {
+  for (const m of BY_STRENGTH.slice(BY_STRENGTH.indexOf(selected))) if (materialAllowed(type, m, y, env)) return m;
   return "wood";
 }
 

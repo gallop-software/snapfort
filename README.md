@@ -14,7 +14,8 @@ Build the tallest tower in one shared world, and knock the competition down with
 
 | Part | Where | What |
 |---|---|---|
-| Game rules | `src/game/` | Pieces, contact and collapse, materials, trebuchet ballistics and damage, falls, towers. Plain TypeScript, shared by the page and the server, unit tested. |
+| Game rules | `src/game/` | Pieces, contact and collapse, materials, siege engine ballistics and damage, falls, towers. Plain TypeScript, shared by the page and the server, unit tested. The same in every world, and frozen: add to it, never change it. |
+| Worlds | `src/worlds/<id>/` | One folder per world, sharing no code with the others: `world.ts` (its numbers and names), `server.ts` (its own rules), `page/` (everything it draws and plays), its tests. `src/worlds/index.ts` lists them. |
 | Page | `src/` | Babylon.js (WebGPU, WebGL fallback) with Havok physics; plain HTML/CSS overlay. |
 | Networking | `src/net/` | One WebSocket; own changes apply at once and are reconciled with the server's order. |
 | Server | `worker/` | A Cloudflare Worker serving the files; a Durable Object (`World`) per world that holds it, checks every change, decides every shot and fall, and saves to its SQLite database; the `Ledger` Durable Object holding SnapFort keys; `/api/*` for buying (Stripe Checkout, webhook) and checking keys. |
@@ -47,7 +48,19 @@ npm run qa:pay          # buying the Full Game in Stripe's test mode, keys, webh
 npm run qa:menu         # the menu, the Moon's unlock, first-game tips
 npm run qa:presence     # exact builder counts, no ghosts, new-version restart (3 min)
 npm run qa:keys         # email unlock links, remembered devices, one player per key, replacing a key
+npm run qa:refs         # every world compared with its reference pictures (-- --save after a change that was meant)
 ```
+
+`npm run qa:chaos -- 180 7 /moon` runs the random-input test in another world.
+
+## Adding a world
+
+1. Copy the folder of the closest world, `src/worlds/<id>/`, under a new id (its folder name, its `id`, and a new `path` and `room`). Say in `world.ts` which world it was copied from.
+2. Add it to the list in `src/worlds/index.ts`, and put its menu picture at `public/worlds/<id>.jpg` (`qa/world-images.mjs` renders one from the game).
+3. Change anything inside the folder: the numbers in `world.ts`, the look and sound in `page/`, rules of its own in `server.ts`. Nothing outside the folder needs to change, and nothing inside may import from another world.
+4. `npm test` checks the world is complete and keeps to itself. When it is finished, `npm run qa:refs -- --save <id>` saves its reference pictures, so later work elsewhere cannot change it unnoticed.
+
+A world that needs something the shared code does not offer gets a new optional door (`src/game/environments.ts`, `src/worlds/pageDoors.ts`, `src/worlds/serverDoors.ts`), with every existing world keeping the old behaviour.
 
 ## Deploying
 

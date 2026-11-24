@@ -1,48 +1,20 @@
 import type { BuildState } from "./buildState";
 import { CELL, LEVEL, THICK } from "./constants";
-import { MEADOW, type Environment } from "./environments";
-import { gridBox, type MaterialId, type Piece } from "./pieces";
+import type { Environment } from "./environments";
+import { gridBox, type Piece } from "./pieces";
 
 /**
- * Trebuchets: range, the stone's flight and what a hit does. Shared by the
- * server (which decides every shot) and the game (which draws it).
- * Distances in metres, times in seconds.
+ * Siege engines (the trebuchet, or whatever a world has in its place): range,
+ * the stone's flight and what a hit does. Shared by the server (which decides
+ * every shot) and the game (which draws it). The numbers are the world's
+ * (Environment.siege). Distances in metres, times in seconds.
  */
-export const TREBUCHET = {
-  /** Nearer than this cannot be targeted, so nobody batters their own tower from inside. */
-  minRange: 25,
-  /** Range from the ground: what the big medieval ones managed with a stone that hurt a wall (user, 2026-11-23)... */
-  baseRange: 300,
-  /** ...plus this many metres for every metre the trebuchet stands higher. */
-  rangePerMetre: 1,
-  /** Seconds between shots. */
-  reload: 6,
-  /** Where the stone leaves the arm, above the trebuchet's base. */
-  launchHeight: 7,
-  /** Pull of gravity on the stone in the meadow (the real 9.81; see Environment.stoneGravity). */
-  gravity: MEADOW.stoneGravity,
-  /** Radius of the stone, for what it touches on the way. */
-  stoneRadius: 0.4,
-  /** Pieces this close to the impact take a hit. */
-  blastRadius: 2.2,
-  /** Builders this close to an impact are thrown. */
-  throwRadius: 7,
-  /** How hard a builder right at the impact is thrown: sideways and upward speed, m/s. */
-  throwOut: 26,
-  throwUp: 42,
-  /** How near a builder must be to get on, from the trebuchet's centre. */
-  boardReach: 6,
-} as const;
 
-/** Height of a trebuchet's turntable base: low enough to walk straight onto (builders step up 0.4 m). */
+/** Height of the engine's turntable base: low enough to walk straight onto (builders step up 0.4 m). */
 export const TREBUCHET_BASE = 0.35;
 
-/** Hits a piece takes before it breaks (doubled from 1, 2, 3: user, 2026-11-22). */
-export const MATERIAL_HP: Record<MaterialId, number> = { wood: 2, brick: 4, metal: 6 };
-/** A trebuchet breaks with one hit (user, 2026-11-22). */
-export const TREBUCHET_HP = 1;
-
-export const hitPoints = (p: Piece) => (p.type === "trebuchet" ? TREBUCHET_HP : MATERIAL_HP[p.material]);
+/** Hits a piece takes before it breaks. */
+export const hitPoints = (p: Piece, env: Environment) => (p.type === "trebuchet" ? env.siege.hits : env.materials[p.material].hits);
 
 export type Vec = [number, number, number];
 
@@ -52,14 +24,14 @@ export function trebuchetBase(t: Piece): Vec {
 }
 
 /** Where the stone is released. */
-export function launchPoint(t: Piece): Vec {
+export function launchPoint(t: Piece, env: Environment): Vec {
   const [x, y, z] = trebuchetBase(t);
-  return [x, y + TREBUCHET.launchHeight, z];
+  return [x, y + env.siege.launchHeight, z];
 }
 
-/** Furthest it can throw: higher trebuchets reach further (and every trebuchet further on the Moon). */
-export function maxRange(t: Piece, env: Environment = MEADOW): number {
-  return (TREBUCHET.baseRange + t.y * LEVEL * TREBUCHET.rangePerMetre) * env.range;
+/** Furthest it can throw: higher engines reach further. */
+export function maxRange(t: Piece, env: Environment): number {
+  return (env.siege.baseRange + t.y * LEVEL * env.siege.rangePerMetre) * env.range;
 }
 
 /** Horizontal distance from the trebuchet to a point. */
@@ -70,9 +42,9 @@ export function rangeTo(t: Piece, target: Vec): number {
 
 export type RangeCheck = "ok" | "near" | "far";
 
-export function checkRange(t: Piece, target: Vec, env: Environment = MEADOW): RangeCheck {
+export function checkRange(t: Piece, target: Vec, env: Environment): RangeCheck {
   const d = rangeTo(t, target);
-  return d < TREBUCHET.minRange ? "near" : d > maxRange(t, env) ? "far" : "ok";
+  return d < env.siege.minRange ? "near" : d > maxRange(t, env) ? "far" : "ok";
 }
 
 /** The stone's flight from `from` that passes exactly through `to`. */
@@ -86,13 +58,14 @@ export interface Flight {
   g: number;
 }
 
-export function planFlight(from: Vec, to: Vec, env: Environment = MEADOW): Flight {
+export function planFlight(from: Vec, to: Vec, env: Environment): Flight {
   const d = Math.hypot(to[0] - from[0], to[2] - from[2]);
   // As a real trebuchet throws: at about 45 degrees, so the stone is in the air
   // for sqrt(2d / g) seconds and peaks a quarter of the distance up (300 m: about
-  // 8 s and 75 m). Never under 1.5 s, so the nearest shots are lobs too. With a
-  // weaker pull the flight is slower by the square root, so the arc keeps its shape.
-  const time = Math.max(1.5, Math.sqrt((2 * d) / MEADOW.stoneGravity)) * env.flightTime;
+  // 8 s and 75 m, under the real pull of 9.81). Never under 1.5 s (longer where the world
+  // says so), so the nearest shots are lobs too. With a weaker pull the flight is
+  // slower by the square root, so the arc keeps its shape.
+  const time = Math.max(1.5 * env.flightTime, Math.sqrt((2 * d) / env.stoneGravity));
   const g = env.stoneGravity;
   return {
     from,
@@ -111,20 +84,20 @@ export function positionAt(f: Flight, t: number): Vec {
  * `point`: away from it and high into the air, harder the closer they were.
  * null when out of reach.
  */
-export function throwVelocity(point: Vec, at: Vec, spin = Math.random(), env: Environment = MEADOW): Vec | null {
+export function throwVelocity(point: Vec, at: Vec, env: Environment, spin = Math.random()): Vec | null {
   const dx = at[0] - point[0], dy = at[1] - point[1], dz = at[2] - point[2];
   const d = Math.hypot(dx, dy, dz);
-  if (d > TREBUCHET.throwRadius) return null;
-  const k = 0.55 + 0.45 * (1 - d / TREBUCHET.throwRadius);
+  if (d > env.siege.throwRadius) return null;
+  const k = 0.55 + 0.45 * (1 - d / env.siege.throwRadius);
   const flat = Math.hypot(dx, dz);
   // Right on top of it: thrown in a random direction.
   const a = flat > 0.3 ? Math.atan2(dx, dz) : spin * Math.PI * 2;
   const p = k * env.throwPower;
-  return [Math.sin(a) * TREBUCHET.throwOut * p, TREBUCHET.throwUp * p, Math.cos(a) * TREBUCHET.throwOut * p];
+  return [Math.sin(a) * env.siege.throwOut * p, env.siege.throwUp * p, Math.cos(a) * env.siege.throwOut * p];
 }
 
 /** A piece's solid space in metres: [minX, minY, minZ, maxX, maxY, maxZ]. */
-export function pieceBounds(p: Piece): [number, number, number, number, number, number] {
+export function pieceBounds(p: Piece, env: Environment): [number, number, number, number, number, number] {
   const b = gridBox(p);
   let x0 = b[0] * CELL, y0 = b[1] * LEVEL, z0 = b[2] * CELL, x1 = b[3] * CELL, y1 = b[4] * LEVEL, z1 = b[5] * CELL;
   const t = THICK / 2;
@@ -134,14 +107,14 @@ export function pieceBounds(p: Piece): [number, number, number, number, number, 
     y0 -= t;
     y1 += t;
   } else if (p.type === "trebuchet") {
-    y1 = y0 + TREBUCHET.launchHeight;
+    y1 = y0 + env.siege.launchHeight;
   }
   return [x0, y0, z0, x1, y1, z1];
 }
 
 /** Distance from a point to a piece's solid space (0 inside). */
-export function distanceToPiece(p: Piece, q: Vec): number {
-  const [x0, y0, z0, x1, y1, z1] = pieceBounds(p);
+export function distanceToPiece(p: Piece, q: Vec, env: Environment): number {
+  const [x0, y0, z0, x1, y1, z1] = pieceBounds(p, env);
   const dx = Math.max(x0 - q[0], 0, q[0] - x1);
   const dy = Math.max(y0 - q[1], 0, q[1] - y1);
   const dz = Math.max(z0 - q[2], 0, q[2] - z1);
@@ -160,7 +133,7 @@ export interface Impact {
  * Where the stone lands: the first piece (other than the trebuchet throwing it)
  * that it touches on its way, else the ground. Starting `fromTime` seconds in.
  */
-export function findImpact(state: BuildState, f: Flight, ignoreId: string, fromTime = 0): Impact {
+export function findImpact(state: BuildState, f: Flight, ignoreId: string, env: Environment, fromTime = 0): Impact {
   const speed = Math.hypot(...f.v) + f.g * f.time;
   const step = Math.min(0.05, 0.3 / speed);
   const limit = f.time * 2.5;
@@ -168,7 +141,7 @@ export function findImpact(state: BuildState, f: Flight, ignoreId: string, fromT
     const q = positionAt(f, t);
     if (q[1] <= 0) return { time: t, point: [q[0], 0, q[2]] };
     for (const p of state.near(q[0], q[1], q[2])) {
-      if (p.id !== ignoreId && distanceToPiece(p, q) <= TREBUCHET.stoneRadius) return { time: t, point: q, pieceId: p.id };
+      if (p.id !== ignoreId && distanceToPiece(p, q, env) <= env.siege.stoneRadius) return { time: t, point: q, pieceId: p.id };
     }
   }
   const q = positionAt(f, limit);
@@ -181,7 +154,7 @@ export function findImpact(state: BuildState, f: Flight, ignoreId: string, fromT
  * piece id and is updated. Returns the pieces that break and the new damage
  * of the ones that hold.
  */
-export function strike(state: BuildState, point: Vec, damage: Map<string, number>): { broken: Piece[]; damaged: [string, number][] } {
+export function strike(state: BuildState, point: Vec, damage: Map<string, number>, env: Environment): { broken: Piece[]; damaged: [string, number][] } {
   const broken: Piece[] = [];
   const damaged: [string, number][] = [];
   const seen = new Set<string>();
@@ -189,9 +162,9 @@ export function strike(state: BuildState, point: Vec, damage: Map<string, number
   for (const p of state.near(point[0], point[1], point[2])) {
     if (seen.has(p.id)) continue;
     seen.add(p.id);
-    if (distanceToPiece(p, point) > TREBUCHET.blastRadius) continue;
+    if (distanceToPiece(p, point, env) > env.siege.blastRadius) continue;
     const hits = (damage.get(p.id) ?? 0) + 1;
-    if (hits >= hitPoints(p)) {
+    if (hits >= hitPoints(p, env)) {
       broken.push(p);
       damage.delete(p.id);
     } else {

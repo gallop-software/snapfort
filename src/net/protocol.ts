@@ -113,7 +113,7 @@ export type ServerMessage =
       towers: WireTower[];
       /** World-wide lines from the last few seconds, oldest first. */
       chat?: WireSaid[];
-      /** Which world this is ("meadow", "moon"). */
+      /** Which world this is (its id). */
       env?: string;
       /** May you build here (false: visiting a paid world without the Full Game). */
       builder?: boolean;

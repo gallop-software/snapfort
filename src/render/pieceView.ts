@@ -14,10 +14,11 @@ import "@babylonjs/core/Rendering/edgesRenderer";
 import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import { CELL, LEVEL, THICK } from "../game/constants";
-import { MATERIAL_DEFS, MATERIALS, PIECE_TYPES, pieceTransform, type MaterialId, type Piece, type PieceSpec, type PieceType } from "../game/pieces";
+import type { Environment } from "../game/environments";
+import { MATERIALS, PIECE_TYPES, pieceTransform, type MaterialId, type Piece, type PieceSpec, type PieceType } from "../game/pieces";
+import type { WorldPage } from "../worlds/pageDoors";
 import { editedGeometry, pieceGeometry, TREBUCHET_BASE } from "./geometry";
 import { BUILDER_GROUP, FRAME_GROUP } from "./physicsGroups";
-import { pieceTexture } from "./textures";
 
 const UP = Vector3.Up();
 const ONE = Vector3.One();
@@ -39,9 +40,9 @@ function shade(piece: PieceSpec): number {
   return 0.95 + ((((h ^ (h >>> 16)) >>> 0) % 1000) / 1000) * 0.09;
 }
 
-/** A piece's colour: its material, its own shade, darkened and reddened as it is battered (0..1). */
-function pieceColor(piece: Piece, damage = 0): [number, number, number] {
-  const [r, g, b] = MATERIAL_DEFS[piece.material].color;
+/** A piece's colour: its material's in this world, its own shade, darkened and reddened as it is battered (0..1). */
+function pieceColor(piece: Piece, env: Environment, damage = 0): [number, number, number] {
+  const [r, g, b] = env.materials[piece.material].color;
   const k = shade(piece) * (1 - 0.6 * damage);
   return [Math.min(1, r * k + 0.12 * damage), Math.min(1, g * k), Math.min(1, b * k)];
 }
@@ -190,13 +191,16 @@ export class PieceView {
     private readonly scene: Scene,
     state: BuildState,
     private readonly shadows: ShadowGenerator,
+    private readonly env: Environment,
+    skin: WorldPage["pieceSkin"],
   ) {
     for (const type of PIECE_TYPES) {
       for (const material of MATERIALS) {
         const key = poolKey(type, material);
         const mat = new StandardMaterial(`piece-${key}`, scene);
-        mat.diffuseTexture = pieceTexture(type, material, scene);
-        mat.specularColor = material === "metal" ? new Color3(0.25, 0.25, 0.25) : Color3.Black();
+        const look = skin(type, material, scene);
+        mat.diffuseTexture = look.texture;
+        mat.specularColor = look.specular > 0 ? new Color3(look.specular, look.specular, look.specular) : Color3.Black();
         mat.specularPower = 24;
         this.materials.set(key, mat);
         const mesh = makeMesh(pieceGeometry(type), scene, `pieces-${key}`);
@@ -242,7 +246,7 @@ export class PieceView {
     const data = piece.edit === 0 ? pieceGeometry(piece.type) : editedGeometry(piece.type, piece.edit);
     const mesh = makeMesh(data, this.scene, `debris-${piece.id}`);
     mesh.material = this.materials.get(poolKey(piece.type, piece.material))!;
-    paintMesh(mesh, pieceColor(piece, 0.15));
+    paintMesh(mesh, pieceColor(piece, this.env, 0.15));
     const t = pieceTransform(piece);
     mesh.position.set(t.px, t.py, t.pz);
     mesh.rotationQuaternion = Quaternion.RotationAxis(UP, t.yaw);
@@ -257,7 +261,7 @@ export class PieceView {
 
   /** Darkens a piece as it is battered. `damage` runs from 0 (new) to 1 (about to break). */
   setDamage(piece: Piece, damage: number): void {
-    const color = pieceColor(piece, damage);
+    const color = pieceColor(piece, this.env, damage);
     const edited = this.edited.get(piece.id);
     if (edited) paintMesh(edited.mesh, color);
     else this.pools.get(poolKey(piece.type, piece.material))?.setColor(piece.id, color);
@@ -312,13 +316,13 @@ export class PieceView {
     let node: TransformNode;
     let shape: PhysicsShape;
     if (piece.edit === 0) {
-      this.pools.get(poolKey(piece.type, piece.material))!.add(piece.id, composeTransform(piece), pieceColor(piece));
+      this.pools.get(poolKey(piece.type, piece.material))!.add(piece.id, composeTransform(piece), pieceColor(piece, this.env));
       node = new TransformNode(`p-${piece.id}`, this.scene);
       shape = this.shapes[piece.type];
     } else {
       const mesh = makeMesh(editedGeometry(piece.type, piece.edit), this.scene, `p-${piece.id}`);
       mesh.material = this.materials.get(poolKey(piece.type, piece.material))!;
-      paintMesh(mesh, pieceColor(piece));
+      paintMesh(mesh, pieceColor(piece, this.env));
       mesh.receiveShadows = true;
       this.shadows.addShadowCaster(mesh);
       shape = new PhysicsShapeMesh(mesh, this.scene);

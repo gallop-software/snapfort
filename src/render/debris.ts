@@ -7,6 +7,7 @@ import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlug
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
 import type { Scene } from "@babylonjs/core/scene";
+import type { Environment } from "../game/environments";
 import type { Piece } from "../game/pieces";
 import { pieceBounds, type Vec } from "../game/trebuchet";
 import { BUILDER_GROUP, DEBRIS_GROUP } from "./physicsGroups";
@@ -47,10 +48,12 @@ export class Debris {
   constructor(
     private readonly scene: Scene,
     private readonly meshOf: (piece: Piece) => Mesh,
+    private readonly env: Environment,
+    dust: readonly [number, number, number],
   ) {
     this.dust = new StandardMaterial("dust", scene);
     this.dust.disableLighting = true;
-    this.dust.emissiveColor = new Color3(0.86, 0.8, 0.7);
+    this.dust.emissiveColor = new Color3(...dust);
     this.dust.alpha = 0.6;
   }
 
@@ -60,7 +63,7 @@ export class Debris {
    */
   spawn(pieces: readonly Piece[], broken: ReadonlySet<string>, from: Vec): void {
     for (const piece of pieces) {
-      const [x0, y0, z0, x1, y1, z1] = pieceBounds(piece);
+      const [x0, y0, z0, x1, y1, z1] = pieceBounds(piece, this.env);
       const centre = new Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       if (broken.has(piece.id)) this.puff(centre, 2.2 + Math.random(), 1.1);
       if (this.rubble.length >= this.limit) {

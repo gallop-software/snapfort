@@ -1,3 +1,4 @@
+import { worldAtPath } from "../worlds";
 import { cleanKey } from "../net/keys";
 
 /** Where the key is kept in this browser. */
@@ -299,10 +300,11 @@ export class Store {
     for (const button of document.querySelectorAll<HTMLElement>(".store-own-buy")) button.hidden = !this.canBuy;
     document.getElementById("store-key")!.textContent = this.key ?? "";
     document.body.classList.toggle("owned", this.owned);
-    // The Moon's offer on the menu, and the buttons that buy: ready, or not open yet.
-    document.getElementById("moon-offer")!.hidden = this.owned || document.body.dataset.env !== "moon";
+    // In a paid world, its offer on the menu; and the buttons that buy: ready, or not open yet.
+    const here = worldAtPath(location.pathname);
+    document.getElementById("paid-offer")!.hidden = this.owned || !here.paid;
     const label = this.canBuy ? null : "Unlocks open soon";
-    for (const [id, text] of [["offer-buy", `Unlock the Moon · ${PRICE}`], ["unlock-buy", `Unlock · ${PRICE}`]] as const) {
+    for (const [id, text] of [["offer-buy", `Unlock the ${here.name} · ${PRICE}`], ["unlock-buy", `Unlock · ${PRICE}`]] as const) {
       const button = document.getElementById(id) as HTMLButtonElement;
       button.disabled = !this.canBuy;
       button.textContent = label ?? text;

@@ -1,47 +1,17 @@
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import type { Scene } from "@babylonjs/core/scene";
-import type { MaterialId, PieceType } from "../game/pieces";
+import type { MaterialId, PieceType } from "../../../game/pieces";
+import { canvas, line, rng, toTexture } from "../../../render/paint";
+import type { PieceSkin } from "../../pageDoors";
 
 /**
- * All art is drawn here with canvas 2D, so the game ships no image files.
+ * The Moon's art: the pieces, grey cratered dust, a black sky full of stars and the Earth.
  * Piece textures are near-white line work; the material colour is multiplied
  * in per piece. The texture spans the whole face of a piece, so its border
  * outlines each piece and edit tiles line up with the pattern.
  */
-
-function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  return [c, c.getContext("2d")!];
-}
-
-function toTexture(c: HTMLCanvasElement, scene: Scene, name: string): Texture {
-  const texture = new Texture(c.toDataURL("image/png"), scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
-  texture.name = name;
-  texture.anisotropicFilteringLevel = 8;
-  return texture;
-}
-
-/** Small deterministic random source so the art is the same on every load. */
-function rng(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 const S = 256;
 const LINE = "rgba(40, 30, 20, 0.26)";
-
-function line(g: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number): void {
-  g.beginPath();
-  g.moveTo(x0, y0);
-  g.lineTo(x1, y1);
-  g.stroke();
-}
 
 function wood(g: CanvasRenderingContext2D, r: () => number): void {
   // Planks across the piece, with grain streaks, butt joints and nails.
@@ -130,7 +100,12 @@ function metal(g: CanvasRenderingContext2D, r: () => number): void {
 
 const PATTERNS: Record<MaterialId, (g: CanvasRenderingContext2D, r: () => number) => void> = { wood, brick, metal };
 
-export function pieceTexture(type: PieceType, material: MaterialId, scene: Scene): Texture {
+/** The look of one kind of piece in one material. Only metal shines. */
+export function pieceSkin(type: PieceType, material: MaterialId, scene: Scene): PieceSkin {
+  return { texture: pieceTexture(type, material, scene), specular: material === "metal" ? 0.25 : 0 };
+}
+
+function pieceTexture(type: PieceType, material: MaterialId, scene: Scene): Texture {
   const [c, g] = canvas(S);
   g.fillStyle = "#fbfbfb";
   g.fillRect(0, 0, S, S);
@@ -156,52 +131,6 @@ export function pieceTexture(type: PieceType, material: MaterialId, scene: Scene
   g.lineWidth = 2;
   g.strokeRect(8, 8, S - 16, S - 16);
   return toTexture(c, scene, `piece-${type}-${material}`);
-}
-
-/** Meadow with a faint line on every grid cell edge. One tile covers 2 x 2 cells. */
-export function groundTexture(scene: Scene): Texture {
-  const size = 512;
-  const [c, g] = canvas(size);
-  g.fillStyle = "#8dbb6e";
-  g.fillRect(0, 0, size, size);
-  const r = rng(7);
-  for (let i = 0; i < 260; i++) {
-    const x = r() * size, y = r() * size, rad = 6 + r() * 26;
-    g.fillStyle = r() > 0.5 ? `rgba(255, 244, 190, ${0.03 + r() * 0.05})` : `rgba(30, 90, 60, ${0.03 + r() * 0.05})`;
-    // Draw wrapped copies so the tile repeats without a seam.
-    for (const ox of [-size, 0, size]) {
-      for (const oy of [-size, 0, size]) {
-        g.beginPath();
-        g.ellipse(x + ox, y + oy, rad, rad * (0.5 + r() * 0.2), 0, 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-  }
-  g.fillStyle = "rgba(255, 250, 225, 0.30)";
-  for (const p of [0, size / 2]) {
-    g.fillRect(p - 2, 0, 4, size);
-    g.fillRect(0, p - 2, size, 4);
-  }
-  g.fillRect(size - 2, 0, 2, size);
-  g.fillRect(0, size - 2, size, 2);
-  return toTexture(c, scene, "ground");
-}
-
-/** Vertical sky gradient from straight up to below the horizon; the middle of the image is the horizon. */
-export function skyTexture(scene: Scene): Texture {
-  const [c, g] = canvas(256);
-  const grad = g.createLinearGradient(0, 0, 0, 256);
-  // Babylon's sphere maps the top of the image to the bottom pole, so the stops run upside down.
-  grad.addColorStop(1, "#3d93bd");
-  grad.addColorStop(0.7, "#74bfd0");
-  grad.addColorStop(0.56, "#c5e3d2");
-  grad.addColorStop(0.5, "#fbe9c8");
-  grad.addColorStop(0, "#f3dfb9");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 256, 256);
-  const texture = toTexture(c, scene, "sky");
-  texture.wrapV = Texture.CLAMP_ADDRESSMODE;
-  return texture;
 }
 
 /** The Moon's dust: grey, with craters (dark bowls, bright rims) and the same faint cell lines. */

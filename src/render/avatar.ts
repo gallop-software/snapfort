@@ -1,15 +1,12 @@
 import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
-import { CreateCapsule } from "@babylonjs/core/Meshes/Builders/capsuleBuilder";
-import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
-import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { DOWN_TIME, RISE_TIME } from "../game/fall";
+import type { OutfitBuilder, OutfitRig } from "../worlds/pageDoors";
 
 /** Full running speed, m/s: the stride is at its widest here. */
 export const AVATAR_RUN_SPEED = 26;
@@ -36,28 +33,13 @@ function plainMaterial(scene: Scene, name: string, color: Color3): StandardMater
   return m;
 }
 
-const shared = new WeakMap<Scene, Record<"navy" | "skin" | "sun" | "teal" | "ink" | "cream", StandardMaterial>>();
-
-/** Materials every builder has in common, made once per scene. */
-function sharedMaterials(scene: Scene) {
-  let mats = shared.get(scene);
-  if (!mats) {
-    mats = {
-      navy: plainMaterial(scene, "navy", new Color3(0.17, 0.22, 0.33)),
-      skin: plainMaterial(scene, "skin", new Color3(0.87, 0.67, 0.52)),
-      sun: plainMaterial(scene, "sun", new Color3(1, 0.79, 0.22)),
-      teal: plainMaterial(scene, "teal", new Color3(0.18, 0.56, 0.55)),
-      ink: plainMaterial(scene, "ink", new Color3(0.12, 0.13, 0.17)),
-      cream: plainMaterial(scene, "cream", new Color3(1, 0.95, 0.85)),
-    };
-    shared.set(scene, mats);
-  }
-  return mats;
-}
+/** Plain colours every builder in a scene has in common, by name, made once per scene. */
+const shared = new WeakMap<Scene, Map<string, StandardMaterial>>();
 
 /**
- * A builder's body and its running animation, with hips, knees, shoulders and
- * elbows that bend. Used for the local player and for everyone else in the world.
+ * A builder's skeleton and its running animation, with hips, knees, shoulders
+ * and elbows that bend, dressed in the world's outfit. Used for the local
+ * player and for everyone else in the world.
  */
 export class Avatar {
   /** Put this at the builder's feet. */
@@ -65,7 +47,12 @@ export class Avatar {
   private readonly body: TransformNode;
   private readonly meshes: Mesh[] = [];
   private readonly nodes: TransformNode[] = [];
+  /** The part of the outfit in the player's colour. */
   private jacket!: StandardMaterial;
+  /** Materials of this builder's own (disposed with it). */
+  private readonly owned: StandardMaterial[] = [];
+  /** Parts of the outfit that can be shown and hidden by name. */
+  private readonly extras = new Map<string, Mesh[]>();
   private stride = 0;
   /** 0 standing still to 1 moving, eased so the limbs settle smoothly. */
   private swing = 0;
@@ -83,11 +70,16 @@ export class Avatar {
   private readonly shoulders: TransformNode[] = [];
   private readonly elbows: TransformNode[] = [];
 
-  constructor(scene: Scene, shadows: ShadowGenerator | null, color = DEFAULT_AVATAR_COLOR) {
+  constructor(scene: Scene, shadows: ShadowGenerator | null, outfit: OutfitBuilder, color = DEFAULT_AVATAR_COLOR) {
     this.root = new TransformNode("builder", scene);
     this.body = new TransformNode("builder-body", scene);
     this.body.parent = this.root;
-    this.buildAvatar(scene, shadows, color);
+    this.buildAvatar(scene, shadows, outfit, color);
+  }
+
+  /** Shows or hides a named extra part of the outfit (a world's own: rocket flames, say). */
+  setExtra(name: string, on: boolean): void {
+    for (const mesh of this.extras.get(name) ?? []) mesh.setEnabled(on);
   }
 
   setColor(color: string): void {
@@ -99,7 +91,7 @@ export class Avatar {
   }
 
   dispose(): void {
-    this.jacket.dispose();
+    for (const material of this.owned) material.dispose();
     for (const mesh of this.meshes) mesh.dispose();
     for (const node of this.nodes) node.dispose();
     this.body.dispose();
@@ -300,23 +292,12 @@ export class Avatar {
   }
 
   /**
-   * An original builder: work jacket in the player's colour (coral for the local player), navy trousers, teal tool pack and a
-   * sunflower-yellow hard hat. Human proportions, built from simple shapes,
-   * with hips, knees, shoulders and elbows that bend.
+   * The skeleton every world dresses (see OutfitRig in worlds/pageDoors.ts):
+   * hips, knees, shoulders and elbows that bend, the legs hanging from a pelvis
+   * that stays upright and turns toward the direction of travel. The world's
+   * outfit hangs the body parts on it.
    */
-  private buildAvatar(scene: Scene, shadows: ShadowGenerator | null, color: string): void {
-    const { navy, skin, sun, teal, ink, cream } = sharedMaterials(scene);
-    const coral = (this.jacket = plainMaterial(scene, "jacket", Color3.FromHexString(color)));
-
-    const add = (mesh: Mesh, material: StandardMaterial, parent: TransformNode, x: number, y: number, z: number) => {
-      mesh.material = material;
-      mesh.parent = parent;
-      mesh.position.set(x, y, z);
-      mesh.isPickable = false;
-      shadows?.addShadowCaster(mesh);
-      this.meshes.push(mesh);
-      return mesh;
-    };
+  private buildAvatar(scene: Scene, shadows: ShadowGenerator | null, outfit: OutfitBuilder, color: string): void {
     const joint = (name: string, parent: TransformNode, x: number, y: number, z: number) => {
       const node = new TransformNode(name, scene);
       node.parent = parent;
@@ -324,45 +305,52 @@ export class Avatar {
       node.position.set(x, y, z);
       return node;
     };
-    const limb = (name: string, radius: number, length: number) =>
-      CreateCapsule(name, { radius, height: length, tessellation: 10, subdivisions: 1 }, scene);
-
-    // Legs: thigh from the hip, shin from the knee, boot on the shin. Both hang
-    // from a pelvis that stays upright and turns toward the direction of travel.
     this.legsUpright = joint("pelvis", this.body, 0, 0.9, 0);
     this.legsTurn = joint("pelvis-turn", this.legsUpright, 0, 0, 0);
     for (const side of [-1, 1]) {
       const hip = joint("hip", this.legsTurn, side * 0.13, 0, 0);
-      add(limb("thigh", 0.115, 0.5), navy, hip, 0, -0.22, 0);
-      const knee = joint("knee", hip, 0, -0.45, 0);
-      add(CreateSphere("kneecap", { diameter: 0.21, segments: 8 }, scene), navy, knee, 0, 0, 0.01);
-      add(limb("shin", 0.1, 0.46), navy, knee, 0, -0.2, 0);
-      add(CreateBox("boot", { width: 0.2, height: 0.12, depth: 0.32 }, scene), ink, knee, 0, -0.39, 0.05);
       this.hips.push(hip);
-      this.knees.push(knee);
+      this.knees.push(joint("knee", hip, 0, -0.45, 0));
     }
-    // Body.
-    add(CreateCapsule("torso", { radius: 0.24, height: 0.78, tessellation: 14, subdivisions: 1 }, scene), coral, this.body, 0, 1.2, 0);
-    add(CreateCylinder("stripe", { diameter: 0.5, height: 0.06, tessellation: 14 }, scene), cream, this.body, 0, 1.12, 0);
-    add(CreateCylinder("belt", { diameter: 0.46, height: 0.08, tessellation: 14 }, scene), ink, this.body, 0, 0.92, 0);
-    add(CreateBox("pack", { width: 0.36, height: 0.44, depth: 0.18 }, scene), teal, this.body, 0, 1.24, -0.27);
-    add(CreateBox("pack-flap", { width: 0.38, height: 0.1, depth: 0.2 }, scene), cream, this.body, 0, 1.42, -0.27);
-    // Arms: upper arm from the shoulder, forearm and hand from the elbow.
     for (const side of [-1, 1]) {
       const shoulder = joint("shoulder", this.body, side * 0.32, 1.46, 0);
-      add(limb("upper-arm", 0.085, 0.36), coral, shoulder, 0, -0.15, 0);
-      const elbow = joint("elbow", shoulder, 0, -0.31, 0);
-      add(limb("forearm", 0.075, 0.32), coral, elbow, 0, -0.13, 0);
-      add(CreateSphere("hand", { diameter: 0.15, segments: 8 }, scene), skin, elbow, 0, -0.31, 0.01);
       this.shoulders.push(shoulder);
-      this.elbows.push(elbow);
+      this.elbows.push(joint("elbow", shoulder, 0, -0.31, 0));
     }
-    // Head and hard hat.
-    add(CreateCylinder("neck", { diameter: 0.14, height: 0.1, tessellation: 10 }, scene), skin, this.body, 0, 1.6, 0);
-    add(CreateSphere("head", { diameter: 0.34, segments: 14 }, scene), skin, this.body, 0, 1.76, 0.01);
-    for (const side of [-1, 1]) add(CreateSphere("eye", { diameter: 0.045, segments: 6 }, scene), ink, this.body, side * 0.065, 1.78, 0.165);
-    add(CreateSphere("hat", { diameter: 0.4, segments: 14, slice: 0.5 }, scene), sun, this.body, 0, 1.82, 0);
-    add(CreateCylinder("brim", { diameter: 0.46, height: 0.035, tessellation: 18 }, scene), sun, this.body, 0, 1.83, 0.03);
-    add(CreateBox("crest", { width: 0.06, height: 0.05, depth: 0.32 }, scene), sun, this.body, 0, 2.02, 0);
+    const rig: OutfitRig = {
+      scene,
+      body: this.body,
+      hips: this.hips,
+      knees: this.knees,
+      shoulders: this.shoulders,
+      elbows: this.elbows,
+      add: (mesh, material, parent, x, y, z) => {
+        mesh.material = material;
+        mesh.parent = parent;
+        mesh.position.set(x, y, z);
+        mesh.isPickable = false;
+        shadows?.addShadowCaster(mesh);
+        this.meshes.push(mesh);
+        return mesh;
+      },
+      shared: (name, r, g, b) => {
+        let mats = shared.get(scene);
+        if (!mats) shared.set(scene, (mats = new Map()));
+        let m = mats.get(name);
+        if (!m) mats.set(name, (m = plainMaterial(scene, name, new Color3(r, g, b))));
+        return m;
+      },
+      own: (name, hex) => {
+        const m = plainMaterial(scene, name, Color3.FromHexString(hex));
+        this.owned.push(m);
+        return m;
+      },
+    };
+    const dressed = outfit(rig, color);
+    this.jacket = dressed.tint;
+    for (const [name, meshes] of Object.entries(dressed.extras ?? {})) {
+      this.extras.set(name, meshes);
+      for (const mesh of meshes) mesh.setEnabled(false);
+    }
   }
 }

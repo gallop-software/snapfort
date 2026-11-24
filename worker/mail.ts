@@ -1,3 +1,4 @@
+import { DEFAULT_WORLD, FIRST_PAID_WORLD } from "../src/worlds";
 /**
  * The emails SnapFort sends: a buyer's key (right after paying, again when
  * they ask for a link, and after replacing a leaked one), and the link that
@@ -36,7 +37,10 @@ interface Mail {
 }
 
 /** The link that unlocks the device it is opened on. */
-export const unlockLink = (site: string, key: string) => `${site}/moon#key=${encodeURIComponent(key)}`;
+export const unlockLink = (site: string, key: string) => `${site}${SHOWN.path === "/" ? "/" : SHOWN.path}#key=${encodeURIComponent(key)}`;
+
+/** The world a key email talks about and its link opens: the first one that needs the Full Game. */
+const SHOWN = FIRST_PAID_WORLD ?? DEFAULT_WORLD;
 
 /** The subject, HTML and text of a key email. `site` is the address links go to (https://snapfort.io). */
 export function keyEmail(keys: readonly string[], kind: KeyMailKind, site: string): Mail {
@@ -47,9 +51,9 @@ export function keyEmail(keys: readonly string[], kind: KeyMailKind, site: strin
     kind === "bought" ? "Thanks! The Full Game is yours." : kind === "given" ? "The Full Game is yours." : kind === "replaced" ? "Here's your new key" : "Here's your link to SnapFort";
   const intro =
     kind === "bought"
-      ? "You can now build on the Moon, and in every paid world we add. The browser you bought in is already unlocked."
+      ? `You can now build on the ${SHOWN.name}, and in every paid world we add. The browser you bought in is already unlocked.`
       : kind === "given"
-        ? "You've been given the SnapFort Full Game: you can build on the Moon, and in every paid world we add. Tap the button on the device you play on."
+        ? `You've been given the SnapFort Full Game: you can build on the ${SHOWN.name}, and in every paid world we add. Tap the button on the device you play on.`
       : kind === "replaced"
         ? "Your old key no longer works, so nobody who saw it can use it. The device where you confirmed is already unlocked."
         : "You asked for a link to unlock SnapFort with the key bought with this email address. If that wasn't you, you can ignore this email: nobody else can see it.";

@@ -1,7 +1,8 @@
 import type { BuildState } from "./buildState";
 import { CELL, LEVEL, THICK, WORLD_HALF_CELLS } from "./constants";
-import { MEADOW, type Environment } from "./environments";
+import type { Environment, RoofShape } from "./environments";
 import { normalizeSpec, type Piece } from "./pieces";
+import { roofHeight } from "./roofs";
 import { TREBUCHET_BASE, type Vec } from "./trebuchet";
 
 /**
@@ -11,8 +12,6 @@ import { TREBUCHET_BASE, type Vec } from "./trebuchet";
  * background. Positions are the centre of the builder's body, in metres.
  */
 
-/** Same pull as the builder's own physics, in the meadow (see Environment.gravity). */
-export const FALL_GRAVITY = MEADOW.gravity;
 /** Half the builder's height: the body's centre is this far above the feet. */
 const HALF = 0.9;
 const RADIUS = 0.4;
@@ -38,7 +37,7 @@ export interface Fall {
  * The height someone can stand on at (x, z) on piece `p`, or null when that
  * spot is not on it. Matches the shapes the game draws.
  */
-export function standHeight(p: Piece, x: number, z: number): number | null {
+export function standHeight(p: Piece, x: number, z: number, roof: RoofShape = "pyramid"): number | null {
   const s = normalizeSpec(p);
   const base = s.y * LEVEL;
   const u = x / CELL - s.x, w = z / CELL - s.z;
@@ -56,7 +55,7 @@ export function standHeight(p: Piece, x: number, z: number): number | null {
     case "trebuchet":
       return base + TREBUCHET_BASE;
     case "roof":
-      return base + LEVEL * Math.max(0, 1 - 2 * Math.max(Math.abs(cu - 0.5), Math.abs(cw - 0.5)));
+      return base + LEVEL * roofHeight(roof, cu, cw);
     case "ramp": {
       const k = s.rot === 0 ? cw : s.rot === 1 ? cu : s.rot === 2 ? 1 - cw : 1 - cu;
       return base + THICK / 2 + k * LEVEL;
@@ -79,7 +78,7 @@ function hitsWallSide(p: Piece, c: Vec): boolean {
  * something stops a rise, and the first surface met on the way down (or the
  * ground) is where they land.
  */
-export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment = MEADOW): Fall {
+export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment): Fall {
   let [x, y, z] = from;
   let [vx, vy, vz] = v;
   const path: Vec[] = [[x, y, z]];
@@ -105,7 +104,7 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment 
       for (const p of near) {
         if (p.type !== "floor") continue;
         const under = p.y * LEVEL - THICK / 2;
-        if (standHeight(p, x, z) !== null && y + HALF <= under && ny + HALF > under) {
+        if (standHeight(p, x, z, env.roof) !== null && y + HALF <= under && ny + HALF > under) {
           ny = under - HALF;
           vy = 0;
         }
@@ -115,7 +114,7 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment 
     if (vy <= 0) {
       let surface = 0;
       for (const p of near) {
-        const h = standHeight(p, x, z);
+        const h = standHeight(p, x, z, env.roof);
         if (h !== null && h <= y - HALF + 0.05 && h > surface) surface = h;
       }
       if (ny - HALF <= surface) {

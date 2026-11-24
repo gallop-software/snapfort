@@ -17,5 +17,6 @@ export default defineConfig({
   // Havok ships its own .wasm next to the ES module; pre-bundling would lose track of it.
   optimizeDeps: { exclude: ["@babylonjs/havok"] },
   build: { target: "es2022", chunkSizeWarningLimit: 2500 },
-  test: { include: ["tests/**/*.test.ts"], environment: "node" },
+  // Shared rules in tests/; each world keeps its own tests in its folder.
+  test: { include: ["tests/**/*.test.ts", "src/worlds/**/*.test.ts"], environment: "node" },
 });

@@ -300,12 +300,11 @@ export function tabId(): string {
 }
 
 /** The shared world's address on this site. */
-export function worldUrl(env = "meadow"): string {
+export function worldUrl(env: string): string {
   const params = new URLSearchParams();
-  if (env !== "meadow") params.set("env", env);
+  params.set("env", env);
   // A local dev server can open a separate world with ?world=<name> (the server ignores it elsewhere).
   const world = new URLSearchParams(location.search).get("world");
   if (world) params.set("world", world);
-  const query = params.size ? `?${params}` : "";
-  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws${query}`;
+  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?${params}`;
 }

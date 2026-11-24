@@ -16,13 +16,9 @@ import { createIdSource } from "./game/ids";
 import {
   editGrid,
   isValidEdit,
-  MATERIAL_DEFS,
   normalizeSpec,
-  MATERIAL_MAX_LEVEL,
   materialFor,
-  type MaterialId,
   MATERIALS,
-  PIECE_DEFS,
   slotKey,
   type Piece,
   type PieceSpec,
@@ -42,7 +38,9 @@ import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { Store } from "./ui/store";
 import { Tips } from "./ui/tips";
-import { MEADOW, type Environment } from "./game/environments";
+import { pieceLabel, type Environment } from "./game/environments";
+import type { WorldPage } from "./worlds/pageDoors";
+import { reachOf } from "./ui/worlds";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
 import { CameraRig, SCOPE_ZOOMS } from "./render/cameraRig";
@@ -56,11 +54,10 @@ import { RemotePlayers } from "./render/remotePlayers";
 import { TowerFlag } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
 import { TREBUCHET_BASE } from "./render/geometry";
-import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, TREBUCHET, trebuchetBase, type Vec } from "./game/trebuchet";
+import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, trebuchetBase, type Vec } from "./game/trebuchet";
 import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
-import { createWorld } from "./render/world";
 import { clock, Hud, showStats, type HotbarItem } from "./ui/hud";
 
 type Tool = PieceType | "remove";
@@ -98,12 +95,18 @@ interface EditSession {
   hover: number;
 }
 
-export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngine, api: GraphicsApi, env: Environment = MEADOW): Promise<void> {
+/**
+ * Runs the game in one world: `env` is its rules and names, `page` everything
+ * it draws and plays itself. Nothing in here knows which world that is.
+ */
+export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngine, api: GraphicsApi, env: Environment, page: WorldPage): Promise<void> {
+  /** This world's siege engine, as it reads in a sentence ("trebuchet"). */
+  const engineName = env.siege.name.toLowerCase();
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
 
   const havok = await HavokPhysics({ locateFile: () => havokWasmUrl });
-  // The world's pull on rubble (gentle on the Moon).
+  // The world's pull on rubble.
   scene.enablePhysics(new Vector3(0, -env.rubbleGravity, 0), new HavokPlugin(true, havok));
   const physics = scene.getPhysicsEngine() as PhysicsEngine;
 
@@ -117,29 +120,28 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const nextId = () => idSource();
 
   const rig = new CameraRig(scene);
-  const world = createWorld(scene, rig.camera, env);
-  const view = new PieceView(scene, state, world.shadows);
+  const world = page.scenery(scene, rig.camera);
+  const view = new PieceView(scene, state, world.shadows, env, page.pieceSkin);
   const ghost = new Ghost(scene);
   const flash = new PlaceFlash(scene);
   const overlay = new EditOverlay(scene);
-  const player = new Player(scene, world.shadows, env);
+  const player = new Player(scene, world.shadows, env, page.outfit);
   const input = new Input(canvas);
   // Phones and tablets: on-screen controls (created once the game's actions exist, below).
   let touch: TouchControls | null = null;
-  const sfx = new Sfx();
+  const sfx = new Sfx(page.sounds);
   const army = new SoldierView(scene, world.shadows);
-  const remotes = new RemotePlayers(scene, world.shadows);
-  const trebuchets = new TrebuchetView(scene, state, world.shadows);
-  trebuchets.environment = env;
+  const remotes = new RemotePlayers(scene, world.shadows, page.outfit);
+  const trebuchets = new TrebuchetView(scene, state, world.shadows, env, page.siegeModel(scene));
   // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
-  const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)));
+  const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)), env, page.dust);
   const flag = new TowerFlag(scene);
   /** Hits taken by damaged pieces (from the server), so their cracks show. */
   const damage = new Map<string, number>();
   const tint = (id: string) => {
     const piece = state.get(id);
     const hits = damage.get(id);
-    if (piece && hits) view.setDamage(piece, Math.min(0.9, hits / hitPoints(piece)));
+    if (piece && hits) view.setDamage(piece, Math.min(0.9, hits / hitPoints(piece, env)));
   };
   // A damaged piece drawn again (after a correction from the server) keeps its cracks.
   state.subscribe((op, piece) => {
@@ -204,7 +206,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   const items: HotbarItem[] = TOOLS.map((tool) => ({
     id: tool,
-    label: tool === "remove" ? "Remove" : PIECE_DEFS[tool].label,
+    label: tool === "remove" ? "Remove" : pieceLabel(tool, env),
     key: TOOL_KEYS[tool],
   }));
   const hud = new Hud(items, {
@@ -367,7 +369,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** What the badge last showed, so it is only redrawn when that changes. */
   let shownMaterial = "";
-  const reach: Record<MaterialId, string> = { metal: "storeys 1–10", brick: "storeys 1–30", wood: "any storey" };
 
   /**
    * The material badge: the chosen material and where it can go, or, when the
@@ -375,13 +376,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    */
   function showMaterial(): void {
     const chosen = MATERIALS[materialIndex]!;
-    const used = aimSpec && !crewOn ? materialFor(aimSpec.type, chosen, aimSpec.y) : chosen;
+    const used = aimSpec && !crewOn ? materialFor(aimSpec.type, chosen, aimSpec.y, env) : chosen;
     const key = `${chosen}>${used}`;
     if (key === shownMaterial) return;
     shownMaterial = key;
-    const note = used === chosen ? reach[chosen] : `${MATERIAL_DEFS[chosen].label} only to storey ${MATERIAL_MAX_LEVEL[chosen] + 1}`;
-    hud.setMaterial(MATERIAL_DEFS[used].label, MATERIAL_DEFS[used].color, "T", note);
-    touch?.setMaterial(MATERIAL_DEFS[used].label, `rgb(${MATERIAL_DEFS[used].color.map((c) => Math.round(c * 255)).join(", ")})`);
+    const mine = env.materials[chosen], shown = env.materials[used];
+    const note = used === chosen ? reachOf(env, chosen) : `${mine.label} only to storey ${mine.maxLevel + 1}`;
+    hud.setMaterial(shown.label, shown.color, "T", note);
+    touch?.setMaterial(shown.label, `rgb(${shown.color.map((c) => Math.round(c * 255)).join(", ")})`);
   }
 
   function cycleMaterial(): void {
@@ -393,7 +395,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** What to tell the builder when a piece cannot go where they aim. */
   function problemText(spec: PieceSpec, problem: PlaceProblem): string {
     if (problem !== "unsupported") return PROBLEM_TEXT[problem];
-    if (spec.type === "trebuchet") return "A trebuchet needs a floor or the ground under it";
+    if (spec.type === "trebuchet") return `A ${engineName} needs a floor or the ground under it`;
     // A ramp next to a ramp climbing another way: they only join in a straight line.
     if (spec.type === "ramp" && state.around(spec, 1).some((p) => p.type === "ramp" && p.rot !== normalizeSpec(spec).rot && Math.abs(p.y - spec.y) <= 1)) {
       return "Ramps turn only on a floor: put a floor down first";
@@ -412,7 +414,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       return;
     }
     // Too high for the chosen material: the strongest one allowed there.
-    const piece = { ...aimSpec, id: nextId(), material: materialFor(aimSpec.type, MATERIALS[materialIndex]!, aimSpec.y), edit: 0 };
+    const piece = { ...aimSpec, id: nextId(), material: materialFor(aimSpec.type, MATERIALS[materialIndex]!, aimSpec.y, env), edit: 0 };
     if (history.do({ kind: "place", piece })) {
       // A turned ramp is a one-off: the next one climbs straight ahead again.
       if (piece.type === "ramp" && rotation !== 0) setTurn(0);
@@ -1067,13 +1069,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       }
       else if (crewOn === id) {
         leaveCrew();
-        if (!state.get(id)) hud.toast("Your trebuchet is gone");
+        if (!state.get(id)) hud.toast(`Your ${engineName} is gone`);
       }
     },
     shot(shot, id, by, from, to) {
       if (solo) return;
       trebuchets.throwStone(shot, id, from, to);
-      if (by === myId) readyAt = performance.now() + TREBUCHET.reload * 1000;
+      if (by === myId) readyAt = performance.now() + env.siege.reload * 1000;
       const near = nearness(from);
       if (near > 0) sfx.launch();
     },
@@ -1116,16 +1118,16 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       // The server lost track of us on a trebuchet that is still here: get back on it quietly.
       if (reason === "gone" && crewOn && state.get(crewOn)) {
         net.board(crewOn, [player.position.x, player.feetY, player.position.z]);
-        hud.toast("Back on the trebuchet: click to fire");
+        hud.toast(`Back on the ${engineName}: click to fire`);
         return;
       }
       const text: Record<string, string> = {
-        busy: "Someone else is on that trebuchet",
-        far: "Get closer to the trebuchet",
-        near: `Too close: aim at least ${TREBUCHET.minRange} m away`,
+        busy: `Someone else is on that ${engineName}`,
+        far: `Get closer to the ${engineName}`,
+        near: `Too close: aim at least ${env.siege.minRange} m away`,
         range: "Out of range: build higher or get closer",
         reload: "Still reloading",
-        gone: "That trebuchet is gone",
+        gone: `That ${engineName} is gone`,
         locked: `Building on the ${env.name} comes with the Full Game`,
       };
       hud.toast(text[reason] ?? "Not now");
@@ -1180,7 +1182,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (p.type !== "trebuchet") continue;
       const [x, y, z] = trebuchetBase(p);
       const d = Math.hypot(x - player.position.x, z - player.position.z);
-      if (d <= TREBUCHET.boardReach && Math.abs(y - player.feetY) < 3 && d < bestDist) {
+      if (d <= env.siege.boardReach && Math.abs(y - player.feetY) < 3 && d < bestDist) {
         best = p;
         bestDist = d;
       }
@@ -1198,11 +1200,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (solo || player.knockedDown) return;
     const t = trebuchetInReach();
     if (!t) {
-      hud.toast("Stand next to a trebuchet to get on");
+      hud.toast(`Stand next to a ${engineName} to get on`);
       return sfx.deny();
     }
     if (crews.has(t.id) && crews.get(t.id) !== myId) {
-      hud.toast("Someone else is on that trebuchet");
+      hud.toast(`Someone else is on that ${engineName}`);
       return sfx.deny();
     }
     net.board(t.id, [player.position.x, player.feetY, player.position.z]);
@@ -1245,7 +1247,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** Where the scope looks from: just above where the stone is released. */
   function scopePoint(t: Piece): Vec {
-    const [x, y, z] = launchPoint(t);
+    const [x, y, z] = launchPoint(t, env);
     return [x, y + 0.8, z];
   }
 
@@ -1272,7 +1274,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     target = point;
     if (!point) return trebuchets.showTarget(null, null, false);
     trebuchets.aimAt(t.id, point);
-    trebuchets.showTarget(launchPoint(t), point, checkRange(t, point, env) === "ok");
+    trebuchets.showTarget(launchPoint(t, env), point, checkRange(t, point, env) === "ok");
   }
 
   function fireStone(): void {
@@ -1285,7 +1287,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
     const range = checkRange(t, target, env);
     if (range !== "ok") {
-      hud.toast(range === "near" ? `Too close: aim at least ${TREBUCHET.minRange} m away` : "Out of range: build higher or get closer");
+      hud.toast(range === "near" ? `Too close: aim at least ${env.siege.minRange} m away` : "Out of range: build higher or get closer");
       return sfx.deny();
     }
     if (performance.now() < readyAt) {
@@ -1301,7 +1303,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     // Off it somehow (thrown, or its floor gave way): let go of it.
     if (t && !player.knockedDown) {
       const [x, y, z] = trebuchetBase(t);
-      if (Math.hypot(player.position.x - x, player.position.z - z) > TREBUCHET.boardReach || Math.abs(player.feetY - y) > 3) {
+      if (Math.hypot(player.position.x - x, player.position.z - z) > env.siege.boardReach || Math.abs(player.feetY - y) > 3) {
         net.leaveTrebuchet();
         leaveCrew();
         return;
@@ -1310,13 +1312,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (t) {
       hud.setHint(null);
       const reload = Math.max(0, (readyAt - now) / 1000);
-      const reach = `range ${TREBUCHET.minRange}–${Math.round(maxRange(t, env))} m`;
+      const reach = `range ${env.siege.minRange}–${Math.round(maxRange(t, env))} m`;
       let status: { text: string; ok: boolean };
       if (!target) status = { text: `Aim at a target · ${reach}`, ok: true };
       else {
         const d = Math.round(rangeTo(t, target));
         const range = checkRange(t, target, env);
-        if (range === "near") status = { text: `Target ${d} m: too close (min ${TREBUCHET.minRange} m)`, ok: false };
+        if (range === "near") status = { text: `Target ${d} m: too close (min ${env.siege.minRange} m)`, ok: false };
         else if (range === "far") status = { text: `Target ${d} m: out of range (max ${Math.round(maxRange(t, env))} m)`, ok: false };
         else if (reload > 0) status = { text: `Target ${d} m · reloading ${reload.toFixed(1)} s`, ok: false };
         else status = { text: `Target ${d} m · ready: ${touch ? "tap Fire" : "click to fire"}`, ok: true };
@@ -1333,7 +1335,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     touch?.setBoard(!!near && !busy);
     if (!near) return hud.setHint(null);
     if (touch && !busy) return hud.setHint(null);
-    hud.setHint(busy ? "Someone is on this trebuchet" : "<kbd>H</kbd> get on the trebuchet");
+    hud.setHint(busy ? `Someone is on this ${engineName}` : `<kbd>H</kbd> get on the ${engineName}`);
   }
 
   function showTowers(list: readonly [number, number, number, number, number][]): void {
@@ -1379,14 +1381,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const tips = new Tips(input.touch);
   const tipStart = player.position.clone();
   net.key = store.key;
-  document.body.dataset.env = env.id;
-  // World links (the menu's cards, the switcher while playing): the current one marked; on a dev
-  // server they keep the test world (?world=), so switching stays in it.
-  const testWorld = new URLSearchParams(location.search).get("world");
-  for (const a of document.querySelectorAll<HTMLAnchorElement>(".world, .mini-world")) {
-    a.classList.toggle("current", a.dataset.env === env.id);
-    if (testWorld) a.href = `${a.dataset.env === "moon" ? "/moon" : "/"}?world=${encodeURIComponent(testWorld)}`;
-  }
   net.connect();
   void store.init();
   // Leaving the page (another world, a reload, closing the tab): say goodbye at once, so this

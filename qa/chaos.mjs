@@ -3,18 +3,24 @@
  * for a few minutes (moving, jumping, every tool, placing, removing, editing,
  * materials, undo/redo, trebuchets, zoom, Esc). Afterwards both pages must
  * agree, every piece must be drawn and solid, and nothing may have thrown.
- * Start the Gallop dev server first, then: node qa/chaos.mjs [seconds] [seed]
+ * Start the Gallop dev server first, then: node qa/chaos.mjs [seconds] [seed] [world address]
+ * (a paid world, like /moon, is played with a Full Game key made for the run).
  */
 import { chromium } from "playwright-core";
+import { paidKey } from "./_paid.mjs";
 const SECONDS = Number(process.argv[2] ?? 180);
+const PATH = process.argv[4] ?? "/";
+const key = PATH === "/" ? null : await paidKey("http://localhost:5173", PATH);
 const world = `chaos-${Date.now().toString(36)}`;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal"] });
 const errors = [];
 const open = async (label) => {
-  const p = await (await browser.newContext({ viewport: { width: 1000, height: 620 } })).newPage();
+  const context = await browser.newContext({ viewport: { width: 1000, height: 620 } });
+  if (key) await context.addInitScript((k) => localStorage.setItem("snapfort.key", k), key);
+  const p = await context.newPage();
   p.on("pageerror", (e) => errors.push(`[${label}] ${e.message.slice(0, 200)}`));
   p.on("console", (m) => m.type() === "error" && !m.text().includes("WebSocket") && errors.push(`[${label}] ${m.text().slice(0, 200)}`));
-  await p.goto(`http://localhost:5173/?world=${world}`); await p.waitForSelector("body.ready"); await p.click("#play-free");
+  await p.goto(`http://localhost:5173${PATH}?world=${world}`); await p.waitForSelector("body.ready"); await p.click("#play-free");
   return p;
 };
 const pages = [await open("A"), await open("B")];

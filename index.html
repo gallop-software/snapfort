@@ -41,7 +41,7 @@
       <div id="siege" hidden></div>
       <div id="banner"></div>
       <div id="toast"></div>
-      <div id="visit-bar" hidden><span class="what"><b>Visiting the Moon</b> · building here comes with the Full Game</span><button type="button" id="visit-buy">Unlock · $7<kbd class="desk">U</kbd></button><button type="button" id="visit-own" hidden>Get my own<kbd class="desk">O</kbd></button></div>
+      <div id="visit-bar" hidden><span class="what"><b>Visiting</b> · building here comes with the Full Game</span><button type="button" id="visit-buy">Unlock · $7<kbd class="desk">U</kbd></button><button type="button" id="visit-own" hidden>Get my own<kbd class="desk">O</kbd></button></div>
       <div id="tip" hidden></div>
       <div id="away-note">Click or press any key to keep building</div>
       <button type="button" id="chat-chip" aria-label="Chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 4.5h14A2.5 2.5 0 0 1 21.5 7v8a2.5 2.5 0 0 1-2.5 2.5h-6.6l-4.5 3.6c-.5.4-1.4.1-1.4-.6v-3H5A2.5 2.5 0 0 1 2.5 15V7A2.5 2.5 0 0 1 5 4.5Z"/></svg><kbd>Enter</kbd><span class="label">Chat</span></button>
@@ -58,20 +58,12 @@
             <b>Thanks! The Full Game is yours.</b>
             <div class="store-line">Your key <code id="thanks-key"></code><button type="button" id="thanks-copy" class="small">Copy</button></div>
             <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?). <span id="thanks-emailed" hidden>We've emailed it to you as well.</span> <span id="thanks-switched" hidden>This device now uses your own key, not the one it had.</span></p>
-            <div class="store-line"><a id="thanks-moon" class="small" href="/moon">Go to the Moon</a><button type="button" id="thanks-close" class="small ghost">OK</button></div>
+            <div class="store-line"><a id="thanks-go" class="small" href="/" hidden>Go</a><button type="button" id="thanks-close" class="small ghost">OK</button></div>
           </div>
-          <div id="worlds">
-            <a class="world" data-env="meadow" href="/">
-              <span class="pic" style="background-image: url(/worlds/meadow.jpg)"><span class="badge">Free</span></span>
-              <span class="info"><b>Meadow</b><small>Build the tallest tower. Knock rivals down with trebuchets.</small></span>
-            </a>
-            <a class="world" data-env="moon" href="/moon">
-              <span class="pic" style="background-image: url(/worlds/moon.jpg)"><span class="badge paid">Full Game</span></span>
-              <span class="info"><b>Moon</b><small>Low gravity: jump two storeys, throw stones further, send rivals flying.</small></span>
-            </a>
-          </div>
-          <div id="moon-offer" hidden>
-            <button type="button" id="offer-buy" class="buy-big">Unlock the Moon · $7</button>
+          <!-- The world cards, written from the list of worlds (src/ui/worlds.ts). -->
+          <div id="worlds"></div>
+          <div id="paid-offer" hidden>
+            <button type="button" id="offer-buy" class="buy-big">Unlock · $7</button>
             <span class="offer-note">One time, yours to keep · one player at a time · <button type="button" class="link" id="offer-key">Have a key?</button></span>
           </div>
           <div class="buttons">
@@ -92,7 +84,7 @@
             <div><b>Right thumb</b> look and aim</div>
             <div><b>Top bar</b> pick a piece · <b>Place</b> builds</div>
             <div><b>Edit</b> cuts doors and windows</div>
-            <div><b>Get on</b> a trebuchet, drag to aim, <b>Fire</b></div>
+            <div><b>Get on</b> <span data-piece="trebuchet" data-verb="a">a trebuchet</span>, drag to aim, <b>Fire</b></div>
             <div><b>Chat</b> talk · <b>Ping</b> mark a spot</div>
           </div>
           <div class="keys">
@@ -102,20 +94,20 @@
             <div class="keyrow"><kbd>Z / F1</kbd><span>Wall</span></div>
             <div class="keyrow"><kbd>F / F2</kbd><span>Floor</span></div>
             <div class="keyrow"><kbd>X / F3</kbd><span>Ramp</span></div>
-            <div class="keyrow"><kbd>C / F4</kbd><span>Roof</span></div>
-            <div class="keyrow"><kbd>B / 6</kbd><span>Trebuchet</span></div>
+            <div class="keyrow"><kbd>C / F4</kbd><span data-piece="roof">Roof</span></div>
+            <div class="keyrow"><kbd>B / 6</kbd><span data-piece="trebuchet">Trebuchet</span></div>
             <div class="keyrow"><kbd>Click / hold</kbd><span>Place</span></div>
             <div class="keyrow"><kbd>Right click</kbd><span>Remove</span></div>
             <div class="keyrow"><kbd>G</kbd><span>Cut a door</span></div>
             <div class="keyrow"><kbd>T</kbd><span>Material</span></div>
             <div class="keyrow"><kbd>R</kbd><span>Turn ramp</span></div>
             <div class="keyrow"><kbd>Q / E</kbd><span>Undo / redo</span></div>
-            <div class="keyrow"><kbd>H</kbd><span>Board trebuchet</span></div>
+            <div class="keyrow"><kbd>H</kbd><span data-piece="trebuchet" data-verb="Board">Board trebuchet</span></div>
             <div class="keyrow"><kbd>Enter or /</kbd><span>Chat</span></div>
             <div class="keyrow"><kbd>Middle click</kbd><span>Ping a spot</span></div>
             <div class="keyrow"><kbd>Same key</kbd><span>Put piece away</span></div>
           </div>
-          <p class="small">Pieces go where your crosshair points. Anything that loses its connection to the ground falls, and ramps turn only on a floor. Metal builds up to storey 10, brick to 30, wood all the way up.</p>
+          <p class="small">Pieces go where your crosshair points. Anything that loses its connection to the ground falls, and ramps turn only on a floor. <span id="materials-note"></span></p>
 
           <div class="buttons"><button id="controls-back" class="primary" type="button">Back</button></div>
         </div>
@@ -125,11 +117,7 @@
           <div class="buttons">
             <button id="resume" class="primary" type="button">Back to building</button>
           </div>
-          <div class="mini-worlds" aria-label="Switch world">
-            <span class="mini-title">Switch world</span>
-            <a class="mini-world" data-env="meadow" href="/"><span class="pic" style="background-image: url(/worlds/meadow.jpg)"></span><b>Meadow</b></a>
-            <a class="mini-world" data-env="moon" href="/moon"><span class="pic" style="background-image: url(/worlds/moon.jpg)"></span><b>Moon</b></a>
-          </div>
+          <div class="mini-worlds" id="mini-worlds" aria-label="Switch world"></div>
           <p class="paused-links"><button type="button" class="link" id="paused-controls">Controls</button></p>
         </div>
 
@@ -146,14 +134,9 @@
         </div>
 
         <div id="view-unlock" hidden>
-          <div class="unlock-pic" style="background-image: url(/worlds/moon.jpg)"><span class="badge paid">Full Game</span></div>
-          <h2>Build on the Moon</h2>
-          <ul class="perks">
-            <li>Jump nearly two storeys in low gravity</li>
-            <li>Trebuchets throw 1.6&times; further</li>
-            <li>Send rivals flying 100 m</li>
-            <li>Every paid world we add, included</li>
-          </ul>
+          <div class="unlock-pic" id="unlock-pic"><span class="badge paid">Full Game</span></div>
+          <h2 id="unlock-title">Build everywhere</h2>
+          <ul class="perks" id="unlock-perks"></ul>
           <div class="buttons"><button id="unlock-buy" class="buy-big" type="button">Unlock · $7</button></div>
           <p class="unlock-note">One-time purchase, no subscription · one player at a time, on any of your devices · <button type="button" class="link" id="unlock-key">Have a key?</button> · <a class="link" href="/terms" target="_blank" rel="noopener">Terms</a></p>
           <button type="button" class="link" id="unlock-later">Keep visiting</button>

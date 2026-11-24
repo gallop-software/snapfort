@@ -25,7 +25,8 @@ const COCKED = -2.3;
 const THROWN = 0.95;
 /** Seconds for the arm to swing over. */
 const SWING = 0.45;
-const MAX_ENGINES = 256;
+/** Trebuchets the buffers hold at first; they double whenever a world has more. */
+const FIRST_CAPACITY = 64;
 
 interface Engine {
   piece: Piece;
@@ -66,8 +67,10 @@ export class TrebuchetView {
   private readonly frameTemplate: Mesh;
   private readonly armTemplate: Mesh;
   private readonly arm: Mesh;
-  private readonly frameMatrices = new Float32Array(MAX_ENGINES * 16);
-  private readonly armMatrices = new Float32Array(MAX_ENGINES * 16);
+  private capacity = FIRST_CAPACITY;
+  private frameMatrices = new Float32Array(FIRST_CAPACITY * 16);
+  private armMatrices = new Float32Array(FIRST_CAPACITY * 16);
+  /** The buffers on the GPU are these arrays (false at first, and after growing). */
   private buffersReady = false;
   private readonly stones = new Map<number, Stone>();
   private readonly spareStones: Mesh[] = [];
@@ -250,9 +253,15 @@ export class TrebuchetView {
       stone.mesh.position.set(...positionAt(stone.flight, t));
     }
 
+    // Room for every trebuchet: a world can hold any number of them.
+    if (this.engines.size > this.capacity) {
+      while (this.engines.size > this.capacity) this.capacity *= 2;
+      this.frameMatrices = new Float32Array(this.capacity * 16);
+      this.armMatrices = new Float32Array(this.capacity * 16);
+      this.buffersReady = false;
+    }
     let i = 0;
     for (const engine of this.engines.values()) {
-      if (i >= MAX_ENGINES) break;
       if (engine.piece.id === this.hidden) continue;
       let diff = (engine.aimYaw - engine.yaw) % (Math.PI * 2);
       if (diff > Math.PI) diff -= Math.PI * 2;
@@ -267,7 +276,7 @@ export class TrebuchetView {
       i++;
     }
     if (i > 0 && !this.buffersReady) {
-      // Attach once there is something to draw (see RemotePlayers for why).
+      // Attach once there is something to draw (see RemotePlayers for why), and again after growing.
       this.buffersReady = true;
       this.frame.thinInstanceSetBuffer("matrix", this.frameMatrices, 16, false);
       this.arm.thinInstanceSetBuffer("matrix", this.armMatrices, 16, false);
@@ -279,6 +288,17 @@ export class TrebuchetView {
       if (i > 0) mesh.thinInstanceBufferUpdated("matrix");
       mesh.setEnabled(i > 0);
     }
+  }
+
+  /** Trebuchets that are not drawn as the build has them (development checks). Call after `update`. */
+  audit(): string[] {
+    const expected = this.engines.size - (this.hidden !== null && this.engines.has(this.hidden) ? 1 : 0);
+    const problems: string[] = [];
+    for (const mesh of [this.frame, this.arm]) {
+      const drawn = mesh.isEnabled() ? mesh.thinInstanceCount : 0;
+      if (drawn !== expected) problems.push(`${mesh.name}: drawing ${drawn} of ${expected}`);
+    }
+    return problems;
   }
 
   /** The arm's angle `t` seconds after a throw: a fast swing over, then winding back for the reload. */

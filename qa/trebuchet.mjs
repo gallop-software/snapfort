@@ -208,6 +208,16 @@ await wait(300);
 await a.mouse.down(); await a.mouse.up(); await wait(400);
 check("the Remove tool takes a trebuchet down when aimed at its frame", !(await sf(a, () => [...window.snapfort.state.all()].some((q) => q.type === "trebuchet" && q.x === -20))));
 
+// A world with a great many trebuchets draws every one (once, only the first 256 were drawn).
+const crowd = [];
+for (let i = 0; i < 300; i++) crowd.push(["trebuchet", 30 + (i % 20), 0, 30 + Math.floor(i / 20), 0]);
+const crowded = await put(a, crowd);
+await wait(1500);
+await frames(a, 3); await frames(b, 3);
+const drawn = (p) => sf(p, () => { const s = window.snapfort; const m = s.scene.getMeshByName("trebuchet-frame"); return { all: [...s.state.all()].filter((q) => q.type === "trebuchet").length, drawn: m.isEnabled() ? m.thinInstanceCount : 0, audit: s.audit() }; });
+const crowdA = await drawn(a), crowdB = await drawn(b);
+check(`${crowded} more trebuchets: every one is drawn on both pages`, crowdA.all > 256 && crowdA.drawn === crowdA.all && crowdB.drawn === crowdB.all && crowdA.audit.length === 0 && crowdB.audit.length === 0, JSON.stringify([crowdA, crowdB]).slice(0, 300));
+
 check("no errors or warnings in the console", errors.length === 0, errors.slice(0, 5).join(" | "));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in world ${world}`);

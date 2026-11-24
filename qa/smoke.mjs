@@ -16,7 +16,7 @@ const check = (name, ok, detail = "") => { if (!ok) failed++; console.log(`${ok 
 const first = await (await browser.newContext()).newPage();
 await first.goto(base);
 await first.waitForSelector("#worlds .world");
-const worlds = await first.$$eval("#worlds .world", (list) => list.map((a) => ({ id: a.dataset.env, href: a.getAttribute("href"), name: a.querySelector("b").textContent, paid: a.classList.contains("paid") })));
+const worlds = await first.$$eval("#worlds .world", (list) => list.map((a) => ({ id: a.dataset.env, /* The card of the world you are in is not a link: it is where you are. */ href: a.getAttribute("href") ?? location.pathname + location.search, name: a.querySelector("b").textContent, paid: a.classList.contains("paid") })));
 check("the menu lists the worlds", worlds.length >= 2, worlds.map((w) => w.name).join(", "));
 const build = await first.evaluate(() => fetch("/api/store").then((r) => r.json()).then((j) => j.build));
 console.log(`build ${build}`);

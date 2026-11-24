@@ -831,7 +831,14 @@ button.small.ghost { background: rgba(31, 42, 55, 0.08); color: var(--ink); }
 #store-enter input::placeholder { text-transform: none; }
 #store-message { font-size: 12px; font-weight: 700; color: var(--teal); }
 #store-message.bad { color: var(--coral); }
-#store-message[hidden], #store-owned[hidden], #store-buy[hidden], #store-soon[hidden] { display: none; }
+#store-message[hidden], #store-owned[hidden], #store-buy[hidden], #store-soon[hidden], .store-own-buy[hidden] { display: none; }
+/* On phones the row under the key only fits "Switch key": the other two are in the panel it opens. */
+.store .phone-owned { display: none; }
+body.touch.owned .store .phone-owned:not([hidden]) { display: inline; }
+body.touch #store-owned .store-own-buy, body.touch #store-owned .store-replace { display: none; }
+body.touch #store-lost-link { flex-wrap: wrap; }
+/* Under the key: switch to another key or buy your own (for someone sharing a key), or replace a leaked one. */
+.store-links { display: flex; flex-wrap: wrap; gap: 4px 12px; flex-basis: 100%; }
 
 #thanks {
   margin: 16px 0 4px;
@@ -863,6 +870,7 @@ body.visiting #hotbar { opacity: 0.45; }
   body.touch #store-owned code, body.touch #store-owned .tick { display: none; }
   body.touch #store-owned button.small { height: 28px; padding: 0 9px; font-size: 12px; }
   body.touch #store-owned .link { font-size: 12px; white-space: nowrap; }
+  body.touch .store-links { flex-basis: auto; flex-wrap: nowrap; gap: 8px; min-width: 0; }
 }
 
 /* ───────────── The menu: world cards, one button, links ───────────── */
@@ -975,7 +983,11 @@ body[data-env="moon"]:not(.owned) #view-menu .buttons .primary { background: var
 body.visiting.playing #visit-bar { display: flex; }
 #visit-bar b { color: var(--sun); }
 #visit-buy { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--coral); color: #fff; font: inherit; font-size: 14px; font-weight: 900; cursor: pointer; }
-#visit-buy kbd { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.9); color: var(--ink); font: inherit; font-size: 11px; font-weight: 800; }
+/* The key is in use on another device (a shared key): beside "Use it here", the way to your own. */
+#visit-own { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.14); color: var(--cream); font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+#visit-own[hidden] { display: none; }
+body.touch #visit-bar.elsewhere .what { display: none; }
+#visit-buy kbd, #visit-own kbd { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.9); color: var(--ink); font: inherit; font-size: 11px; font-weight: 800; }
 body.touch #visit-bar { top: calc(env(safe-area-inset-top, 0px) + 72px); font-size: 12px; padding-left: 12px; }
 body.touch #visit-bar .what { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
 body.touch.chatting #visit-bar { display: none; }

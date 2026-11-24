@@ -337,6 +337,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   function paintVisitBar(): void {
     const what = document.querySelector("#visit-bar .what")!;
     const button = document.getElementById("visit-buy")!;
+    // Sharing a key and the other person is playing: the way to a key of their own.
+    document.getElementById("visit-own")!.hidden = !elsewhere;
+    document.getElementById("visit-bar")!.classList.toggle("elsewhere", elsewhere);
     if (elsewhere) {
       what.innerHTML = "<b>Your key is in use on another device</b> · one player at a time";
       button.innerHTML = `Use it here<kbd class="desk">U</kbd>`;
@@ -739,6 +742,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (command) return;
     // U: unlock the Full Game (while visiting a paid world).
     if (code === "KeyU" && !builder) return elsewhere ? useKeyHere() : openPanel("unlock");
+    // O: a key of their own, when the one they share is being played on another device.
+    if (code === "KeyO" && !builder && elsewhere) return openPanel("unlock");
     // Enter talks (while editing it still confirms the cut).
     if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
     // "/" too, as in Minecraft and Roblox.
@@ -1362,6 +1367,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     store.showEnter(true);
   };
   document.getElementById("visit-buy")!.addEventListener("click", () => (elsewhere ? useKeyHere() : openPanel("unlock")));
+  document.getElementById("visit-own")!.addEventListener("click", () => openPanel("unlock"));
   /** When the store last showed a message. */
   let noticeAt = -Infinity;
   store.onNotice = (text) => {

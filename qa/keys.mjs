@@ -144,8 +144,14 @@ check("…the one that had it goes back to visiting (one player at a time)", !(a
   await ph.tap("#visit-buy"); await wait(1200);
   check("…one tap on 'Use it here' and the phone builds again", (await builder(ph)) && !(await builder(c)));
   await ph.tap("#t-settings"); await wait(700);
-  const own = await ph.evaluate(() => { const o = document.getElementById("overlay"); const r = document.getElementById("store-replace").getBoundingClientRect(); return { fits: o.scrollHeight <= o.clientHeight + 1, replace: r.width > 0 && r.right <= innerWidth, copy: !!document.getElementById("store-copy").offsetWidth }; });
-  check("…its settings (owning the Full Game) fit the smallest phone, with Copy and Replace my key", own.fits && own.replace && own.copy, JSON.stringify(own));
+  const inside = () => { const o = document.getElementById("overlay"); const box = document.getElementById("full-game").getBoundingClientRect(); const ok = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.left >= box.left && r.right <= box.right + 1; }; return { fits: o.scrollHeight <= o.clientHeight + 1, switch: ok(document.getElementById("store-other-key")), copy: ok(document.getElementById("store-copy")), replace: ok(document.querySelector("#store-lost-link .store-replace")) }; };
+  const own = await ph.evaluate(inside);
+  check("…its settings (owning the Full Game) fit the smallest phone, with Copy and Switch key", own.fits && own.switch && own.copy, JSON.stringify(own));
+  await ph.tap("#store-other-key"); await wait(400);
+  const open = await ph.evaluate(inside);
+  await ph.screenshot({ path: "qa/shots/keys-phone-settings.png" });
+  check("…'Switch key' opens the key box there, with Replace my key, all fitting", open.fits && open.replace && (await ph.isVisible("#store-key-input")), JSON.stringify(open));
+  await ph.tap("#store-enter-cancel"); await wait(300);
   await ctx.close();
   await wait(800);
 }
@@ -172,6 +178,33 @@ check("a device still holding the old key is back to visiting, and forgets it (s
 check("the replace link works only once", !!(await api("/api/replace/confirm", { token: replaceLink.split("#replace=")[1] })).error);
 await go(a, inWorld(link));
 check("an email link with the old key says it no longer works", !(await builder(a)) && (await toast(a)).includes("no longer works"), await toast(a));
+
+// ── Switching keys: sharing a friend's key, then getting your own ───────
+{
+  const friends = await paidKey();
+  const own = await paidKey();
+  const d = await device("D");
+  const e = await device("E");
+  for (const page of [d, e]) await page.context().addInitScript((k) => { if (!sessionStorage.getItem("qa.seeded")) { sessionStorage.setItem("qa.seeded", "1"); localStorage.setItem("snapfort.key", k); } }, friends);
+  await go(d, `${moon}&testpay`); await play(d);
+  await go(e, moon); await play(e); await wait(800);
+  check("sharing a key: the friend plays, so this device visits, with 'Get my own' beside 'Use it here'", (await builder(e)) && !(await builder(d)) && (await d.isVisible("#visit-own")) && (await d.textContent("#visit-own")).includes("Get my own"), await d.textContent("#visit-bar"));
+  await d.keyboard.press("KeyO"); await wait(500);
+  check("…O ('Get my own') opens the unlock panel, with the button to buy", (await d.isVisible("#view-unlock")) && (await d.isVisible("#unlock-buy")));
+  await d.click("#unlock-later"); await wait(400);
+  await d.keyboard.press("KeyU"); await wait(1200);
+  // (Esc: out of play, the mouse free again, the settings showing.)
+  await d.evaluate(() => document.exitPointerLock()); await wait(1300);
+  check("Settings on a device with a key: 'Switch key' and 'Buy my own · $7' under the key", (await builder(d)) && (await d.isVisible("#store-own-buy")) && (await d.isVisible("#store-other-key")), await d.textContent(".store-links"));
+  await d.click("#store-other-key");
+  await d.fill("#store-key-input", own.toLowerCase());
+  await d.click("#store-enter button[type=submit]"); await wait(1200);
+  check("typing their own key switches the device to it (saved, cookie, shown in Settings)", (await saved(d)) === own && (await cookieKey(d)) === own && (await d.textContent("#store-key")) === own && (await d.textContent("#store-message")).includes("Switched"), await d.textContent("#store-message"));
+  await e.keyboard.press("KeyU"); await wait(1200);
+  check("…and now both build at once: the friend with theirs, this device with its own", (await builder(d)) && (await builder(e)));
+  await d.context().close(); await e.context().close();
+  await wait(500);
+}
 
 // ── The meadow needs none of it ─────────────────────────────────────────
 await go(a, new URL(`/?world=${world}`, base).toString());

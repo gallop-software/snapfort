@@ -9,7 +9,9 @@ export const PRICE = "$7";
 /**
  * The Full Game: whether this browser owns it (a SnapFort key, checked with the
  * server), buying it (off to Stripe Checkout and back), and typing in a key
- * bought on another device. Drives the Full Game row in the settings and the
+ * bought on another device, or switching to another key (someone sharing a
+ * friend's key who then buys their own: any new key replaces the one this
+ * device had). Drives the Full Game row in the settings and the
  * thank-you note after buying.
  */
 export class Store {
@@ -35,16 +37,18 @@ export class Store {
     const params = new URLSearchParams(location.search);
     if (params.has("testpay")) sessionStorage.setItem(TESTPAY, "1");
     this.testpay = sessionStorage.getItem(TESTPAY) === "1";
+    // "Get my own" (owning it with a shared key) buys like any other button: the new key takes this device over.
     for (const id of ["store-buy-button", "offer-buy", "unlock-buy"]) document.getElementById(id)!.addEventListener("click", () => void this.buy());
+    for (const button of document.querySelectorAll(".store-own-buy")) button.addEventListener("click", () => void this.buy());
     for (const id of ["offer-key", "unlock-key"]) document.getElementById(id)!.addEventListener("click", () => this.onHaveKey());
-    document.getElementById("store-have-key")!.addEventListener("click", () => this.showEnter(true));
+    for (const id of ["store-have-key", "store-other-key"]) document.getElementById(id)!.addEventListener("click", () => this.showEnter(true));
     document.getElementById("store-enter")!.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.enter(this.input.value);
     });
     document.getElementById("store-enter-cancel")!.addEventListener("click", () => this.showEnter(false));
     document.getElementById("store-lost-open")!.addEventListener("click", () => this.showLost(true));
-    document.getElementById("store-replace")!.addEventListener("click", () => void this.replace());
+    for (const button of document.querySelectorAll(".store-replace")) button.addEventListener("click", () => void this.replace());
     document.getElementById("store-lost-cancel")!.addEventListener("click", () => this.showLost(false));
     document.getElementById("store-lost")!.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -189,11 +193,13 @@ export class Store {
   async enter(raw: string): Promise<void> {
     const key = cleanKey(raw);
     if (!key) return this.say("That does not look like a SnapFort key (SNAP-XXXX-XXXX-XXXX).", true);
+    if (this.owned && key === this.key) return this.say("This device already uses that key.");
     this.say("Checking…");
     if (!(await this.check(key))) return this.say("That key is not valid. Check it and try again.", true);
+    const switched = this.owned;
     this.own(key);
     this.showEnter(false);
-    this.say("Unlocked on this device.");
+    this.say(switched ? "Switched: this device now uses that key." : "Unlocked on this device.");
   }
 
   /** "Lost your key?": the key goes to the email it was bought with (never shown here). */
@@ -215,6 +221,8 @@ export class Store {
     try {
       const data = (await (await fetch(`/api/claim?session=${encodeURIComponent(session)}`)).json()) as { status?: string; key?: string; error?: string; emailed?: boolean };
       if (data.status === "paid" && data.key) {
+        // Bought while using someone else's key: this device moves to the new one.
+        document.getElementById("thanks-switched")!.hidden = !this.key || this.key === data.key;
         this.own(data.key);
         document.getElementById("thanks-emailed")!.hidden = !data.emailed;
         document.getElementById("thanks-key")!.textContent = data.key;
@@ -288,6 +296,7 @@ export class Store {
     document.getElementById("store-owned")!.hidden = !this.owned;
     document.getElementById("store-buy")!.hidden = this.owned || !this.canBuy;
     document.getElementById("store-soon")!.hidden = this.owned || this.canBuy;
+    for (const button of document.querySelectorAll<HTMLElement>(".store-own-buy")) button.hidden = !this.canBuy;
     document.getElementById("store-key")!.textContent = this.key ?? "";
     document.body.classList.toggle("owned", this.owned);
     // The Moon's offer on the menu, and the buttons that buy: ready, or not open yet.

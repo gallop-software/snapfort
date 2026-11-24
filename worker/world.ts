@@ -248,7 +248,11 @@ export class World extends DurableObject<Env> {
       case "key": {
         // A key bought, typed in, or taken back ("Use it here") while here: building opens without
         // joining again (and, one player at a time, moves here from wherever the key was).
+        const before = player.key;
         const access = await this.mayBuild(msg.key, player.id);
+        // Switched to another key (their own, after sharing one): the old one is free for whoever
+        // else plays with it, and taking it over there no longer sends this player back to visiting.
+        if (before && before !== access) this.ledger().release(before, this.name, player.id).catch(() => {});
         player.builder = access !== null;
         if (typeof access === "string") player.key = access;
         else delete player.key;

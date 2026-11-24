@@ -21,7 +21,7 @@ describe("the Moon", () => {
 
   it("lets trebuchets reach 1.6 times as far", () => {
     expect(maxRange(treb, MOON)).toBeCloseTo(maxRange(treb) * 1.6);
-    const far: Vec = [2.5 + 160, 0, 2.5];
+    const far: Vec = [2.5 + 400, 0, 2.5];
     expect(checkRange(treb, far)).toBe("far");
     expect(checkRange(treb, far, MOON)).toBe("ok");
   });

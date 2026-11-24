@@ -11,15 +11,15 @@ import { gridBox, type MaterialId, type Piece } from "./pieces";
 export const TREBUCHET = {
   /** Nearer than this cannot be targeted, so nobody batters their own tower from inside. */
   minRange: 25,
-  /** Range from the ground... */
-  baseRange: 120,
+  /** Range from the ground: what the big medieval ones managed with a stone that hurt a wall (user, 2026-11-23)... */
+  baseRange: 300,
   /** ...plus this many metres for every metre the trebuchet stands higher. */
   rangePerMetre: 1,
   /** Seconds between shots. */
   reload: 6,
   /** Where the stone leaves the arm, above the trebuchet's base. */
   launchHeight: 7,
-  /** Pull of gravity on the stone in the meadow (a bit stronger than real, for snappy arcs; see Environment.stoneGravity). */
+  /** Pull of gravity on the stone in the meadow (the real 9.81; see Environment.stoneGravity). */
   gravity: MEADOW.stoneGravity,
   /** Radius of the stone, for what it touches on the way. */
   stoneRadius: 0.4,
@@ -88,9 +88,11 @@ export interface Flight {
 
 export function planFlight(from: Vec, to: Vec, env: Environment = MEADOW): Flight {
   const d = Math.hypot(to[0] - from[0], to[2] - from[2]);
-  // Further throws fly longer and higher, so every shot reads as a lob. With a
+  // As a real trebuchet throws: at about 45 degrees, so the stone is in the air
+  // for sqrt(2d / g) seconds and peaks a quarter of the distance up (300 m: about
+  // 8 s and 75 m). Never under 1.5 s, so the nearest shots are lobs too. With a
   // weaker pull the flight is slower by the square root, so the arc keeps its shape.
-  const time = (1.5 + d / 45) * env.flightTime;
+  const time = Math.max(1.5, Math.sqrt((2 * d) / MEADOW.stoneGravity)) * env.flightTime;
   const g = env.stoneGravity;
   return {
     from,

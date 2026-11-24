@@ -40,7 +40,8 @@ export const MEADOW: Environment = {
   gravity: 26,
   // Over one wall (a storey, 3.75 m) with room to spare (user, 2026-11-23).
   jumpHeight: 4.2,
-  stoneGravity: 18,
+  // Real gravity: with the 45 degree throw (see planFlight), stones fly as a medieval trebuchet's did.
+  stoneGravity: 9.81,
   flightTime: 1,
   range: 1,
   throwPower: 1,
@@ -61,7 +62,7 @@ export const MOON: Environment = {
   paid: true,
   gravity: 26 / 3,
   jumpHeight: 6.8,
-  stoneGravity: 18 / 3,
+  stoneGravity: 9.81 / 3,
   flightTime: Math.sqrt(3),
   range: 1.6,
   throwPower: 0.75,

@@ -1258,7 +1258,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     const t = crewOn ? state.get(crewOn) : undefined;
     if (!t) return;
     const start = rig.pivot.clone();
-    const end = start.add(rig.forward.scale(600));
+    // Further than any trebuchet reaches (the Moon's, from the very top).
+    const end = start.add(rig.forward.scale(1500));
     let point: Vec | null = null;
     // Look past this trebuchet's own frame.
     for (let tries = 0; tries < 3 && !point; tries++) {

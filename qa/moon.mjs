@@ -124,29 +124,29 @@ const moonOver = await overWall(b, 8, -8);
 check("…on the Moon too, easily", moonOver.over, `${moonOver.z.toFixed(1)} m past the wall`);
 
 // ── Trebuchets ───────────────────────────────────────────────────────────
-// A wall 170 m away: beyond any ground trebuchet's reach in the meadow (120 m), within it on the Moon (192 m).
-await sf(b, () => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "wall", x: 0, y: 0, z: 34, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); });
-await stand(b, 2.5, -4); await wait(200);
-await put(b, [["trebuchet", 0, 0, -1, 0]]);
-await stand(b, 2.5, -2.5); await wait(400);
+// A wall about 350 m away: beyond any ground trebuchet's reach in the meadow (300 m), within it on the Moon (480 m).
+await sf(b, () => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "wall", x: 30, y: 0, z: 34, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); });
+await stand(b, 152.5, -179); await wait(200);
+await put(b, [["trebuchet", 30, 0, -36, 0]]);
+await stand(b, 152.5, -177.5); await wait(400);
 await b.keyboard.press("KeyH"); await wait(600);
 check("(the owner gets on a trebuchet)", !!(await sf(b, () => window.snapfort.crewOn)));
 const aimAt = async (x, y, z) => { for (let i = 0; i < 4; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(y - p.y, Math.hypot(x - p.x, z - p.z)); }, [x, y, z]); await frames(b, 2); } };
-await aimAt(2.5, 1.5, 170);
+await aimAt(152.5, 1.5, 170);
 const panel = await b.textContent("#crew");
-check("a trebuchet on the Moon reaches a target 170 m away (the meadow's limit is 120 m)", panel.includes("ready") && /Target 1[67]\d m/.test(panel), panel);
+check("a trebuchet on the Moon reaches a target about 350 m away (the meadow's limit is 300 m)", panel.includes("ready") && /Target 34\d m/.test(panel), panel);
 // The visitor stands by the target, to be thrown.
-await stand(v, 2.5, 167.5, Math.PI); await wait(600);
+await stand(v, 152.5, 167.5, Math.PI); await wait(600);
 const vStart = await sf(v, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z }));
 const fired = Date.now();
 await b.mouse.down(); await b.mouse.up();
 let hitAt = 0;
-for (let i = 0; i < 160 && !hitAt; i++) {
+for (let i = 0; i < 220 && !hitAt; i++) {
   await wait(100);
   if ((await sf(b, () => [...window.snapfort.damage.values()].length)) > 0 || (await sf(v, () => window.snapfort.player.tumbling))) hitAt = Date.now();
 }
 const flight = (hitAt - fired) / 1000;
-check("the stone flies a slow, floaty lob: about 9 s to 170 m (about 5 s in the meadow)", hitAt > 0 && flight > 7.5 && flight < 11.5, `${flight.toFixed(1)} s`);
+check("the stone flies a slow, floaty lob: about 14.5 s to 350 m (about 8.5 s in the meadow)", hitAt > 0 && flight > 13 && flight < 16.5, `${flight.toFixed(1)} s`);
 await wait(9000);
 const vEnd = await sf(v, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z, down: window.snapfort.player.knockedDown }));
 const thrown = Math.hypot(vEnd.x - vStart.x, vEnd.z - vStart.z);

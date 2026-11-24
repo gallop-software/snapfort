@@ -25,6 +25,12 @@ describe("trebuchet aim", () => {
       // A lob: it rises before it falls.
       expect(f.v[1]).toBeGreaterThan(0);
     }
+    // As a real trebuchet throws: 300 m takes about 8 s and peaks about 75 m up; 120 m about 5 s and 30 m.
+    for (const [d, seconds, peak] of [[300, 7.8, 75], [120, 4.9, 30]] as const) {
+      const f = planFlight([0, 0, 0], [d, 0, 0]);
+      expect(f.time).toBeCloseTo(seconds, 1);
+      expect(positionAt(f, f.time / 2)[1]).toBeCloseTo(peak, 0);
+    }
   });
 
   it("has a minimum range, and a maximum that grows with height", () => {
@@ -32,9 +38,10 @@ describe("trebuchet aim", () => {
     const high = piece({ type: "trebuchet", x: 0, y: 8, z: 0, rot: 0 }, "t1");
     expect(maxRange(high) - maxRange(ground)).toBeCloseTo(8 * LEVEL);
     expect(checkRange(ground, [2.5 + 10, 0, 2.5])).toBe("near");
-    expect(checkRange(ground, [2.5 + 100, 0, 2.5])).toBe("ok");
-    expect(checkRange(ground, [2.5 + 140, 0, 2.5])).toBe("far");
-    expect(checkRange(high, [2.5 + 140, 0, 2.5])).toBe("ok");
+    expect(maxRange(ground)).toBe(300);
+    expect(checkRange(ground, [2.5 + 290, 0, 2.5])).toBe("ok");
+    expect(checkRange(ground, [2.5 + 320, 0, 2.5])).toBe("far");
+    expect(checkRange(high, [2.5 + 320, 0, 2.5])).toBe("ok");
   });
 });
 

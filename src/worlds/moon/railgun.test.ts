@@ -6,7 +6,7 @@ import type { Piece } from "../../game/pieces";
 import { planFlight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
 import { cannotPlace, feetOf, fits, joinsOf, kindOf, middleOf, operational, partAt, PARTS, RAILGUN, seatOf, type Gun, type GunToPage } from "./railgunRules";
-import { rideFlight } from "./railguns";
+import { inTheWay, rideFlight } from "./railguns";
 import { server } from "./server";
 import { world as MOON } from "./world";
 
@@ -295,6 +295,59 @@ describe("a rail gun under fire", () => {
     expect(gun.parts.length).toBe(PARTS - 1);
   });
 
+  it("throws whoever sits in its capsule up into space, flailing, when any part of it is hit, however far along", () => {
+    const { t, gun } = whole();
+    const seat = seatOf(gun);
+    t.at.set("b", [seat.x + 2, seat.y, seat.z]);
+    t.say("b", { k: "gun-sit", id: gun.id, on: true });
+    expect(gun.rider).toBe("b");
+    // A shot on the muzzle, 165 m from the capsule.
+    server.struck!(t.room, middleOf(gun, 21));
+    expect(gun.parts.includes(21)).toBe(false);
+    expect(gun.rider).toBeNull();
+    expect(t.flown.length).toBe(1);
+    expect(t.flown[0]!.id).toBe("b");
+    const thrown = t.flown[0]!.fall;
+    // Tumbling up from the seat, far above the Moon, then back on their rockets: as anyone hit on the Moon.
+    expect(fallPhase(thrown, 1)).toBe("tumble");
+    expect(thrown.from[1]).toBeCloseTo(seat.y + 0.6, 6);
+    expect(Math.max(...thrown.path.map((p) => p[1]))).toBeGreaterThan(150);
+    expect(thrown.glideFrom).toBeGreaterThan(1);
+    // A shot that hits no part of it throws nobody.
+    t.say("a", { k: "gun-sit", id: gun.id, on: true });
+    t.by("a", gun, 22);
+    t.say("a", { k: "gun-sit", id: gun.id, on: true });
+    server.struck!(t.room, [middleOf(gun, 10)[0] + 60, 0, middleOf(gun, 10)[2]]);
+    expect(t.flown.length).toBe(1);
+  });
+
+  it("throws a rider who is still running down the rail when it is hit; one already off the muzzle finishes their flight", () => {
+    const { t, gun } = whole();
+    const seat = seatOf(gun);
+    t.at.set("b", [seat.x + 2, seat.y, seat.z]);
+    t.say("b", { k: "gun-sit", id: gun.id, on: true });
+    gun.readyAt = Date.now() - 1;
+    t.say("b", { k: "gun-launch" });
+    expect(t.flown.length).toBe(1);
+    // Hit at once: they are on the rail still.
+    server.struck!(t.room, middleOf(gun, 12));
+    expect(t.flown.length).toBe(2);
+    expect(t.flown[1]!.id).toBe("b");
+    expect(fallPhase(t.flown[1]!.fall, 1)).toBe("tumble");
+    // Put back together, fired again, and hit only after they have left the muzzle: nothing more happens to them.
+    t.assemble("a");
+    t.at.set("b", [seat.x + 2, seat.y, seat.z]);
+    t.say("b", { k: "gun-sit", id: gun.id, on: true });
+    gun.readyAt = Date.now() - 1;
+    t.say("b", { k: "gun-launch" });
+    expect(t.flown.length).toBe(3);
+    const running = (t.room.memory as { guns: { onRail: Map<number, { by: string; at: number }> } }).guns.onRail.get(gun.id)!;
+    running.at -= (RAILGUN.rideRail + 0.5) * 1000;
+    server.struck!(t.room, middleOf(gun, 12));
+    expect(gun.parts.includes(12)).toBe(false);
+    expect(t.flown.length).toBe(3);
+  });
+
   it("gives up a part to the Remove tool: any builder, from close by, and it no longer works", () => {
     const { t, gun, build } = whole();
     // A visitor cannot, nor anyone from far away.
@@ -356,16 +409,19 @@ describe("riding a rail gun", () => {
   };
   const sit = (t: ReturnType<typeof fakeRoom>, id: string, gun: Gun) => { const s = seatOf(gun); t.at.set(id, [s.x + 2, s.y, s.z]); t.say(id, { k: "gun-sit", id: gun.id, on: true }); };
 
-  it("one at a time in the capsule, visitors too, from beside it", () => {
+  it("one at a time in the capsule, from beside it; not visitors (riding comes with the Full Game)", () => {
     const { t, gun } = ready();
-    t.at.set("v", [-150, 0.9, -150]);
-    t.say("v", { k: "gun-sit", id: gun.id, on: true });
-    expect(t.last()).toEqual({ k: "gun-no", why: "far" });
     sit(t, "v", gun);
-    expect(gun.rider).toBe("v");
+    expect(t.last()).toEqual({ k: "gun-no", why: "locked" });
+    expect(gun.rider).toBeNull();
+    t.at.set("a", [-150, 0.9, -150]);
+    t.say("a", { k: "gun-sit", id: gun.id, on: true });
+    expect(t.last()).toEqual({ k: "gun-no", why: "far" });
+    sit(t, "a", gun);
+    expect(gun.rider).toBe("a");
     sit(t, "b", gun);
     expect(t.last()).toEqual({ k: "gun-no", why: "busy" });
-    t.say("v", { k: "gun-sit", id: gun.id, on: false });
+    t.say("a", { k: "gun-sit", id: gun.id, on: false });
     expect(gun.rider).toBeNull();
     sit(t, "b", gun);
     expect(gun.rider).toBe("b");
@@ -447,8 +503,46 @@ describe("riding a rail gun", () => {
     for (const p of ride.path) expect(Math.abs(p[0])).toBeLessThanOrEqual(240);
   });
 
+  it("stops a rider at anything built in the way of the launch, and throws them up from it, flailing", () => {
+    const { t, gun, build } = ready();
+    const ride = rideFlight(build, MOON, gun);
+    expect(inTheWay(build, MOON, ride, gun)).toBeNull();
+    // A wall across the way, just beyond the muzzle, as high as the path is there (it climbs steeply).
+    const top = fallPosition(ride, RAILGUN.rideRail);
+    const cx = Math.floor(top[0] / CELL), cz = Math.floor(top[2] / CELL) + 1;
+    // (How high the rider is when they cross that line, 5 m on from the muzzle.)
+    const crossing = top[1] + ((cz * CELL - top[2]) / (ride.land[2] - top[2])) * (ride.land[1] - top[1]);
+    for (let y = 0; y <= Math.floor(crossing / LEVEL) + 2; y++) put(build, piece("wall", cx, y, cz, 0));
+    const hit = inTheWay(build, MOON, ride, gun)!;
+    expect(hit.time).toBeGreaterThan(RAILGUN.rideRail);
+    expect(hit.time).toBeLessThan(RAILGUN.rideRail + 0.5);
+    expect(Math.abs(hit.point[2] - cz * CELL)).toBeLessThanOrEqual(0.8);
+    // Fired: the flight ends there (not 650 m up), and a moment later they are thrown up from that spot.
+    const later: (() => void)[] = [];
+    t.room.later = (_ms, fn) => void later.push(fn);
+    sit(t, "a", gun);
+    gun.readyAt = Date.now() - 1;
+    t.say("a", { k: "gun-launch" });
+    expect(t.flown.length).toBe(1);
+    const cut = t.flown[0]!.fall;
+    expect(cut.time).toBeCloseTo(hit.time, 6);
+    expect(cut.land).toEqual(hit.point);
+    expect(Math.max(...cut.path.map((p) => p[1]))).toBeLessThan(crossing + 1);
+    t.room.isDown = () => true;
+    later.forEach((fn) => fn());
+    expect(t.flown.length).toBe(2);
+    expect(t.flown[1]!.fall.from).toEqual(hit.point);
+    expect(fallPhase(t.flown[1]!.fall, 0.5)).toBe("tumble");
+  });
+
+  it("is not stopped by what holds its own rising end up", () => {
+    const { gun, build } = ready();
+    expect(inTheWay(build, MOON, rideFlight(build, MOON, gun), gun)).toBeNull();
+  });
+
   it("charges sooner next time with builders standing by the capacitor banks", () => {
     const { t, gun } = ready();
+    // (Anyone standing there helps, visitors too.)
     t.by("b", gun, 3);
     t.at.set("v", [...middleOf(gun, 4)] as Vec);
     sit(t, "a", gun);

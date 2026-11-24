@@ -317,10 +317,9 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     if (seated === id) leaveSeat(false);
   }
 
-  /** A part knocked off: it drops and tips over for a moment, then is gone. */
-  const falling: { mesh: Mesh; t: number }[] = [];
+  /** A part taken off or shot off is simply gone, as a wall or a floor is (user, 2026-11-24). */
   function fallAway(mesh: Mesh): void {
-    falling.push({ mesh, t: 0 });
+    mesh.dispose();
     game.sound.noise(0.25, 0.2, 500);
     game.sound.tone("sine", 140, 50, 0.3, 0.3);
   }
@@ -405,20 +404,22 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
   }
 
   /**
-   * One frame of flying down: the rockets carry the rider the way they look
-   * (down is a dive; they will not climb), sinking a little all the while,
-   * less with the jump key held. Walls stop them; the first thing under their
-   * feet (a floor, a roof, the ground) is where they land.
+   * One frame of flying down, kept simple: the move keys carry the rider
+   * across the Moon as they would walk (forward is the way they face), and
+   * they come down steadily all the while, slower with the jump key held.
+   * Walls stop them; the first thing under their feet (a floor, a roof, a part
+   * of a rail gun, the ground) is where they land.
    */
   function fly(dt: number, input: DriveInput): void {
     const f = flying!;
-    const pitch = game.viewPitch();
-    const ahead = new Vector3(Math.sin(input.yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(input.yaw) * Math.cos(pitch));
-    const right = new Vector3(Math.cos(input.yaw), 0, -Math.sin(input.yaw));
-    const speed = input.run ? RAILGUN.flyFast : RAILGUN.flySpeed;
-    // Back is the brakes.
-    const want = ahead.scale(Math.max(0, input.forward) * speed).add(right.scale(input.strafe * speed * 0.6));
-    want.y = Math.min(want.y, 0) - (input.jump ? RAILGUN.sinkSlow : RAILGUN.sink);
+    const sin = Math.sin(input.yaw), cos = Math.cos(input.yaw);
+    let sx = input.strafe, fz = input.forward;
+    const push = Math.hypot(sx, fz);
+    if (push > 1) {
+      sx /= push;
+      fz /= push;
+    }
+    const want = new Vector3((sin * fz + cos * sx) * RAILGUN.flySpeed, -(input.jump ? RAILGUN.sinkSlow : RAILGUN.sink), (cos * fz - sin * sx) * RAILGUN.flySpeed);
     f.v.addInPlace(want.subtract(f.v).scale(1 - Math.exp(-dt * 2.4)));
     let x = Math.max(-FAR, Math.min(FAR, f.at.x + f.v.x * dt)), z = Math.max(-FAR, Math.min(FAR, f.at.z + f.v.z * dt));
     let y = f.at.y + f.v.y * dt;
@@ -441,7 +442,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     }
     f.at.set(x, y, z);
     game.player.fly(x, y, z);
-    game.panel(`<b>Rockets · ${Math.round(y - HALF - ground)} m up</b><small>${game.touch ? "Push to fly where you look · Jump slows the fall" : "<kbd>W</kbd> fly where you look · <kbd>Space</kbd> slow the fall · <kbd>Shift</kbd> faster"}</small>`);
+    game.panel(`<b>Rockets · ${Math.round(y - HALF - ground)} m up</b><small>${game.touch ? "Stick to steer · Jump slows the fall" : "<kbd>Arrows</kbd> steer · <kbd>Space</kbd> slow the fall"}</small>`);
   }
 
   const feature = {
@@ -520,7 +521,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
           crowded: "Something is built in the way",
           room: "No room: the whole gun must fit inside the building area",
           far: "Get closer",
-          locked: "Building on the Moon comes with the Full Game",
+          locked: "Rail guns come with the Full Game",
           full: "The Moon has as many rail guns as it can hold",
           overlap: "Another rail gun is in the way",
           busy: "Someone is in the capsule",
@@ -546,7 +547,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       return true;
     },
 
-    update(dt: number) {
+    update() {
       const now = performance.now();
       // Thrown out of the capsule (a shot landed by it): the server has already emptied the seat.
       if (seated !== null && game.player.knockedDown) leaveSeat(false);
@@ -576,18 +577,6 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
           capsule.rotation.set(d <= flat ? 0 : -RISE, home.yaw, 0);
         }
       }
-      for (let i = falling.length - 1; i >= 0; i--) {
-        const f = falling[i]!;
-        f.t += dt;
-        f.mesh.position.y -= dt * 3 * f.t;
-        f.mesh.rotation.z += dt * 2.2;
-        f.mesh.scaling.setAll(Math.max(0.01, 1 - f.t / 0.8));
-        if (f.t >= 0.8) {
-          f.mesh.dispose();
-          falling.splice(i, 1);
-        }
-      }
-
       // This player's own launch: at the top of it the server lets go, and they fly themselves from there.
       if (rideAt > 0) {
         const t = (now - rideAt) / 1000;
@@ -597,7 +586,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
           // (Unless the flight never came: then they are still by the gun, on the ground.)
           if (p.y > 30) {
             flying = { at: new Vector3(p.x, p.y, p.z), v: new Vector3(0, -RAILGUN.sink, 0) };
-            game.toast(game.touch ? "Your rockets: push the stick to fly where you look" : "Your rockets: W flies where you look. Land anywhere", 5000);
+            game.toast(game.touch ? "Your rockets: steer with the stick, land anywhere" : "Your rockets: steer with the arrow keys, land anywhere", 5000);
           }
         }
       }
@@ -630,6 +619,8 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       }
       const s = nearCapsule();
       if (!s) return false;
+      // Visiting: riding it comes with the Full Game. (Not ours to take: the game then offers it, as for a launcher.)
+      if (!game.mayBuild()) return false;
       if (s.gun.rider !== null) game.toast("Someone is in the capsule");
       else if (!asked) {
         asked = performance.now();
@@ -790,7 +781,8 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     for (const s of guns.values()) {
       if (!s.gun.parts.includes(22)) continue;
       const seat = seatOf(s.gun);
-      if (Math.hypot(seat.x - p.x, seat.z - p.z) <= RAILGUN.boardReach && Math.abs(p.y - 0.9 - s.gun.y * LEVEL) < 4) return s;
+      // (From the ground beside it, or standing on any part of it nearby.)
+      if (Math.hypot(seat.x - p.x, seat.z - p.z) <= RAILGUN.boardReach && p.y - 0.9 - s.gun.y * LEVEL > -2 && p.y - 0.9 - s.gun.y * LEVEL < 6) return s;
     }
     return null;
   }

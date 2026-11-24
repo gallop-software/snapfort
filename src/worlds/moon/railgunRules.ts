@@ -52,12 +52,15 @@ export const RAILGUN = {
   rideClimb: 4,
   launchUp: 650,
   launchOut: 200,
-  /** Flying down: how fast the rockets carry a rider the way they look, m/s, cruising and flat out (the run key). */
+  /**
+   * Flying down, kept simple (user, 2026-11-24: "it should just be the arrow
+   * controls and the space to slow down. and that's it"): the move keys carry
+   * the rider across the Moon at this speed, m/s, as they would walk...
+   */
   flySpeed: 50,
-  flyFast: 85,
-  /** ...and how fast they sink while they do, m/s: as it comes, and holding back (the jump key). */
-  sink: 6,
-  sinkSlow: 1.5,
+  /** ...while they come down at this rate, m/s; slower with the jump key held. */
+  sink: 14,
+  sinkSlow: 3,
 } as const;
 
 /** A rail gun as saved and sent: where its base is (cell x, storey, cell z), which way it points (0: +z, 1: +x, 2: -z, 3: -x), and which parts are on it. */

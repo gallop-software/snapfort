@@ -29,6 +29,14 @@ async function open(label, key, device) {
   return page;
 }
 const sf = (page, fn, arg) => page.evaluate(fn, arg);
+/** Brings a page to the front and makes sure it is playing (a browser lets go of the mouse when another window takes over; a click on the game takes it back). */
+async function front(page) {
+  await page.bringToFront();
+  for (let i = 0; i < 5 && !(await page.evaluate(() => window.snapfort.input.locked)); i++) {
+    if (await page.isVisible("#resume")) await page.click("#resume"); else await page.mouse.click(550, 200);
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
 const guns = (page) => sf(page, () => [...window.snapfort.feature.railgun.guns.values()].map((s) => ({ ...s.gun, drawn: s.meshes.size })));
 const panel = (page) => page.textContent("#world-panel");
 const toast = (page) => page.textContent("#toast");
@@ -38,7 +46,7 @@ function spot(g, n) {
   const [ax, az] = AHEAD[g.dir];
   const along = n <= 4 || n === 22 ? (n === 1 ? 0 : 1) : n === 21 ? 34 : 2.5 + 2 * (n - 5);
   const side = n === 3 ? -1 : n === 4 ? 1 : 0;
-  const up = n === 21 ? 3 : Math.max(0, n - 5 - 13);
+  const up = n === 21 ? 3 : n >= 18 && n <= 20 ? n - 18 : 0;
   return [(g.x + 0.5 + ax * along + az * side) * 5, (g.y + up) * 3.75, (g.z + 0.5 + az * along - ax * side) * 5];
 }
 /** Stands a builder a little to the side of part `n` and aims the crosshair at where it goes. */
@@ -63,15 +71,21 @@ const pick = async (page) => { if ((await sf(page, () => document.querySelector(
 const putAway = async (page) => { if ((await sf(page, () => document.querySelector("#hotbar .slot.selected .label")?.textContent)) === "Railgun") { await page.keyboard.press("KeyN"); await wait(300); } };
 
 const b = await open("builder", await paidKey(base, "/moon"));
-const v = await open("visitor");
+// A second builder with the Full Game (their own key), who does the riding; and a visitor without it.
+const v = await open("rider", await paidKey(base, "/moon"));
+const w = await open("visitor");
 const vId = await sf(v, () => window.snapfort.myId);
+// (The rider only rides: they put their Wall tool away, so none of their clicks builds anything.)
+await front(v); await v.keyboard.press("KeyZ"); await wait(300); await front(b);
 
 // ── The Railgun tool ─────────────────────────────────────────────────────
 const slots = await sf(b, () => [...document.querySelectorAll("#hotbar .slot .label")].map((e) => e.textContent));
 check("Railgun is on the Moon's hotbar, next to Launcher", slots.at(-1) === "Railgun" && slots.at(-2) === "Launcher", slots.join(" · "));
-await v.keyboard.press("KeyN"); await wait(1200);
-check("a visitor picking it is offered the Full Game (building needs it)", await v.isVisible("#view-unlock"));
-await v.click("#unlock-later"); await wait(1300);
+await front(w);
+await w.keyboard.press("KeyN"); await wait(1200);
+check("a visitor picking it is offered the Full Game (building needs it)", await w.isVisible("#view-unlock"));
+await w.click("#unlock-later"); await wait(1300);
+await front(b);
 
 await sf(b, () => { const s = window.snapfort; s.player.teleport(-60, 0.95, 60); s.rig.yaw = Math.PI / 2; s.rig.pitch = 0.35; });
 await pick(b);
@@ -156,14 +170,21 @@ for (let i = 0; i < 3; i++) { await sf(b, ([x, y, z]) => { const s = window.snap
 await b.mouse.down({ button: "right" }); await b.mouse.up({ button: "right" }); await wait(600);
 check("…the right button takes a part off too", !(await guns(v))[0].parts.includes(11));
 // A visitor cannot take anything off.
-await v.bringToFront();
-await sf(v, ([x, z]) => { const s = window.snapfort; s.player.teleport(x - 2.5, 0.95, z - 7); }, [spot(g, 12)[0], spot(g, 12)[2]]);
+await front(w);
+await sf(w, ([x, z]) => { const s = window.snapfort; s.player.teleport(x - 2.5, 0.95, z - 7); }, [spot(g, 12)[0], spot(g, 12)[2]]);
 await wait(300);
-for (let i = 0; i < 3; i++) { await sf(v, ([x, y, z]) => { const s = window.snapfort; const e = s.rig.pivot; s.rig.yaw = Math.atan2(x - e.x, z - e.z); s.rig.pitch = -Math.atan2(y - e.y, Math.hypot(x - e.x, z - e.z)); }, [spot(g, 12)[0] - 2.5, 0.7, spot(g, 12)[2]]); await wait(120); }
-await v.mouse.down({ button: "right" }); await v.mouse.up({ button: "right" }); await wait(1300);
+for (let i = 0; i < 3; i++) { await sf(w, ([x, y, z]) => { const s = window.snapfort; const e = s.rig.pivot; s.rig.yaw = Math.atan2(x - e.x, z - e.z); s.rig.pitch = -Math.atan2(y - e.y, Math.hypot(x - e.x, z - e.z)); }, [spot(g, 12)[0] - 2.5, 0.7, spot(g, 12)[2]]); await wait(120); }
+await w.mouse.down({ button: "right" }); await w.mouse.up({ button: "right" }); await wait(1300);
 check("…a visitor cannot", (await guns(b))[0].parts.includes(12));
-if (await v.isVisible("#view-unlock")) { await v.click("#unlock-later"); await wait(1300); }
-await b.bringToFront();
+if (await w.isVisible("#view-unlock")) { await w.click("#unlock-later"); await wait(1300); }
+// Nor get in the capsule: riding it comes with the Full Game, and pressing H offers that.
+await sf(w, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
+for (let i = 0; i < 20 && !/capsule/.test(await w.textContent("#hint")); i++) await wait(150);
+await w.keyboard.press("KeyH"); await wait(1300);
+check("…nor get in the capsule: H offers the Full Game", (await w.isVisible("#view-unlock")) && (await sf(w, () => window.snapfort.feature.railgun.seated)) === null && (await guns(b))[0].rider === null);
+if (await w.isVisible("#view-unlock")) { await w.click("#unlock-later"); await wait(1300); }
+await sf(w, () => window.snapfort.player.teleport(-150, 0.95, -150));
+await front(b);
 // Put the two back.
 await pick(b);
 for (const n of [10, 11]) await place(b, g, n);
@@ -174,11 +195,11 @@ await putAway(b);
 const jam = spot(g, 9);
 await sf(b, ([x, z]) => { const s = window.snapfort; const cx = Math.floor(x / 5) , cz = Math.floor(z / 5); window.__jam = [s.nextId(), s.nextId()]; s.history.do({ kind: "place", piece: { type: "floor", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[0], material: "wood", edit: 0 } }); s.history.do({ kind: "place", piece: { type: "roof", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[1], material: "wood", edit: 0 } }); }, [jam[0] - 2.5, jam[2]]);
 await wait(700);
-await v.bringToFront();
-await sf(v, ([x, y, z]) => window.snapfort.player.teleport(x + 2.5, y + 0.95, z + 3), spot(g, 22));
+await front(v);
+await sf(v, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
 for (let i = 0; i < 30 && !(await panel(v)); i++) await wait(150);
 check("a dome built on the rail blocks it: nothing is lost, but it will not work", /blocked/i.test(await panel(v)) && (await guns(v))[0].parts.length === 22, `panel: ${await panel(v)} | at ${JSON.stringify(await sf(v, () => { const q = window.snapfort.player.position; return [q.x, q.y, q.z].map((n) => +n.toFixed(1)); }))} | hidden ${await sf(v, () => document.getElementById("world-panel").hidden)}`);
-await b.bringToFront();
+await front(b);
 await sf(b, () => { const s = window.snapfort; for (const id of window.__jam.reverse()) s.history.do({ kind: "remove", id }); });
 await wait(800);
 check("…cleared, it is charging or ready again", /charging|ready/.test(await panel(v)), await panel(v));
@@ -189,21 +210,33 @@ await wait(700); await b.keyboard.press("KeyH"); await wait(700);
 for (let i = 0; i < 4; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(y - p.y, Math.hypot(x - p.x, z - p.z)); }, [target[0], target[1] + 0.5, target[2]]); await wait(80); }
 const aimed = await sf(b, () => window.snapfort.target);
 check("the launcher's crosshair lands on a rail gun part", !!aimed && Math.hypot(aimed[0] - target[0], aimed[2] - target[2]) < 3 && aimed[1] > 0.3, JSON.stringify(aimed?.map((n) => +n.toFixed(1))));
-await b.mouse.down(); await b.mouse.up(); await wait(2500);
+// The rider is sitting in the capsule, 50 m from where the shot will land.
+await front(v);
+await sf(v, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
+await wait(700);
+await v.keyboard.press("KeyH"); await wait(900);
+check("(a builder sits in the capsule)", (await sf(v, () => window.snapfort.feature.railgun.seated)) === g.id, JSON.stringify(await sf(v, () => { const s = window.snapfort; const q = s.player.position; return { at: [q.x, q.y, q.z].map((n) => +n.toFixed(1)), locked: s.input.locked, builder: s.builder, down: s.player.knockedDown, hint: document.getElementById("hint").textContent, toast: document.getElementById("toast").textContent, view: document.querySelector("#overlay .panel > div:not([hidden])")?.id, rider: [...s.feature.railgun.guns.values()][0]?.gun.rider }; })));
+await front(b);
+await b.mouse.down(); await b.mouse.up();
+let flailed = false, flungTo = 0;
+for (let i = 0; i < 60; i++) { await wait(100); const q = await sf(v, () => ({ tumbling: window.snapfort.player.tumbling, y: window.snapfort.player.position.y, seated: window.snapfort.feature.railgun.seated })); flailed ||= q.tumbling && q.seated === null; flungTo = Math.max(flungTo, q.y); if (flailed && flungTo > 120) break; }
 const hit = (await guns(v))[0];
-check("…and the shot knocks parts out, for everyone", hit.parts.length < 22 && !hit.parts.includes(12) && hit.drawn === hit.parts.length && hit.readyAt === 0, `${22 - hit.parts.length} part(s) lost`);
+check("…and the shot takes the part it lands on clean away, for everyone (one hit is all a part takes)", hit.parts.length < 22 && !hit.parts.includes(12) && hit.drawn === hit.parts.length && hit.readyAt === 0 && !(await sf(v, () => window.snapfort.scene.meshes.some((m) => m.name === "gun-1-12"))), `${22 - hit.parts.length} part(s) gone`);
+check("…and whoever was sitting in the gun is thrown up into space, flailing, however far from the hit", flailed && flungTo > 120 && hit.rider === null, `thrown to ${flungTo.toFixed(0)} m`);
+for (let i = 0; i < 150 && (await sf(v, () => window.snapfort.player.knockedDown)); i++) await wait(100);
+await sf(v, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
 await b.keyboard.press("KeyH"); await wait(400);
 await pick(b);
 for (let n = 5; n <= 20; n++) if (!hit.parts.includes(n)) await place(b, g, n);
 check("…they are put back on, and it charges again from the start", (await guns(b))[0].parts.length === 22 && /charging · (2[5-9]|30) s/.test(await panel(b)), await panel(b));
 await putAway(b);
 
-// ── The ride (a visitor may) ─────────────────────────────────────────────
-await v.bringToFront();
+// ── The ride ─────────────────────────────────────────────────────────────
+await front(v);
 await wait(600);
 check("beside the capsule: H gets in", /get in the rail gun's capsule/.test(await v.textContent("#hint")), await v.textContent("#hint"));
 await v.keyboard.press("KeyH"); await wait(900);
-check("a visitor sits in the capsule, and everyone sees them there", (await sf(v, () => window.snapfort.feature.railgun.seated)) === g.id && (await sf(v, () => !!window.snapfort.player.riding)) && (await guns(b))[0].rider === vId);
+check("a builder sits in the capsule, and everyone sees them there", (await sf(v, () => window.snapfort.feature.railgun.seated)) === g.id && (await sf(v, () => !!window.snapfort.player.riding)) && (await guns(b))[0].rider === vId);
 await v.mouse.down(); await v.mouse.up(); await wait(500);
 check("it will not fire while it is charging", /Still charging/.test(await toast(v)) && !(await sf(v, () => window.snapfort.player.knockedDown)), await toast(v));
 // Everyone sits still while it charges (long enough for the Moon's room to sleep and wake).
@@ -219,7 +252,7 @@ await sf(b, (pad) => {
 }, PAD);
 await wait(900);
 const padTop = PAD.level * 3.75 + 0.15, padAt = [(PAD.x + 0.5) * 5, (PAD.z + 0.5) * 5];
-await v.bringToFront();
+await front(v);
 await v.mouse.down(); await v.mouse.up();
 const t0 = Date.now();
 let onRail = false, top = 0, seenHigh = 0, seenCapsuleRun = false, seenFlying = false, cams = new Set(), flyingAt = 0, flames = false;
@@ -240,31 +273,37 @@ for (let i = 0; i < 90; i++) {
 check("a click fires it: down the rail", onRail && seenCapsuleRun);
 check("…and very high above the Moon: about 650 m, in about 5 seconds", top > 600 && top < 700 && flyingAt > 4.5 && flyingAt < 8, `${top.toFixed(0)} m up after ${flyingAt.toFixed(1)} s`);
 const start = await state();
-check("…where the rockets are the rider's own: flying, the view still theirs, nothing taken over", start.flying && start.aloft && start.locked && cams.size === 1 && start.cam === "camera" && /Rockets · \d+ m up/.test(await panel(v)), await panel(v));
-// Hands off: it sinks gently, straight down.
+check("…where the rockets are the rider's own: flying, the view still theirs, and just two things to know", start.flying && start.aloft && start.locked && cams.size === 1 && start.cam === "camera" && /Arrows steer · Space slow the fall$/.test(await panel(v)) && /Rockets · \d+ m up/.test(await panel(v)), await panel(v));
+// Hands off: straight down, steadily.
 await wait(2000);
 const sunk = await state();
-check("hands off, they sink gently, about 6 m a second", start.y - sunk.y > 8 && start.y - sunk.y < 20 && Math.hypot(sunk.x - start.x, sunk.z - start.z) < 3 && sunk.flames, `${((start.y - sunk.y) / 2).toFixed(1)} m/s`);
-// Holding the jump key slows the fall.
+check("hands off, they come straight down at a steady 14 m a second", start.y - sunk.y > 20 && start.y - sunk.y < 36 && Math.hypot(sunk.x - start.x, sunk.z - start.z) < 3 && sunk.flames, `${((start.y - sunk.y) / 2).toFixed(1)} m/s`);
+// Holding Space slows the fall.
 await v.keyboard.down("Space"); await wait(2000); await v.keyboard.up("Space");
 const held = await state();
-check("…slower with the jump key held", sunk.y - held.y < 6, `${((sunk.y - held.y) / 2).toFixed(1)} m/s`);
-// Now fly to the top of that far platform: look at it and push forward, flat out, easing off to settle onto it.
-let landedOn = null, others = 0;
-for (let i = 0; i < 700; i++) {
+check("…slower with Space held, about 3 m a second", sunk.y - held.y < 12, `${((sunk.y - held.y) / 2).toFixed(1)} m/s`);
+// Looking up or down changes nothing, and nor does Shift: only the move keys steer.
+await sf(v, () => { window.snapfort.rig.pitch = 1.2; });
+await v.keyboard.down("ShiftLeft"); await wait(1500);
+const looked = await state();
+await v.keyboard.up("ShiftLeft");
+check("…looking down and holding Shift change nothing: the same steady fall", held.y - looked.y > 14 && held.y - looked.y < 28 && Math.hypot(looked.x - held.x, looked.z - held.z) < 3, `${((held.y - looked.y) / 1.5).toFixed(1)} m/s`);
+// Now fly to the top of that far platform: face it and hold the up arrow until over it, then let go and come down onto it.
+let landedOn = null, others = 0, fastest = 0, last = looked, lastAt = Date.now();
+for (let i = 0; i < 900; i++) {
   const q = await state();
   if (!q.flying) { landedOn = q; break; }
-  const dx = padAt[0] - q.x, dz = padAt[1] - q.z, flat = Math.hypot(dx, dz), dy = q.feet - padTop;
-  // Aim a little above the pad from far off (they sink as they go), straight at it close in.
-  await sf(v, ([yaw, pitch]) => { const s = window.snapfort; s.rig.yaw = yaw; s.rig.pitch = pitch; }, [Math.atan2(dx, dz), Math.max(-0.2, Math.min(1.3, Math.atan2(dy - Math.min(40, flat * 0.12), Math.max(flat, 0.5))))]);
-  if (flat > 4) await v.keyboard.down("KeyW"); else await v.keyboard.up("KeyW");
-  if (flat > 120) await v.keyboard.down("ShiftLeft"); else await v.keyboard.up("ShiftLeft");
+  const now = Date.now();
+  if (now - lastAt > 400) { fastest = Math.max(fastest, Math.hypot(q.x - last.x, q.z - last.z) / ((now - lastAt) / 1000)); last = q; lastAt = now; }
+  const dx = padAt[0] - q.x, dz = padAt[1] - q.z, flat = Math.hypot(dx, dz);
+  await sf(v, (yaw) => { const s = window.snapfort; s.rig.yaw = yaw; s.rig.pitch = 0.3; }, Math.atan2(dx, dz));
+  if (flat > 2.5) await v.keyboard.down("ArrowUp"); else await v.keyboard.up("ArrowUp");
   if (i % 10 === 0) { const seen = await sf(b, (id) => { const s = window.snapfort; const p = s.remotes.positionOf(id); return { y: p ? p[1] : -1, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent !== s.player.avatar.root) }; }, vId); others = Math.max(others, seen.y); seenFlying ||= seen.flames && seen.y > 60; }
-  await wait(60);
+  await wait(50);
 }
-await v.keyboard.up("KeyW"); await v.keyboard.up("ShiftLeft");
+await v.keyboard.up("ArrowUp");
 const flew = (Date.now() - t0) / 1000;
-check("looking where they want to go and pushing forward, they fly right across the Moon", !!landedOn, `landed after ${flew.toFixed(0)} s at ${landedOn?.x.toFixed(0)}, ${landedOn?.z.toFixed(0)}`);
+check("the arrow keys carry them across the Moon, the way they face, at about 50 m a second", !!landedOn && fastest > 35 && fastest < 60, `up to ${fastest.toFixed(0)} m/s` + " · " + `landed after ${flew.toFixed(0)} s at ${landedOn?.x.toFixed(0)}, ${landedOn?.z.toFixed(0)}`);
 check("…and set down on top of a tower 12 storeys up, far from the gun", !!landedOn && Math.abs(landedOn.feet - padTop) < 0.3 && Math.hypot(landedOn.x - padAt[0], landedOn.z - padAt[1]) < 8 && Math.hypot(padAt[0] - from[0], padAt[1] - from[2]) > 200, `feet at ${landedOn?.feet.toFixed(1)} m (the platform is at ${padTop.toFixed(1)} m), ${Math.hypot(padAt[0] - from[0], padAt[1] - from[2]).toFixed(0)} m from the gun`);
 check("…while everyone below sees them up there, rockets burning", others > 300 && seenFlying, `seen ${others.toFixed(0)} m up`);
 await wait(500);
@@ -276,6 +315,32 @@ check("…on their feet, rockets off, walking again", !walk.flying && !walk.alof
 const after = (await guns(b))[0];
 check("…the capsule is back, empty, and the gun is charging or ready for the next", after.rider === null && after.parts.length === 22);
 
+// ── Something built in the way of the launch ─────────────────────────────
+// A wall across the gun's line, 5 m beyond the muzzle and taller than the rider is there.
+await front(b);
+await sf(b, (g) => { const s = window.snapfort; const A = [[0, 1], [1, 0], [0, -1], [-1, 0]][g.dir]; for (let y = 0; y <= 14; y++) s.history.do({ kind: "place", piece: { type: "wall", x: g.x + A[0] * 36, y, z: g.z + A[1] * 36, rot: g.dir % 2 === 1 ? 1 : 0, id: s.nextId(), material: "wood", edit: 0 } }); }, g);
+await wait(900);
+await front(v);
+await sf(v, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
+for (let i = 0; i < 20 && !/capsule/.test(await v.textContent("#hint")); i++) await wait(150);
+// (A moment for the server to hear where they now are: nobody really arrives by teleport.)
+await wait(700);
+await v.keyboard.press("KeyH"); await wait(900);
+for (let i = 0; i < 45 && !/ready/.test(await panel(v)); i++) await wait(1000);
+check("(the rider is back in the capsule and it has charged again)", (await sf(v, () => window.snapfort.feature.railgun.seated)) === g.id && /ready/.test(await panel(v)), `${await panel(v)} | ${JSON.stringify(await sf(v, () => { const s = window.snapfort; const q = s.player.position; return { at: [q.x, q.y, q.z].map((n) => +n.toFixed(1)), locked: s.input.locked, hint: document.getElementById("hint").textContent, toast: document.getElementById("toast").textContent, tool: document.querySelector("#hotbar .slot.selected .label")?.textContent ?? null }; }))}`);
+await v.mouse.down(); await v.mouse.up();
+let tumbled = false, peak = 0, everFlew = false;
+for (let i = 0; i < 160; i++) {
+  await wait(100);
+  const q = await sf(v, () => { const s = window.snapfort; return { y: s.player.position.y, tumbling: s.player.tumbling, down: s.player.knockedDown, flying: s.feature.railgun.flying }; });
+  tumbled ||= q.tumbling; peak = Math.max(peak, q.y); everFlew ||= q.flying;
+  if (tumbled && !q.down && i > 30) break;
+}
+const stopped2 = await sf(v, () => ({ feet: window.snapfort.player.feetY, down: window.snapfort.player.knockedDown, flying: window.snapfort.feature.railgun.flying }));
+check("with a wall built across its line, the launch is stopped there and the rider thrown up, flailing", tumbled && peak > 100 && peak < 300, `flailing: ${tumbled}; got ${peak.toFixed(0)} m up (a clear launch goes to 650 m)`);
+check("…they never get to fly: their rockets bring them back to the ground", !everFlew && !stopped2.down && !stopped2.flying && Math.abs(stopped2.feet) < 0.3, `feet at ${stopped2.feet.toFixed(2)} m`);
+await front(b);
+
 // ── Still there for whoever arrives ──────────────────────────────────────
 await b.reload(); await b.waitForSelector("body.ready"); await b.click("#play-free"); await wait(1000);
 const again = await guns(b);
@@ -283,11 +348,11 @@ check("a builder who arrives later finds every rail gun as it is", again.length 
 
 // ── On a phone ───────────────────────────────────────────────────────────
 {
-  const ph = await open("phone", null, { ...devices["iPhone 13 landscape"] });
+  const ph = await open("phone", await paidKey(base, "/moon"), { ...devices["iPhone 13 landscape"] });
   const fits = (sel) => ph.evaluate((sel) => { const e = document.querySelector(sel); if (!e || e.hidden) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }, sel);
   check("on a phone the hotbar still fits with Railgun on it", (await fits("#hotbar")) && (await ph.evaluate(() => [...document.querySelectorAll("#hotbar .slot .label")].at(-1).textContent)) === "Railgun");
   await ph.bringToFront();
-  await sf(ph, ([x, y, z]) => window.snapfort.player.teleport(x + 2.5, y + 0.95, z + 3), spot(g, 22));
+  await sf(ph, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
   for (let i = 0; i < 30 && (await ph.evaluate(() => document.getElementById("t-board").hidden)); i++) await wait(150);
   const button = await ph.evaluate(() => { const e = document.getElementById("t-board"); return { shown: !e.hidden, text: e.textContent }; });
   check("…beside the capsule there is a Get in button, and the gun's state fits on screen", button.shown && button.text === "Get in" && (await fits("#world-panel")), JSON.stringify(button));

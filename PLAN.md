@@ -266,6 +266,14 @@ All of it is in `src/worlds/moon/` (`railgunRules.ts`, `railguns.ts`, `page/rail
 - **The Remove tool** (V, or the right button with anything picked) on a part shows it in red with its number and name, and a click takes it off, for any builder from close by, as with pieces (new server message `gun-take`; visitors cannot). New general door for this: `aimRemove` and `remove`, asked when Remove is used and the crosshair is not on a piece.
 - **Damage** was already there and is unchanged: a launcher's shot knocks out every part within 3.6 m of where it lands, a part whose floor goes falls off, and a gun missing any part (or with something built on it) does not work until it is whole and clear again, then charges from the start.
 
+## Rail gun: simpler flying, cleaner damage, and who may ride (user, 2026-11-24)
+
+- **Flying down is two things to know** ("it should just be the arrow controls and the space to slow down. and that's it"): the move keys carry the rider across the Moon at 50 m/s, as they would walk (forward is the way they face); they come down at a steady 14 m/s, 3 with Space held. Looking up or down, and Shift, do nothing. From 650 m that is about 45 s in the air (longer with Space) and more than 2 km of reach.
+- **A part taken off or shot off is simply gone**, like a wall or a floor ("right now it shrinks into the ground. a little strange"): no shrinking, no tipping over. One hit is all a part takes.
+- **Hit while someone is in it**: when any part of a gun is hit by a launcher, whoever sits in its capsule is thrown up into space, flailing (the Moon's usual throw: tumbling up, rockets back), however far along the gun the shot landed. So is a rider still running down the rail. A rider already off the muzzle is clear, and finishes their flight.
+- **Something built in the way of the launch** ("their flight is stopped and they are sent flailing up in the air"): the server looks along the whole launch (every 40 cm) for any piece within 0.6 m of the rider's middle. If there is one, the flight ends there and they are thrown up from that spot, flailing. What holds the gun's own parts up (the floor a part stands on, and the pillar under it) does not count.
+- **Riding comes with the Full Game** ("non paying users should not be able to mount the railgun, or the launcher"): a visitor pressing H at the capsule is offered the Full Game, and the server refuses a visitor's seat. The launcher already refused visitors (page and server). Rovers stay open to everyone.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

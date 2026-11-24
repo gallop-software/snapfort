@@ -1,9 +1,9 @@
 import type { BuildState } from "../../game/buildState";
 import { LEVEL } from "../../game/constants";
 import type { Environment } from "../../game/environments";
-import type { Fall } from "../../game/fall";
-import type { Piece } from "../../game/pieces";
-import { positionAt, type Flight, type Vec } from "../../game/trebuchet";
+import { fallPosition, planFall, type Fall } from "../../game/fall";
+import { gridBox, type Piece } from "../../game/pieces";
+import { distanceToPiece, positionAt, type Flight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
 import {
   cannotPlace,
@@ -23,13 +23,15 @@ import {
   type Gun,
   type GunToPage,
 } from "./railgunRules";
-import { EDGE } from "./space";
+import { EDGE, spaceFlight } from "./space";
 
 /** The server's side of the Moon's rail guns (see railgunRules.ts for what they are). */
 
 export interface GunMemory {
   list: Gun[];
   nextId: number;
+  /** Guns that have just fired: who is running down the rail, and since when (ms). Gone once they are off the muzzle. */
+  onRail: Map<number, { by: string; at: number }>;
 }
 
 const mem = (room: Room) => (room.memory as { guns: GunMemory }).guns;
@@ -57,7 +59,7 @@ export function openGuns(room: Room): GunMemory {
   });
   const now = Date.now();
   const kept = list.filter((g) => g.parts.length === PARTS || now - g.touched < RAILGUN.abandonedAfter);
-  return { list: kept, nextId: Math.max(typeof saved?.nextId === "number" ? saved.nextId : 1, 1 + Math.max(0, ...kept.map((g) => g.id))) };
+  return { list: kept, nextId: Math.max(typeof saved?.nextId === "number" ? saved.nextId : 1, 1 + Math.max(0, ...kept.map((g) => g.id))), onRail: new Map() };
 }
 
 /** Clears away unfinished guns nobody has added to for a long while (looked at when someone arrives or starts a new one). */
@@ -162,6 +164,8 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
       save(room);
       return tell(room, gun);
     }
+    // Riding it comes with the Full Game, as building it does (user, 2026-11-24).
+    if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
     if (!gun.parts.includes(22) || room.isDown(playerId) || m.list.some((g) => g.rider === playerId)) return;
     if (gun.rider !== null) return no(room, playerId, "busy");
     const seat = seatOf(gun);
@@ -183,7 +187,17 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     save(room);
     say(room, { k: "gun-fire", id: gun.id, by: playerId });
     tell(room, gun);
-    return room.fly(playerId, rideFlight(room.build, room.env, gun));
+    m.onRail.set(gun.id, { by: playerId, at: now });
+    const ride = rideFlight(room.build, room.env, gun);
+    // Anything built in the way stops the flight there: they are thrown up from it, flailing.
+    const struck = inTheWay(room.build, room.env, ride, gun);
+    if (!struck) return room.fly(playerId, ride);
+    room.fly(playerId, cutShort(ride, struck.time, struck.point));
+    return room.later(Math.max(0, struck.time * 1000 - 60), () => {
+      m.onRail.delete(gun.id);
+      // (Unless something else has already thrown them: then that flight stands.)
+      if (stillOn(room, playerId, ride)) thrownUp(room, playerId, struck.point);
+    });
   }
 }
 
@@ -192,14 +206,47 @@ export function gunsDrop(room: Room, _pieces: readonly Piece[]): void {
   for (const gun of [...mem(room).list]) knockOff(room, gun, fallen(room.build, gun));
 }
 
-/** A shot landed: the parts beside it are knocked out, and have to be put on again. */
+/**
+ * A shot landed: the parts beside it are gone (one hit is all a part takes),
+ * and have to be put on again. Whoever is in the gun when any part of it is
+ * hit, sitting in the capsule or running down the rail, is thrown up into
+ * space, flailing, like anyone hit on the Moon. A rider already off the
+ * muzzle is clear of it, and finishes their flight.
+ */
 export function gunsStruck(room: Room, point: Vec): void {
-  for (const gun of [...mem(room).list]) {
-    knockOff(room, gun, gun.parts.filter((n) => {
+  const m = mem(room);
+  const now = Date.now();
+  for (const gun of [...m.list]) {
+    const hit = gun.parts.filter((n) => {
       const at = middleOf(gun, n);
       return Math.hypot(at[0] - point[0], at[1] - point[1], at[2] - point[2]) <= RAILGUN.knockWithin;
-    }));
+    });
+    if (hit.length === 0) continue;
+    const seated = gun.rider;
+    const running = m.onRail.get(gun.id);
+    m.onRail.delete(gun.id);
+    knockOff(room, gun, hit);
+    if (seated !== null) {
+      const seat = seatOf(gun);
+      gun.rider = null;
+      if (m.list.includes(gun)) tell(room, gun);
+      thrownUp(room, seated, [seat.x, seat.y + 0.6, seat.z]);
+    }
+    if (running && (now - running.at) / 1000 < RAILGUN.rideRail) {
+      // Where along the rail they have got to.
+      const ride = rideFlight(room.build, room.env, gun);
+      thrownUp(room, running.by, fallPosition(ride, (now - running.at) / 1000));
+    }
   }
+}
+
+/** Throws a builder up into space from `from`, flailing, to come back on their rockets (or, under a roof, to fall where they are). */
+function thrownUp(room: Room, playerId: string, from: Vec): void {
+  // Straight up, with a little shove to one side so it is never quite the same.
+  const a = Math.random() * Math.PI * 2;
+  const v: Vec = [Math.sin(a) * 6, 34, Math.cos(a) * 6];
+  const fall = planFall(room.build, from, v, room.env);
+  room.fly(playerId, spaceFlight({ build: room.build, env: room.env, playerId, from, v, fall }) ?? fall);
 }
 
 /** A shot hits a rail gun part standing in its way: the first time the rock comes within a part's size of one's middle. */
@@ -248,3 +295,50 @@ export function rideFlight(_build: BuildState, _env: Environment, gun: Gun): Fal
 }
 
 const edge = (v: number) => Math.max(-EDGE, Math.min(EDGE, v));
+
+/** How near the middle of a rider's body a piece has to come to stop them, m. */
+const BODY = 0.6;
+
+/**
+ * The first thing built in the way of a launch (a wall, a floor, a ramp, a
+ * dome, a launcher: any piece), if anything is: when the rider reaches it
+ * (seconds in) and where. Looked for every 40 cm or less along the whole
+ * flight. What holds the gun's own parts up does not count: the floor a part
+ * stands on and whatever is under that floor in its cell (the rider skims the
+ * top of the muzzle's pillar on the way out).
+ */
+export function inTheWay(build: BuildState, env: Environment, ride: Fall, gun: Gun): { time: number; point: Vec } | null {
+  const feet = Array.from({ length: PARTS }, (_, i) => feetOf(gun, i + 1)).flat();
+  /** True for a piece that is in the cell of one of the gun's feet, at or below that foot. */
+  const holdsItUp = (piece: Piece) => {
+    const b = gridBox(piece);
+    return feet.some((f) => b[0] >= f.x && b[3] <= f.x + 1 && b[2] >= f.z && b[5] <= f.z + 1 && b[4] <= f.y);
+  };
+  let from = ride.from;
+  for (let i = 1; i <= Math.round(ride.time * 10); i++) {
+    const to = fallPosition(ride, i / 10);
+    const steps = Math.max(1, Math.ceil(Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]) / 0.4));
+    for (let k = 1; k <= steps; k++) {
+      const q: Vec = [from[0] + ((to[0] - from[0]) * k) / steps, from[1] + ((to[1] - from[1]) * k) / steps, from[2] + ((to[2] - from[2]) * k) / steps];
+      for (const piece of build.near(q[0], q[1], q[2])) {
+        if (holdsItUp(piece)) continue;
+        if (distanceToPiece(piece, q, env) <= BODY) return { time: (i - 1 + k / steps) / 10, point: q };
+      }
+    }
+    from = to;
+  }
+  return null;
+}
+
+/** A launch that ends where something stopped it: the same flight up to then. */
+export function cutShort(ride: Fall, time: number, point: Vec): Fall {
+  const path: Vec[] = [];
+  for (let i = 0; i < time * 10 - 1e-6; i++) path.push(fallPosition(ride, i / 10));
+  path.push(point);
+  return { from: ride.from, v: ride.v, time, land: point, path, glideFrom: 0, aloft: true };
+}
+
+/** True while a builder is still about where their launch has them (so nothing else has thrown them off it since). */
+function stillOn(room: Room, playerId: string, _ride: Fall): boolean {
+  return room.players().includes(playerId) && room.isDown(playerId);
+}

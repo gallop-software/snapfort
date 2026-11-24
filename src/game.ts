@@ -8,7 +8,8 @@ import { Scene } from "@babylonjs/core/scene";
 import HavokPhysics from "@babylonjs/havok";
 import havokWasmUrl from "@babylonjs/havok/lib/esm/HavokPhysics.wasm?url";
 import { Sfx } from "./audio";
-import { BuildState, type BuildOp, type PlaceProblem } from "./game/buildState";
+import { BuildState, type BuildOp, type PlaceCheck, type PlaceProblem } from "./game/buildState";
+import { engineInTheWay } from "./game/keepOut";
 import { CELL, LEVEL } from "./game/constants";
 import { editTileAt } from "./game/edit";
 import { History } from "./game/history";
@@ -40,6 +41,7 @@ import { PRICE, Store } from "./ui/store";
 import { Tips } from "./ui/tips";
 import { pieceLabel, type Environment } from "./game/environments";
 import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
+import { WORLDS } from "./worlds";
 import { askBuilders, reachOf } from "./ui/worlds";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
@@ -83,6 +85,7 @@ const EDIT_REACH = 14;
 
 const PROBLEM_TEXT: Record<PlaceProblem, string> = {
   occupied: "Something is already there",
+  blocked: "Something stands in the way",
   unsupported: "Needs something to attach to",
   bounds: "Outside the building area",
 };
@@ -420,6 +423,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** What to tell the builder when a piece cannot go where they aim. */
   function problemText(spec: PieceSpec, problem: PlaceProblem): string {
+    if (problem === "blocked" && spec.type === "trebuchet") return `A ${engineName} needs clear space over it: nothing built in its way`;
+    if (problem === "blocked" && engineInTheWay(state, spec, env)) return `A ${engineName} stands in the way`;
     if (problem !== "unsupported") return PROBLEM_TEXT[problem];
     if (spec.type === "trebuchet") return `A ${engineName} needs a floor or the ground under it`;
     // A ramp next to a ramp climbing another way: they only join in a straight line.
@@ -427,6 +432,17 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       return "Ramps turn only on a floor: put a floor down first";
     }
     return PROBLEM_TEXT[problem];
+  }
+
+  /**
+   * Whether a piece can go there: the build's own rules, and nothing that
+   * cannot be built into in the way (a siege engine, or something of the
+   * world's own).
+   */
+  function placeable(spec: PieceSpec): PlaceCheck {
+    const check = state.canPlace(spec);
+    if (!check.ok) return check;
+    return engineInTheWay(state, spec, env) || feature?.blocks?.(spec) === true ? { ok: false, problem: "blocked" } : check;
   }
 
   function placeAtAim(announce: boolean): void {
@@ -893,7 +909,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       ray.hasHit ? { dist: ray.hitDistance, piece: hitPiece } : null,
       { x: player.position.x, z: player.position.z, feetY: player.feetY, yaw: rig.yaw, pitch: rig.pitch, slope: groundSlope() },
       rotation,
-      (spec) => (state.canPlace(spec).ok ? state.touching(spec).length : null),
+      (spec) => (placeable(spec).ok ? state.touching(spec).length : null),
     ).spec;
     // Ramp rushing: standing on a ramp and facing up it, the next ramp continues the
     // staircase (same line, same direction), whatever a wobbly view or an angled run says.
@@ -904,9 +920,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         aimSpec = { ...aimSpec, rot: rushRot as Rot };
       }
       const next = rampAhead();
-      if (next && state.canPlace(next).ok) aimSpec = next;
+      if (next && placeable(next).ok) aimSpec = next;
     }
-    const check = state.canPlace(aimSpec);
+    const check = placeable(aimSpec);
     aimProblem = check.ok ? null : check.problem;
     ghost.show(aimSpec, check.ok ? "ok" : "bad");
   }
@@ -1577,6 +1593,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   });
 
+  // Come from another world, still playing (something of that world's own brought them): read once.
+  const arrived = takeTravel(env.id);
   feature =
     page.start?.({
       scene,
@@ -1607,6 +1625,23 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       },
       sound: sfx.kit,
       touch: input.touch,
+      worlds: () => WORLDS.filter((w) => w !== env).map((w) => ({ id: w.id, name: w.name })),
+      travel: (worldId, note) => {
+        const to = WORLDS.find((w) => w.id === worldId);
+        if (!to || to === env) return;
+        const trip: Travel = { env: to.id, at: Date.now(), yaw: rig.yaw, pitch: rig.pitch, note };
+        sessionStorage.setItem(TRAVEL_KEY, JSON.stringify(trip));
+        // (A dev server's test world is kept, as on every link between worlds.)
+        const test = new URLSearchParams(location.search).get("world");
+        location.assign(test ? `${to.path}?world=${encodeURIComponent(test)}` : to.path);
+      },
+      arrival: () => arrived?.note ?? null,
+      chase: (distance) => {
+        rig.chase = distance;
+      },
+      look: (pitch) => {
+        rig.pitch = Math.max(-1.4, Math.min(1.4, pitch));
+      },
     }) ?? null;
 
   if (builder) selectTool(0);
@@ -1639,13 +1674,23 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.show("away");
     }
     hud.toast("Updated to the latest version", 2500);
+  } else if (arrived) {
+    // Brought here from another world: playing straight away, looking the way they were.
+    startMode("free");
+    rig.yaw = arrived.yaw;
+    rig.pitch = arrived.pitch;
+    if (touch) void input.lock();
+    else {
+      away = true;
+      hud.show("away");
+    }
   }
   if (!builder) (document.getElementById("play-free") as HTMLButtonElement).textContent = `Visit the ${env.name}`;
 
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, flag, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, flag, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
     });
   }
 }
@@ -1662,6 +1707,29 @@ interface Resume {
   pitch: number;
 }
 const RESUME_KEY = "snapfort.resume";
+
+/** Travelling from one world to another while playing (sessionStorage, read once by the world it names). */
+interface Travel {
+  env: string;
+  at: number;
+  yaw: number;
+  pitch: number;
+  /** Whatever the world they left wants the one they reach to know. */
+  note: unknown;
+}
+const TRAVEL_KEY = "snapfort.travel";
+
+function takeTravel(env: string): Travel | null {
+  const raw = sessionStorage.getItem(TRAVEL_KEY);
+  sessionStorage.removeItem(TRAVEL_KEY);
+  if (!raw) return null;
+  try {
+    const t = JSON.parse(raw) as Travel;
+    return t.env === env && Date.now() - t.at < 2 * 60_000 && [t.yaw, t.pitch].every(Number.isFinite) ? t : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The saved place from a restart in this world in the last few minutes, if any (and forgets it). */
 function takeResume(env: string): Resume | null {

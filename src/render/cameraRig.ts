@@ -43,6 +43,8 @@ export class CameraRig {
   scope: Vector3 | null = null;
   /** Index into SCOPE_ZOOMS. */
   zoom = 0;
+  /** Set, the camera trails this many metres behind the builder, through anything in the way (a world's own ride). */
+  chase: number | null = null;
 
   private distance = DISTANCE;
   private shoulder = SHOULDER;
@@ -86,6 +88,16 @@ export class CameraRig {
     }
     this.camera.fov = FOV;
     this.head.set(playerCentre.x, playerCentre.y + HEAD, playerCentre.z);
+    if (this.chase !== null) {
+      // Far behind, looking at the builder: nothing is dodged, and nothing is over the shoulder.
+      this.pivot.copyFrom(this.head);
+      this.distance += (this.chase - this.distance) * Math.min(1, dt * 2.5);
+      this.pivot.subtractToRef(this.forward.scale(this.distance), this.camera.position);
+      // (Never under the ground.)
+      if (this.camera.position.y < 0.6) this.camera.position.y = 0.6;
+      this.camera.rotation.set(this.pitch, this.yaw, 0);
+      return;
+    }
     const physics = this.scene.getPhysicsEngine() as PhysicsEngine | null;
 
     // Slide the over-the-shoulder point toward the head when a wall is right beside the builder,

@@ -2,12 +2,15 @@ import type { BuildState } from "../../game/buildState";
 import { LEVEL } from "../../game/constants";
 import type { Environment } from "../../game/environments";
 import { fallPosition, planFall, type Fall } from "../../game/fall";
+import { solidOf } from "../../game/keepOut";
 import { gridBox, type Piece } from "../../game/pieces";
 import { distanceToPiece, positionAt, type Flight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
 import {
   cannotPlace,
   crowded,
+  cutsInto,
+  builtInto,
   fallen,
   feetOf,
   fits,
@@ -120,7 +123,7 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     if (!fits(gun)) return no(room, playerId, "room");
     if (!near(room, playerId, middleOf(gun, 1), RAILGUN.placeReach)) return no(room, playerId, "far");
     const [foot] = feetOf(gun, 1);
-    if (crowded(room.build, foot!)) return no(room, playerId, "crowded");
+    if (crowded(room.build, foot!) || builtInto(room.build, gun, 1)) return no(room, playerId, "crowded");
     if (!footed(room.build, foot!)) return no(room, playerId, "under");
     tidy(room);
     if (m.list.some((g) => overlap(g, gun))) return no(room, playerId, "overlap");
@@ -199,6 +202,14 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
       if (stillOn(room, playerId, ride)) thrownUp(room, playerId, struck.point);
     });
   }
+}
+
+/** A piece cannot be built into any part of a rail gun. */
+export function gunsBlock(room: Room, piece: Piece): boolean {
+  const list = mem(room).list;
+  if (list.length === 0) return false;
+  const box = solidOf(piece, room.env);
+  return list.some((gun) => cutsInto(gun, box));
 }
 
 /** Pieces went: any part that stood on one of them comes off. */

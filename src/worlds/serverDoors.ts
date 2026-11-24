@@ -40,6 +40,17 @@ export interface WorldServer {
   struck?(room: Room, point: Vec): void;
   /** Pieces were taken out of the build (removed, broken or fallen). */
   removed?(room: Room, pieces: readonly Piece[]): void;
+  /**
+   * A builder wants to put this piece in the build: true when something of
+   * this world's own stands where it would go, so it cannot.
+   */
+  blocks?(room: Room, piece: Piece): boolean;
+  /**
+   * Another world's server half sent this world something (see Room.toWorld):
+   * anything at all, so check it. What is returned (plain data) is that
+   * world's answer.
+   */
+  fromWorld?(room: Room, fromWorldId: string, data: unknown): unknown;
 }
 
 export interface Thrown {
@@ -85,4 +96,12 @@ export interface Room {
    */
   save(name: string, value: unknown): void;
   load(name: string): unknown;
+  /** The other worlds there are: somewhere to send things, or people. */
+  worlds(): { id: string; name: string }[];
+  /**
+   * Sends plain data to another world's server half (its `fromWorld`), waking
+   * that world if it sleeps. Resolves with its answer; undefined when there is
+   * no such world, it has no `fromWorld`, or it could not be reached.
+   */
+  toWorld(worldId: string, data: unknown): Promise<unknown>;
 }

@@ -46,6 +46,8 @@ function fakeRoom(build = new BuildState(), saved = new Map<string, unknown>()) 
     mayBuild: (id) => id !== "v",
     save: (name, value) => void saved.set(name, JSON.parse(JSON.stringify(value))),
     load: (name) => saved.get(name),
+    worlds: () => [],
+    toWorld: async () => undefined,
   };
   room.memory = server.open!(room);
   const guns = () => (room.memory as { guns: { list: Gun[] } }).guns.list;
@@ -553,4 +555,55 @@ describe("riding a rail gun", () => {
     expect(wait).toBeGreaterThan(RAILGUN.charge - 2 * RAILGUN.chargeHelp - 1);
   });
 
+});
+
+describe("nothing is built into a rail gun", () => {
+  it("refuses pieces across the rail and in its cells, lets walls stand beside it and floors go over it, and keeps its own supports", () => {
+    const build = new BuildState();
+    const r = fakeRoom(build);
+    const gun = start(r);
+    scaffold(build, gun);
+    r.assemble("a");
+    expect(gun.parts).toHaveLength(PARTS);
+    const blocks = (p: Piece) => server.blocks!(r.room, p);
+    // Rail 4 (the gun points along +z).
+    const [f] = feetOf(gun, 8);
+    for (const type of ["ramp", "roof", "trebuchet"] as const) expect(blocks(piece(type, f!.x, 0, f!.z)), type).toBe(true);
+    // A wall across the rail, at the joint between two segments and in the middle of one.
+    expect(blocks(piece("wall", f!.x, 0, f!.z, 0))).toBe(true);
+    expect(blocks(piece("wall", f!.x, 0, f!.z + 1, 0))).toBe(true);
+    // Walls along its sides, and a floor a storey over it, are clear of it.
+    expect(blocks(piece("wall", f!.x, 0, f!.z, 1))).toBe(false);
+    expect(blocks(piece("wall", f!.x + 1, 0, f!.z, 1))).toBe(false);
+    expect(blocks(piece("floor", f!.x, 1, f!.z))).toBe(false);
+    // Between the breech and a capacitor bank: no wall (the bank feeds the breech there).
+    const [b] = feetOf(gun, 2);
+    expect(blocks(piece("wall", b!.x, 0, b!.z, 1))).toBe(true);
+    // What holds the rising end up was built before it, and could be built again.
+    for (const n of [19, 20, 21]) {
+      const foot = feetOf(gun, n)[0]!;
+      expect(blocks(piece("floor", foot.x, foot.y, foot.z)), `floor under ${n}`).toBe(false);
+      for (let y = 0; y < foot.y; y++) expect(blocks(piece("wall", foot.x, y, foot.z)), `pillar under ${n}`).toBe(false);
+    }
+    // But not a wall up through a rising rail.
+    const rise = feetOf(gun, 19);
+    expect(blocks(piece("wall", rise[1]!.x, 1, rise[1]!.z, 0))).toBe(true);
+  });
+
+  it("a part cannot go on where a wall stands across its place", () => {
+    const build = new BuildState();
+    const r = fakeRoom(build);
+    const gun = start(r);
+    r.say("a", { k: "gun-part", id: 1, n: 2 });
+    const [f] = feetOf(gun, 5);
+    const wall = piece("wall", f!.x, 0, f!.z + 1, 0);
+    put(build, wall);
+    r.by("a", gun, 5);
+    r.say("a", { k: "gun-part", id: 1, n: 5 });
+    expect(gun.parts).not.toContain(5);
+    expect(cannotPlace(build, gun, 5)).toBe("crowded");
+    build.apply({ kind: "remove", id: wall.id });
+    r.say("a", { k: "gun-part", id: 1, n: 5 });
+    expect(gun.parts).toContain(5);
+  });
 });

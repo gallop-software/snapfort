@@ -13,7 +13,8 @@ export type BuildOp =
   /** Cuts tiles out of a piece, or puts them back (see editGrid). */
   | { kind: "edit"; id: string; edit: number };
 
-export type PlaceProblem = "bounds" | "occupied" | "unsupported";
+/** ("blocked": it would cut into something nothing can be built into; see keepOut.ts. Checked by whoever places, not by `canPlace`.) */
+export type PlaceProblem = "bounds" | "occupied" | "unsupported" | "blocked";
 export type PlaceCheck = { ok: true } | { ok: false; problem: PlaceProblem };
 
 export type BuildListener = (op: BuildOp, piece: Piece) => void;

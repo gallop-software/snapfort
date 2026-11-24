@@ -26,6 +26,8 @@
     "qa:rover": "node qa/rover.mjs",
     "qa:landing": "node qa/landing.mjs",
     "qa:railgun": "node qa/railgun.mjs",
+    "qa:starship": "node qa/starship.mjs",
+    "qa:keepout": "node qa/keepout.mjs",
     "qa:seats": "node qa/seats-page.mjs",
     "qa:smoke": "node qa/smoke.mjs"
   },

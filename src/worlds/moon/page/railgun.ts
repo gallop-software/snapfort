@@ -12,11 +12,15 @@ import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox, PhysicsShapeContainer } from "@babylonjs/core/Physics/v2/physicsShape";
 import { CELL, LEVEL } from "../../../game/constants";
 import { standHeight } from "../../../game/fall";
+import { solidOf } from "../../../game/keepOut";
+import type { PieceSpec } from "../../../game/pieces";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature, WorldTool } from "../../pageDoors";
 import {
   blocked,
+  builtInto,
   cannotPlace,
+  cutsInto,
   feetOf,
   fits,
   footed,
@@ -706,13 +710,21 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const foot = feetOf(base, 1)[0]!;
         const clash = [...guns.values()].some((g) => overlap(g.gun, base));
         showNeeds([]);
-        const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : null;
+        const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) || builtInto(game.build, base, 1) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : null;
         for (let n = 2; n <= PARTS; n++) draw(base, n, ghosts.plan);
         draw(base, 1, problem ? ghosts.bad : ghosts.ok);
         preview = { gun: null, part: 1, ok: problem === null, base };
         game.panel(`<b>New rail gun</b><small>${problem ? `<span class="bad">${problem}</span>` : `<span class="ok">1 · Base</span> · ${game.touch ? "tap Place" : "click"} to start it here, pointing this way`}</small>`);
       }
       for (let i = used; i < planMeshes.length; i++) planMeshes[i]!.setEnabled(false);
+    },
+
+    /** Nothing can be built into any part of a rail gun. */
+    blocks(spec: PieceSpec): boolean {
+      if (guns.size === 0) return false;
+      const box = solidOf(spec, game.env);
+      for (const s of guns.values()) if (cutsInto(s.gun, box)) return true;
+      return false;
     },
 
     /** The Remove tool is on a part of a rail gun: show which, in red. */

@@ -1,6 +1,8 @@
 import type { BuildState } from "../../game/buildState";
 import { CELL, LEVEL, MAX_LEVEL, WORLD_HALF_CELLS } from "../../game/constants";
+import { overlaps, piecesIn, type Box } from "../../game/keepOut";
 import type { Vec } from "../../game/trebuchet";
+import { world } from "./world";
 
 /**
  * The Moon's rail gun: what its page and server halves agree on. A rail gun is
@@ -159,6 +161,48 @@ export function crowded(build: BuildState, foot: Foot): boolean {
   return build.occupant({ type: "ramp", x: foot.x, y: foot.y, z: foot.z, rot: 0 }) !== undefined;
 }
 
+/** How tall each kind of part is above its foot, m (a rail with its accelerator rings). */
+const TALL: Record<PartKind, number> = { base: 2.0, breech: 3.3, capacitor: 3.3, rail: 3.4, rise: 3.4, muzzle: 4.2, capsule: 3.3 };
+/** How far a piece may graze a part's space without counting as built into it, m. */
+const GRAZE = 0.2;
+
+/**
+ * The space part `n` fills, a box for each cell it stands in: nothing can be
+ * built into it (user, 2026-11-24). From just above what it stands on to its
+ * top; in from the sides of its cells, so walls may stand beside the gun, but
+ * all the way through along its length, so none can be put across it. (The
+ * breech reaches its cell's sides: the capacitor banks feed it there.)
+ */
+export function partSpace(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): Box[] {
+  const kind = kindOf(n);
+  const [ax, az] = AHEAD[gun.dir]!;
+  const alongX = ax !== 0;
+  const side = kind === "breech" || kind === "capsule" ? -GRAZE : 0.5, end = -GRAZE;
+  const [ix, iz] = alongX ? [end, side] : [side, end];
+  const feet = feetOf(gun, n);
+  if (kind !== "rise") return feet.map((f): Box => [f.x * CELL + ix, f.y * LEVEL + 0.3, f.z * CELL + iz, (f.x + 1) * CELL - ix, f.y * LEVEL + TALL[kind], (f.z + 1) * CELL - iz]);
+  // A rising segment climbs a storey over its two cells: a run of short steps that follow its slope, so the
+  // pillars that hold up the next segment can stand right under where the two meet.
+  const low = feet[0]!, forward = ax + az > 0, steps = 8, run = (2 * CELL) / steps;
+  const start = ((alongX ? low.x : low.z) + (forward ? 0 : 1)) * CELL;
+  return Array.from({ length: steps }, (_, j): Box => {
+    const a = start + (forward ? 1 : -1) * j * run, b = start + (forward ? 1 : -1) * (j + 1) * run;
+    const [from, to] = [Math.min(a, b) - GRAZE, Math.max(a, b) + GRAZE];
+    const y0 = low.y * LEVEL + ((j + 1) / steps) * LEVEL;
+    return alongX ? [from, y0 + 0.3, low.z * CELL + side, to, y0 + TALL.rise, (low.z + 1) * CELL - side] : [low.x * CELL + side, y0 + 0.3, from, (low.x + 1) * CELL - side, y0 + TALL.rise, to];
+  });
+}
+
+/** True when a piece filling `box` would cut into a part of this gun. */
+export function cutsInto(gun: Gun, box: Box): boolean {
+  return gun.parts.some((n) => partSpace(gun, n).some((space) => overlaps(space, box, GRAZE)));
+}
+
+/** True when something built cuts into the space part `n` would fill. */
+export function builtInto(build: BuildState, gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): boolean {
+  return partSpace(gun, n).some((space) => piecesIn(build, space, world, GRAZE).length > 0);
+}
+
 /** The feet of a part that must have something under them: all of them, but only the low end of a rising segment. */
 export function standingFeet(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): Foot[] {
   const feet = feetOf(gun, n);
@@ -172,7 +216,7 @@ export function cannotPlace(build: BuildState, gun: Gun, n: number): PlaceProble
   if (!Number.isInteger(n) || n < 1 || n > PARTS) return "room";
   if (gun.parts.includes(n)) return "have";
   if (n !== 1 && !joinsOf(n).some((m) => gun.parts.includes(m))) return "join";
-  if (feetOf(gun, n).some((f) => crowded(build, f))) return "crowded";
+  if (feetOf(gun, n).some((f) => crowded(build, f)) || builtInto(build, gun, n)) return "crowded";
   if (!standingFeet(gun, n).every((f) => footed(build, f))) return "under";
   return null;
 }

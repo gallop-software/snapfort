@@ -180,6 +180,8 @@ function fakeRoom(build = new BuildState(), saved = new Map<string, unknown>(), 
     mayBuild: () => true,
     save: (name, value) => void saved.set(name, JSON.parse(JSON.stringify(value))),
     load: (name) => saved.get(name),
+    worlds: () => [],
+    toWorld: async () => undefined,
   };
   room.memory = server.open!(room);
   const rovers = () => (room.memory as { rovers: { id: number; pose: RoverPose; rider: string | null; home: boolean }[] }).rovers;

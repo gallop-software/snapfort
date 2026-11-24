@@ -80,7 +80,7 @@ await front(v); await v.keyboard.press("KeyZ"); await wait(300); await front(b);
 
 // ── The Railgun tool ─────────────────────────────────────────────────────
 const slots = await sf(b, () => [...document.querySelectorAll("#hotbar .slot .label")].map((e) => e.textContent));
-check("Railgun is on the Moon's hotbar, next to Launcher", slots.at(-1) === "Railgun" && slots.at(-2) === "Launcher", slots.join(" · "));
+check("Railgun is on the Moon's hotbar, next to Launcher", slots.indexOf("Railgun") === slots.indexOf("Launcher") + 1 && slots.includes("Launcher"), slots.join(" · "));
 await front(w);
 await w.keyboard.press("KeyN"); await wait(1200);
 check("a visitor picking it is offered the Full Game (building needs it)", await w.isVisible("#view-unlock"));
@@ -191,18 +191,19 @@ for (const n of [10, 11]) await place(b, g, n);
 check("…and the parts go back on with the Railgun tool", (await guns(b))[0].parts.length === 22);
 await putAway(b);
 
-// ── Blocked, and shot at ─────────────────────────────────────────────────
+// ── Nothing is built into it, and shot at ────────────────────────────────
 const jam = spot(g, 9);
-await sf(b, ([x, z]) => { const s = window.snapfort; const cx = Math.floor(x / 5) , cz = Math.floor(z / 5); window.__jam = [s.nextId(), s.nextId()]; s.history.do({ kind: "place", piece: { type: "floor", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[0], material: "wood", edit: 0 } }); s.history.do({ kind: "place", piece: { type: "roof", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[1], material: "wood", edit: 0 } }); }, [jam[0] - 2.5, jam[2]]);
-await wait(700);
+await sf(b, ([x, z, across]) => { const s = window.snapfort; const cx = Math.floor(x / 5) , cz = Math.floor(z / 5); window.__jam = [s.nextId(), s.nextId(), s.nextId()]; window.__jamCell = [cx, cz]; s.history.do({ kind: "place", piece: { type: "floor", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[0], material: "wood", edit: 0 } }); s.history.do({ kind: "place", piece: { type: "roof", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[1], material: "wood", edit: 0 } }); s.history.do({ kind: "place", piece: { type: "wall", x: cx, y: 0, z: cz, rot: across, id: window.__jam[2], material: "wood", edit: 0 } }); }, [jam[0] - 2.5, jam[2], g.dir % 2 === 1 ? 1 : 0]);
+await wait(900);
+const jammed = await sf(b, () => window.__jam.map((id) => !!window.snapfort.state.get(id)));
+check("a dome, or a wall across it, cannot be built into the rail (the server takes them back); a floor on the ground under it can", jammed.join() === "true,false,false", jammed.join());
 await front(v);
 await sf(v, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
 for (let i = 0; i < 30 && !(await panel(v)); i++) await wait(150);
-check("a dome built on the rail blocks it: nothing is lost, but it will not work", /blocked/i.test(await panel(v)) && (await guns(v))[0].parts.length === 22, `panel: ${await panel(v)} | at ${JSON.stringify(await sf(v, () => { const q = window.snapfort.player.position; return [q.x, q.y, q.z].map((n) => +n.toFixed(1)); }))} | hidden ${await sf(v, () => document.getElementById("world-panel").hidden)}`);
+check("…so the gun is never blocked: it is charging or ready", /charging|ready/.test(await panel(v)) && (await guns(v))[0].parts.length === 22, await panel(v));
 await front(b);
-await sf(b, () => { const s = window.snapfort; for (const id of window.__jam.reverse()) s.history.do({ kind: "remove", id }); });
-await wait(800);
-check("…cleared, it is charging or ready again", /charging|ready/.test(await panel(v)), await panel(v));
+await sf(b, () => { const s = window.snapfort; s.history.do({ kind: "remove", id: window.__jam[0] }); });
+await wait(500);
 // A launcher 60 m to the side, aimed at rail 8.
 const target = spot(g, 12);
 await sf(b, ([x, z]) => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "trebuchet", x: Math.floor(x / 5), y: 0, z: Math.floor(z / 5) - 12, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); s.player.teleport(x + 1.5, 1.4, z - 59); }, [target[0], target[2]]);
@@ -350,7 +351,7 @@ check("a builder who arrives later finds every rail gun as it is", again.length 
 {
   const ph = await open("phone", await paidKey(base, "/moon"), { ...devices["iPhone 13 landscape"] });
   const fits = (sel) => ph.evaluate((sel) => { const e = document.querySelector(sel); if (!e || e.hidden) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }, sel);
-  check("on a phone the hotbar still fits with Railgun on it", (await fits("#hotbar")) && (await ph.evaluate(() => [...document.querySelectorAll("#hotbar .slot .label")].at(-1).textContent)) === "Railgun");
+  check("on a phone the hotbar still fits with Railgun on it", (await fits("#hotbar")) && (await ph.evaluate(() => [...document.querySelectorAll("#hotbar .slot .label")].some((e) => e.textContent === "Railgun"))));
   await ph.bringToFront();
   await sf(ph, ([x, y, z]) => window.snapfort.player.teleport(x, y + 0.95, z + 2.5), spot(g, 22));
   for (let i = 0; i < 30 && (await ph.evaluate(() => document.getElementById("t-board").hidden)); i++) await wait(150);

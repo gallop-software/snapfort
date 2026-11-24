@@ -8,12 +8,13 @@ import type { Room } from "../src/worlds/serverDoors";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import type { Environment } from "../src/game/environments";
-import { DEFAULT_WORLD, serverOf, worldOf } from "../src/worlds";
+import { DEFAULT_WORLD, serverOf, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import type { Ledger } from "./ledger";
 import { stripeLive, type StripeEnv } from "./stripe";
 import type { MailBinding } from "./mail";
 import { applyAction } from "../src/net/authority";
+import { engineInTheWay } from "../src/game/keepOut";
 import { cleanChat, FEED_LINES, FLOOD_MS, flooding, NEAR_RANGE, PIN_RANGE, RECENT_MS } from "../src/net/chat";
 import {
   chunkOf,
@@ -427,7 +428,7 @@ export class World extends DurableObject<Env> {
     }
 
     const now = Date.now();
-    const { done, rejected, extra } = applyAction(this.build, wire.map(decodeOp), (piece) => !this.isFull(piece) && materialAllowed(piece.type, piece.material, piece.y, this.environment));
+    const { done, rejected, extra } = applyAction(this.build, wire.map(decodeOp), (piece) => !this.isFull(piece) && materialAllowed(piece.type, piece.material, piece.y, this.environment) && !this.keptOut(piece));
 
     for (const d of [...done, ...extra]) this.unsavedLog.push([now, player.id, encodeOp(d.op), encodeOp(d.inverse)]);
     const extraWire = extra.map((e) => encodeOp(e.op));
@@ -439,6 +440,11 @@ export class World extends DurableObject<Env> {
       const gone = [...done, ...extra].flatMap((d) => (d.inverse.kind === "place" ? [d.inverse.piece] : []));
       if (gone.length > 0) this.knock(null, gone);
     }
+  }
+
+  /** True when a new piece would cut into a siege engine (or a new engine into what is built), or into something of this world's own. */
+  private keptOut(piece: Piece): boolean {
+    return engineInTheWay(this.build, piece, this.environment) || serverOf(this.environment).blocks?.(this.room(), piece) === true;
   }
 
   /** True when this socket has sent more than MESSAGES_PER_SECOND this second; those messages are dropped. */
@@ -888,10 +894,46 @@ export class World extends DurableObject<Env> {
           return undefined;
         }
       },
+      worlds: () => WORLDS.filter((w) => w !== this.environment).map((w) => ({ id: w.id, name: w.name })),
+      toWorld: async (worldId, data) => {
+        const to = WORLDS.find((w) => w.id === worldId);
+        if (!to || to === this.environment) return undefined;
+        try {
+          const name = this.roomNameOf(to);
+          return await this.env.WORLD.get(this.env.WORLD.idFromName(name)).fromWorld(to.id, name, this.environment.id, data);
+        } catch (error) {
+          console.error(error);
+          return undefined;
+        }
+      },
     };
     this.theRoom = room;
     room.memory = serverOf(this.environment).open?.(room);
     return room;
+  }
+
+  /**
+   * The name of another world's room, as seen from this one: its own, or, from
+   * a dev server's test world ("test-<name>", with "-<world id>" on the end for
+   * any world but the first), that test world's.
+   */
+  private roomNameOf(to: Environment): string {
+    if (!this.name.startsWith("test-")) return to.room;
+    const own = this.environment === DEFAULT_WORLD ? "" : `-${this.environment.id}`;
+    const base = own && this.name.endsWith(own) ? this.name.slice(0, -own.length) : this.name;
+    return to === DEFAULT_WORLD ? base : `${base}-${to.id}`;
+  }
+
+  /**
+   * Another world's server half sends this one something (see Room.toWorld).
+   * It says which world this is and what it is called, as the Worker does when
+   * someone joins, in case nobody has been here yet.
+   */
+  fromWorld(envId: string, name: string, fromId: string, data: unknown): unknown {
+    this.learnEnvironment(envId);
+    this.learnName(name);
+    const answer = serverOf(this.environment).fromWorld?.(this.room(), fromId, data);
+    return answer === undefined ? undefined : JSON.parse(JSON.stringify(answer));
   }
 
   // ── Towers ─────────────────────────────────────────────────────────────

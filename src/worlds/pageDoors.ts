@@ -7,7 +7,7 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import type { Environment } from "../game/environments";
-import type { MaterialId, PieceType } from "../game/pieces";
+import type { MaterialId, PieceSpec, PieceType } from "../game/pieces";
 
 /**
  * The page half of a world: everything a world draws and plays itself. The
@@ -93,6 +93,23 @@ export interface PageGame {
   mayBuild(): boolean;
   /** Shows a few words of the world's own above the hotbar (HTML), or takes them away (null). */
   panel(html: string | null): void;
+  /** The other worlds there are: somewhere to go. */
+  worlds(): { id: string; name: string }[];
+  /**
+   * Leaves for another world, still playing: its page opens in place of this
+   * one, and is handed `note` (plain data) as its `arrival`.
+   */
+  travel(worldId: string, note: unknown): void;
+  /** What the page of the world this player just came from handed over (see `travel`), or null. */
+  arrival(): unknown;
+  /**
+   * Pulls the camera back to this many metres behind the player, through
+   * anything in the way (to watch something big they are riding); null puts
+   * it back over the shoulder.
+   */
+  chase(distance: number | null): void;
+  /** Turns the player's view up or down: `pitch` radians below level (as `viewPitch` gives it). */
+  look(pitch: number): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */
@@ -120,6 +137,8 @@ export interface WorldFeature {
   aimTool?(id: string): void;
   /** One of this world's tools is picked, and the player clicked. */
   useTool?(id: string): void;
+  /** True when something of this world's own stands where this piece would go, so it cannot be built there (the server says the same: WorldServer.blocks). */
+  blocks?(spec: PieceSpec): boolean;
   /** The Remove tool is picked and the crosshair is not on a piece: called every frame, to show what of this world's own it would take away (if anything). */
   aimRemove?(): void;
   /** The player used Remove (the tool, or the right button) and the crosshair was not on a piece: take away what of this world's own is there. True when something was. */

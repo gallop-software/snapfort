@@ -40,10 +40,11 @@ export const ROVER = {
   /** An empty rover sinking back to the ground comes down about this fast, m/s (never quicker than 2 s, never slower than 9). */
   sinkSpeed: 9,
   /** Hit by a shot landing within this far, m, a rover is thrown this high and this far, taking this long to come down, s. */
+  // (Further and higher than at first: user, 2026-11-23, "a medium distance away", "up in the air a bit higher".)
   tossWithin: 7,
-  tossUp: 12,
-  tossOut: 11,
-  tossFor: 4.5,
+  tossUp: 24,
+  tossOut: 32,
+  tossFor: 6,
   /** A rover left somewhere with nobody on it goes home after this long, ms. */
   idleFor: 180_000,
   /** Faster than this between two reports, m/s, and the server does not believe it. */

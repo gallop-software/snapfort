@@ -173,7 +173,7 @@ await wait(500); await b.keyboard.press("KeyH"); await wait(700);
 for (let i = 0; i < 4; i++) { await sf(b, ([x, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(0 - p.y, Math.hypot(x - p.x, z - p.z)); }, [sat.pose[0] - 2.5, sat.pose[2]]); await wait(60); }
 await b.mouse.down(); await b.mouse.up();
 let riderThrown = false, roverUp = 0, roverTurned = 0, roverFell = false;
-for (let i = 0; i < 90; i++) {
+for (let i = 0; i < 110; i++) {
   await wait(100);
   const p = await me(a);
   riderThrown ||= p.down && p.mine === null;
@@ -181,10 +181,11 @@ for (let i = 0; i < 90; i++) {
   if (r.lost) { roverFell = true; roverUp = Math.max(roverUp, r.pose[1]); roverTurned = Math.max(roverTurned, Math.abs(r.pose[4]) + Math.abs(r.pose[5])); }
   if (roverFell && !r.lost) break;
 }
+await wait(900);
 const tossed = (await rovers(a)).find((r) => r.id === 4);
 check("a shot landing by a rover throws its driver into space", riderThrown);
-check("…and the rover through the air, turning over", roverFell && roverUp > 6 && roverTurned > 1.5, `${roverUp.toFixed(0)} m up, turned ${roverTurned.toFixed(1)} rad`);
-check("…to land a little way off, the right way up, free for the next driver", !tossed.lost && tossed.rider === null && Math.abs(tossed.pose[1]) < 0.1 && Math.abs(tossed.pose[4]) + Math.abs(tossed.pose[5]) < 0.02 && Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]) > 6 && Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]) < 16, `${Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]).toFixed(0)} m away`);
+check("…and the rover high through the air, turning over", roverFell && roverUp > 18 && roverUp < 30 && roverTurned > 1.5, `${roverUp.toFixed(0)} m up, turned ${roverTurned.toFixed(1)} rad`);
+check("…to land a medium distance off, the right way up, free for the next driver", !tossed.lost && tossed.rider === null && Math.abs(tossed.pose[1]) < 0.1 && Math.abs(tossed.pose[4]) + Math.abs(tossed.pose[5]) < 0.02 && Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]) > 25 && Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]) < 40, `${Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]).toFixed(0)} m away`);
 await b.keyboard.press("KeyH"); await wait(300);
 await standBy(b, 4); await b.keyboard.press("KeyH"); await wait(700);
 check("…who drives it away", (await me(b)).mine === 4);

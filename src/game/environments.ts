@@ -25,7 +25,7 @@ export interface MaterialRules {
 /** A world's siege engine (the trebuchet slot). Distances in metres, times in seconds. */
 export interface SiegeRules {
   name: string;
-  /** Nearer than this cannot be targeted, so nobody batters their own tower from inside. */
+  /** Nearer than this cannot be targeted, so nobody batters their own tower from inside. 0: no minimum. */
   minRange: number;
   /** Range from the ground... */
   baseRange: number;

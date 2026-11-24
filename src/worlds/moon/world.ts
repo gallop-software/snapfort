@@ -43,7 +43,8 @@ export const world: Environment = {
 
   siege: {
     name: "Launcher",
-    minRange: 25,
+    // No minimum: the launcher can hit anything, however near (user, 2026-11-24). The trebuchet keeps its own.
+    minRange: 0,
     baseRange: 300,
     rangePerMetre: 1,
     // A shot every 3 seconds (user, 2026-11-23); a trebuchet takes 6.

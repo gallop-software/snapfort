@@ -65,7 +65,8 @@ describe("the list of worlds", () => {
       }
       // Something can always be built at any height.
       expect(MATERIALS.some((m) => w.materials[m].maxLevel === Infinity), w.id).toBe(true);
-      for (const n of Object.values(w.siege)) if (typeof n === "number") expect(n > 0 && Number.isFinite(n), w.id).toBe(true);
+      // (Only the minimum range may be 0: an engine that can hit things right beside it.)
+      for (const [key, n] of Object.entries(w.siege)) if (typeof n === "number") expect((n > 0 || (key === "minRange" && n === 0)) && Number.isFinite(n), `${w.id} ${key}`).toBe(true);
       expect(w.siege.minRange, w.id).toBeLessThan(w.siege.baseRange);
       expect(ROOF_SHAPES, w.id).toContain(w.roof);
     }

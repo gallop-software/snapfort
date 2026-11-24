@@ -1399,7 +1399,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (t) {
       hud.setHint(null);
       const reload = Math.max(0, (readyAt - now) / 1000);
-      const reach = `range ${env.siege.minRange}–${Math.round(maxRange(t, env))} m`;
+      const reach = env.siege.minRange > 0 ? `range ${env.siege.minRange}–${Math.round(maxRange(t, env))} m` : `range up to ${Math.round(maxRange(t, env))} m`;
       let status: { text: string; ok: boolean };
       if (!target) status = { text: `Aim at a target · ${reach}`, ok: true };
       else {

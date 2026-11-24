@@ -196,6 +196,18 @@ export class Player {
     this.teleport(SPAWN.x, SPAWN.y, SPAWN.z);
   }
 
+  /**
+   * Holds the builder at a spot for this frame, in place of `step` (riding
+   * something of a world's own): standing still there, feet down.
+   */
+  seat(x: number, y: number, z: number): void {
+    this.controller.setPosition(new Vector3(x, y, z));
+    this.controller.setVelocity(Vector3.Zero());
+    this.position.set(x, y, z);
+    this.onGround = true;
+    this.state = "ground";
+  }
+
   teleport(x: number, y: number, z: number): void {
     this.controller.setPosition(new Vector3(x, y, z));
     this.controller.setVelocity(Vector3.Zero());

@@ -5,6 +5,8 @@ import type { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
+import type { BuildState } from "../game/buildState";
+import type { Environment } from "../game/environments";
 import type { MaterialId, PieceType } from "../game/pieces";
 
 /**
@@ -27,6 +29,71 @@ export interface WorldPage {
   sounds: SoundTable;
   /** Colour of the dust where things break, RGB 0..1. */
   dust: readonly [number, number, number];
+  /**
+   * Starts whatever this world has that no other does (vehicles, say), once
+   * the game is set up. Optional. It reaches the game only through `game`.
+   */
+  start?(game: PageGame): WorldFeature;
+}
+
+/** The running game, as a world's own page code sees it. */
+export interface PageGame {
+  scene: Scene;
+  shadows: CascadedShadowGenerator;
+  env: Environment;
+  /** The build. Read it; never change it. */
+  build: BuildState;
+  /** This player: where their body's centre is, and whether they are thrown, falling or getting up. */
+  player: {
+    readonly position: { readonly x: number; readonly y: number; readonly z: number };
+    readonly knockedDown: boolean;
+    /** Puts the player's body centre here and holds them still this frame (riding something). */
+    seat(x: number, y: number, z: number): void;
+  };
+  /** Which way the player looks, radians about the vertical. */
+  viewYaw(): number;
+  /** This player's id in the shared world ("" until joined). */
+  myId(): string;
+  /** Sends a message to this world's server half (see WorldServer.message). */
+  send(data: unknown): void;
+  toast(text: string, ms?: number): void;
+  /** For sounds of the world's own. */
+  sound: SoundKit;
+  /** True on phones and tablets. */
+  touch: boolean;
+}
+
+/** What a world's own page code does each frame, and when asked. Every hook is optional. */
+export interface WorldFeature {
+  /** A message from this world's server half. */
+  message?(data: unknown): void;
+  /** Joined (or joined again): forget what was known; the server sends it afresh. */
+  joined?(): void;
+  /**
+   * Moves the player in place of walking, straight after physics. Return true
+   * when it did (the player is riding something), false to let them walk.
+   */
+  drive?(dt: number, input: DriveInput): boolean;
+  /** Once a frame, before drawing. */
+  update?(dt: number): void;
+  /** The key for getting on and off things was pressed: return true when that was for this world's own thing. */
+  board?(): boolean;
+  /** What to tell the player about getting on or off something, when anything: a line for the screen and a label for the button on phones. */
+  prompt?(): { text: string; button: string } | null;
+  /** True while the player's hands are busy with something of this world's (no building). */
+  busy?(): boolean;
+}
+
+/** What the player is pressing, as for walking. */
+export interface DriveInput {
+  /** -1..1, positive is to the right of the view. */
+  strafe: number;
+  /** -1..1, positive is forward. */
+  forward: number;
+  run: boolean;
+  jump: boolean;
+  /** The way the player looks. */
+  yaw: number;
 }
 
 export interface Scenery {

@@ -57,6 +57,8 @@ export interface NetHandlers {
   access(builder: boolean, reason?: "elsewhere"): void;
   /** A newer version of SnapFort is live: this page should restart. */
   update(): void;
+  /** A message of the world's own, for its page half. */
+  world(data: unknown): void;
 }
 
 /** How often this builder's position goes out while they move, ms. */
@@ -163,6 +165,11 @@ export class NetClient {
   }
 
   /** Sends where this builder is, at most every 100 ms and only when it changed. */
+  /** Sends a message of the world's own to its server half. */
+  sendWorld(data: unknown): void {
+    this.raw({ t: "w", d: data });
+  }
+
   sendMove(x: number, y: number, z: number, yaw: number, onGround: boolean, now: number, tumbling = false): void {
     if (!this.online || now - this.lastMoveAt < MOVE_INTERVAL) return;
     const yawMilli = Math.round((((yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) * 1000);
@@ -263,6 +270,8 @@ export class NetClient {
         return h.access(msg.builder, msg.reason);
       case "update":
         return h.update();
+      case "w":
+        return h.world(msg.d);
       case "error":
         if (msg.reason === "full") this.setStatus("full");
         // The server is on an older protocol than this page: it is about to be updated (a deploy

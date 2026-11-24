@@ -39,7 +39,7 @@ import { ChatView } from "./ui/chat";
 import { Store } from "./ui/store";
 import { Tips } from "./ui/tips";
 import { pieceLabel, type Environment } from "./game/environments";
-import type { WorldPage } from "./worlds/pageDoors";
+import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
 import { reachOf } from "./ui/worlds";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
@@ -136,6 +136,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
   const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)), env, page.dust);
   const flag = new TowerFlag(scene);
+  /** What this world has of its own (vehicles, say), started below once the game's parts exist. */
+  let feature: WorldFeature | null = null;
   /** Hits taken by damaged pieces (from the server), so their cracks show. */
   const damage = new Map<string, number>();
   const tint = (id: string) => {
@@ -689,6 +691,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     sfx.unlock();
     // Middle click pings the spot under the crosshair.
     if (button === 1) return ping();
+    // Riding something of the world's own: hands are busy (visitors too).
+    if (feature?.busy?.()) return;
     if (!builder) return lockedNote();
     // Flying through the air, or flat on the ground: hands are busy.
     if (player.knockedDown) return;
@@ -750,9 +754,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
     // "/" too, as in Minecraft and Roblox.
     if (code === "Slash") return chat.open();
-    if (code === "KeyH") return toggleCrew();
+    // H gets on and off: a siege engine, or something of the world's own.
+    if (code === "KeyH") return crewOn || !feature?.board?.() ? toggleCrew() : undefined;
     // On a trebuchet the hands are busy: no building until getting off.
-    if (crewOn) return;
+    if (crewOn || feature?.busy?.()) return;
     const fnTool = FUNCTION_KEYS[code];
     if (fnTool) return toggleTool(TOOLS.indexOf(fnTool));
     if (code.startsWith("Digit")) {
@@ -785,13 +790,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     const key = (a: string, b: string) => (input.isDown(a) || input.isDown(b) ? 1 : 0);
     // Touch: the on-screen joystick adds its own push (and runs when pushed all the way).
     const clamp = (v: number) => Math.max(-1, Math.min(1, v));
-    player.step(dt, {
+    const moving = {
       strafe: on ? clamp(key("ArrowRight", "KeyD") - key("ArrowLeft", "KeyA") + input.axis.x) : 0,
       forward: on ? clamp(key("ArrowUp", "KeyW") - key("ArrowDown", "KeyS") + input.axis.y) : 0,
       run: on && (input.isDown("ShiftLeft") || input.isDown("ShiftRight") || input.axis.run),
       jump: on && input.isDown("Space"),
       yaw: rig.yaw,
-    });
+    };
+    // Riding something of the world's own moves the player in its own way; otherwise they walk.
+    if (crewOn || player.knockedDown || !feature?.drive?.(dt, moving)) player.step(dt, moving);
   });
 
   const ray = new PhysicsRaycastResult();
@@ -1026,6 +1033,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       setBuilder(extras.builder);
       chat.clear();
       for (const said of extras.chat) chat.show(said, myId, now);
+      feature?.joined?.();
     },
     snapshot(pieces) {
       if (solo) return;
@@ -1146,6 +1154,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     },
     update() {
       showUpdate();
+    },
+    world(data) {
+      if (!solo) feature?.message?.(data);
     },
     access(on, reason) {
       const wasElsewhere = elsewhere;
@@ -1334,8 +1345,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     hud.setCrew(null);
     const near = input.locked && !solo && !player.knockedDown ? trebuchetInReach() : undefined;
     const busy = !!near && crews.has(near.id) && crews.get(near.id) !== myId;
+    // Nothing of the shared kind to get on: something of the world's own, perhaps.
+    const own = !near && input.locked && !solo && !player.knockedDown ? (feature?.prompt?.() ?? null) : null;
     // Touch: a Get on button instead of the key hint.
-    touch?.setBoard(!!near && !busy);
+    touch?.setBoard((!!near && !busy) || !!own, own?.button);
+    if (own) return hud.setHint(touch ? null : own.text);
     if (!near) return hud.setHint(null);
     if (touch && !busy) return hud.setHint(null);
     hud.setHint(busy ? `Someone is on this ${engineName}` : `<kbd>H</kbd> get on the ${engineName}`);
@@ -1438,7 +1452,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     world.update(dt);
     flash.update(dt);
 
-    if (crewOn || player.knockedDown) {
+    feature?.update?.(dt);
+    if (crewOn || player.knockedDown || feature?.busy?.()) {
       ghost.hide();
       placing = false;
       if (crewOn && input.locked) aimScope();
@@ -1502,6 +1517,23 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   });
 
+  feature =
+    page.start?.({
+      scene,
+      shadows: world.shadows,
+      env,
+      build: state,
+      player,
+      viewYaw: () => rig.yaw,
+      myId: () => myId,
+      send: (data) => {
+        if (!solo && net.online) net.sendWorld(data);
+      },
+      toast: (text, ms) => hud.toast(text, ms),
+      sound: sfx.kit,
+      touch: input.touch,
+    }) ?? null;
+
   if (builder) selectTool(0);
   else setBuilder(false);
   showMaterial();
@@ -1538,7 +1570,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, flag, chat, store, env, get builder() { return builder; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, flag, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
     });
   }
 }

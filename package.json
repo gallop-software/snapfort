@@ -22,7 +22,9 @@
     "qa:menu": "node qa/menu.mjs",
     "qa:presence": "node qa/presence.mjs",
     "qa:keys": "node qa/keys.mjs",
-    "qa:refs": "node qa/refs.mjs"
+    "qa:refs": "node qa/refs.mjs",
+    "qa:rover": "node qa/rover.mjs",
+    "qa:smoke": "node qa/smoke.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.37.1",

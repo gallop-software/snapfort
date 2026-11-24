@@ -2,9 +2,10 @@ import type { Environment } from "../../game/environments";
 
 /**
  * The Moon: a third of the pull. A jump goes about 1.6 times as high as in the
- * meadow (nearly two storeys) and floats down, stones fly slow, high lobs and
- * reach much further, and anyone hit sails a long way. (A sixth, like the real
- * Moon, made building fiddly and throws leave the world.)
+ * meadow (nearly two storeys) and floats down, slugs fly slow, high lobs and
+ * reach much further, and anyone hit is thrown into space and flown back by
+ * the rockets on their suit (space.ts). There are rovers to drive (rovers.ts).
+ * (A sixth of the pull, like the real Moon, made building fiddly.)
  *
  * Built from what is to hand: a light lattice skinned in gold foil, blocks
  * baked from moon dust, and titanium hull plate. Roofs are domes, the siege
@@ -19,9 +20,9 @@ export const world: Environment = {
   room: "moon",
   paid: true,
   card: {
-    blurb: "Low gravity: jump two storeys, launch further, send rivals flying.",
+    blurb: "Low gravity, space suits and rovers. Get hit and you are thrown into space.",
     picture: "/worlds/moon.jpg",
-    perks: ["Jump nearly two storeys in low gravity", "Launchers reach 1.6× further", "Send rivals flying 100 m"],
+    perks: ["Build in lattice, regolith and titanium", "Launchers reach 1.6× further", "Blast rivals into space"],
   },
 
   gravity: 26 / 3,

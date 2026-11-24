@@ -175,7 +175,8 @@ export class TouchControls {
   }
 
   /** The Get on button, shown when a trebuchet is in reach. */
-  setBoard(visible: boolean): void {
+  setBoard(visible: boolean, label = "Get on"): void {
+    if (this.boardButton.textContent !== label) this.boardButton.textContent = label;
     this.boardButton.hidden = !visible || this.current !== "build";
   }
 

@@ -3,7 +3,8 @@ import { BuildState, type BuildOp } from "../src/game/buildState";
 import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
-import { fallEnd, planFall } from "../src/game/fall";
+import { fallEnd, planFall, type Fall } from "../src/game/fall";
+import type { Room } from "../src/worlds/serverDoors";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import type { Environment } from "../src/game/environments";
@@ -286,6 +287,10 @@ export class World extends DurableObject<Env> {
         return this.fire(ws, player, msg.id, msg.to);
       case "say":
         return this.say(ws, player, msg.text, msg.to, msg.at);
+      case "w":
+        // A message of the world's own: its server half deals with it.
+        if (player.outdated) return;
+        return serverOf(this.environment).message?.(this.room(), player.id, msg.d);
     }
   }
 
@@ -359,6 +364,7 @@ export class World extends DurableObject<Env> {
     if (outdated) send(ws, { t: "update" });
     void this.keepWatch();
     this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
+    serverOf(this.environment).joined?.(this.room(), player.id);
   }
 
   private drop(ws: WebSocket): void {
@@ -374,6 +380,7 @@ export class World extends DurableObject<Env> {
     // Their key is free for their other devices.
     if (player.key) this.ledger().release(player.key, this.name, player.id).catch(() => {});
     this.release(player.id);
+    serverOf(this.environment).left?.(this.room(), player.id);
     this.broadcast({ t: "leave", id: player.id });
     if (this.players.size === 0) this.flush();
   }
@@ -724,6 +731,7 @@ export class World extends DurableObject<Env> {
    */
   private knock(point: Vec | null, gone: readonly Piece[]): void {
     const now = Date.now();
+    if (gone.length > 0) serverOf(this.environment).removed?.(this.room(), gone);
     for (const player of this.players.values()) {
       const m = this.moves.get(player.id) ?? player.move;
       if (!m || now < (this.downUntil.get(player.id) ?? 0)) continue;
@@ -738,20 +746,65 @@ export class World extends DurableObject<Env> {
       // only a real fall knocks them down.
       if (!v && centre[1] - fall.land[1] < this.environment.knockdownDrop) continue;
       // Thrown: the world may have a flight of its own for that (out into space and back, say).
-      if (v) fall = serverOf(this.environment).thrown?.({ build: this.build, env: this.environment, from: centre, v, fall }) ?? fall;
-      fall = { ...fall, path: fall.path.map(round), land: round(fall.land) };
-      this.release(player.id);
-      this.downUntil.set(player.id, now + fallEnd(fall) * 1000);
-      this.broadcast({ t: "thrown", id: player.id, path: fall.path, time: Math.round(fall.time * 1000) / 1000, land: fall.land, ...(fall.glideFrom === undefined ? {} : { glide: fall.glideFrom }) });
-      // Where they come to rest is where they are (for anyone joining, and if their tab is asleep).
-      setTimeout(() => {
-        const move: WireMove = [player.id, Math.round(fall.land[0] * 100), Math.round(fall.land[1] * 100), Math.round(fall.land[2] * 100), m[4], 1];
-        player.move = move;
-        this.moves.set(player.id, move);
-        this.quietTicks = 0;
-        this.tickTimer ??= setInterval(() => this.tick(), TICK_MS);
-      }, fall.time * 1000);
+      if (v) fall = serverOf(this.environment).thrown?.({ build: this.build, env: this.environment, playerId: player.id, from: centre, v, fall }, this.room()) ?? fall;
+      this.fly(player, fall);
     }
+  }
+
+  /** Sends a builder along a flight: every page plays it, and where it ends is where they are. */
+  private fly(player: Attachment, planned: Fall): void {
+    const fall = { ...planned, path: planned.path.map(round), land: round(planned.land) };
+    const yaw = (this.moves.get(player.id) ?? player.move)?.[4] ?? 0;
+    this.release(player.id);
+    this.downUntil.set(player.id, Date.now() + fallEnd(fall) * 1000);
+    this.broadcast({ t: "thrown", id: player.id, path: fall.path, time: Math.round(fall.time * 1000) / 1000, land: fall.land, ...(fall.glideFrom === undefined ? {} : { glide: fall.glideFrom }) });
+    // Where they come to rest is where they are (for anyone joining, and if their tab is asleep).
+    setTimeout(() => {
+      const move: WireMove = [player.id, Math.round(fall.land[0] * 100), Math.round(fall.land[1] * 100), Math.round(fall.land[2] * 100), yaw, 1];
+      player.move = move;
+      this.moves.set(player.id, move);
+      this.quietTicks = 0;
+      this.tickTimer ??= setInterval(() => this.tick(), TICK_MS);
+    }, fall.time * 1000);
+  }
+
+  // ── The world's own rules ──────────────────────────────────────────────
+
+  private theRoom: Room | null = null;
+
+  /**
+   * This room as its world's own server code sees it (see WorldServer): made
+   * the first time it is needed, once the Worker has said which world this is.
+   */
+  private room(): Room {
+    if (this.theRoom) return this.theRoom;
+    const find = (id: string) => {
+      for (const [ws, player] of this.players) if (player.id === id) return { ws, player };
+      return null;
+    };
+    const room: Room = {
+      env: this.environment,
+      build: this.build,
+      memory: undefined,
+      positionOf: (id) => {
+        const m = this.moves.get(id) ?? find(id)?.player.move;
+        return m ? [m[1] / 100, m[2] / 100, m[3] / 100] : null;
+      },
+      isDown: (id) => Date.now() < (this.downUntil.get(id) ?? 0),
+      send: (id, data) => {
+        const to = find(id);
+        if (to) send(to.ws, { t: "w", d: data });
+      },
+      broadcast: (data, exceptId) => this.broadcast({ t: "w", d: data }, exceptId === undefined ? undefined : find(exceptId)?.ws),
+      fly: (id, fall) => {
+        const who = find(id);
+        if (who) this.fly(who.player, fall);
+      },
+      later: (ms, fn) => void setTimeout(fn, ms),
+    };
+    this.theRoom = room;
+    room.memory = serverOf(this.environment).open?.(room);
+    return room;
   }
 
   // ── Towers ─────────────────────────────────────────────────────────────

@@ -5,7 +5,8 @@ import type { SoundKit, SoundTable } from "./worlds/pageDoors";
  * What each sound is belongs to the world (its SoundTable); this plays them.
  */
 export class Sfx {
-  private readonly kit: SoundKit = { tone: (...a) => this.tone(...a), noise: (...a) => this.noise(...a) };
+  /** What sounds are made with (also handed to a world's own page code, for sounds of its own). */
+  readonly kit: SoundKit = { tone: (...a) => this.tone(...a), noise: (...a) => this.noise(...a) };
 
   constructor(private readonly table: SoundTable) {}
 

@@ -96,7 +96,9 @@ export type ClientMessage =
   /** Asks for the whole world again (after the game lost track of it). */
   | { t: "sync" }
   /** Says something (see WireSaid); an empty text with a spot `at` is a ping. */
-  | { t: "say"; text: string; to: ChatTo; at?: WireVec };
+  | { t: "say"; text: string; to: ChatTo; at?: WireVec }
+  /** A world's own message, from its page half to its server half: the shared code only carries it. */
+  | { t: "w"; d: unknown };
 
 export type ServerMessage =
   /** You joined: your id (also the prefix for ids of pieces you make), the whole world and who is here. */
@@ -141,6 +143,8 @@ export type ServerMessage =
   | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
   /** Whether you may build here (the answer to a "key" message; or "elsewhere": your key is now played on another device). */
   | { t: "access"; builder: boolean; reason?: "elsewhere" }
+  /** A world's own message, from its server half to its page half: the shared code only carries it. */
+  | { t: "w"; d: unknown }
   /** A newer version of SnapFort is live: this page should restart (it can watch, not move or build, until it does). */
   | { t: "update" }
   | { t: "snap"; pieces: WirePiece[] }

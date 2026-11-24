@@ -114,6 +114,8 @@ for (const [id, path] of WORLDS) {
       const V = cam.position.constructor;
       if (window.__ref) s.scene.onBeforeRenderObservable.remove(window.__ref);
       window.__ref = s.scene.onBeforeRenderObservable.add(() => {
+        // Always at full sharpness: the game draws fewer pixels on a busy computer, which would differ at every edge.
+        if (s.engine.getHardwareScalingLevel() !== 1) s.engine.setHardwareScalingLevel(1);
         cam.position.copyFromFloats(...camera);
         cam.setTarget(new V(...target));
         for (const m of s.scene.meshes) if (m.name.startsWith("ghost") || m.name === "cloud") m.isVisible = false;

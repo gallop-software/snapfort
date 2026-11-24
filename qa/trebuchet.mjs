@@ -151,6 +151,17 @@ await aimAt(2.5, 0, 12);
 await frames(b, 3);
 check("a target nearer than the minimum shows as too close", (await b.textContent("#crew")).includes("too close"), await b.textContent("#crew"));
 
+// Open sky: nothing under the crosshair, and it still fires, at a point in the air the way B looks.
+await sf(b, () => { const s = window.snapfort; s.rig.yaw = Math.PI / 2; s.rig.pitch = -0.5; });
+await frames(b, 4);
+const skyTarget = await sf(b, () => window.snapfort.target);
+check("looking at open sky still gives a target, up in the air", !!skyTarget && skyTarget[1] > 50 && skyTarget[0] > 100, JSON.stringify(skyTarget?.map((v) => +v.toFixed(1))));
+check("…and the panel says open air, ready", /Open air · ready/.test(await b.textContent("#crew")), await b.textContent("#crew"));
+await b.mouse.down(); await b.mouse.up();
+await wait(400);
+const skyShot = await sf(b, () => { const t = window.snapfort.trebuchets; const st = [...t.stones.values()].at(-1); return st && { n: t.stones.size, y: st.mesh.position.y, vy: st.flight.v[1] }; });
+check("…and a click throws the stone up into it", !!skyShot && skyShot.vy > 20 && (await b.textContent("#crew")).includes("reloading"), `${JSON.stringify(skyShot)}; ${await b.textContent("#crew")}`);
+
 // A removes the trebuchet while B is on it.
 await sf(a, () => { const s = window.snapfort; const t = [...s.state.all()].find((p) => p.type === "trebuchet"); s.removePiece(t.id); });
 await wait(800);

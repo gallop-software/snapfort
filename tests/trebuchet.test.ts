@@ -4,7 +4,7 @@ import { CELL, LEVEL } from "../src/game/constants";
 import type { Piece, PieceSpec } from "../src/game/pieces";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
-import { checkRange, findImpact, launchPoint, maxRange, planFlight, positionAt, strike, throwVelocity, type Vec } from "../src/game/trebuchet";
+import { checkRange, findImpact, launchPoint, maxRange, openAirTarget, planFlight, positionAt, strike, throwVelocity, type Vec } from "../src/game/trebuchet";
 import { PLAIN } from "./plain";
 
 const TREBUCHET = PLAIN.siege;
@@ -45,6 +45,40 @@ describe("trebuchet aim", () => {
     expect(checkRange(ground, [2.5 + 290, 0, 2.5], PLAIN)).toBe("ok");
     expect(checkRange(ground, [2.5 + 320, 0, 2.5], PLAIN)).toBe("far");
     expect(checkRange(high, [2.5 + 320, 0, 2.5], PLAIN)).toBe("ok");
+  });
+});
+
+describe("aiming at open air", () => {
+  const t = piece({ type: "trebuchet", x: 0, y: 2, z: 0, rot: 0 }, "t");
+  const from: Vec = [launchPoint(t, PLAIN)[0], launchPoint(t, PLAIN)[1] + 0.8, launchPoint(t, PLAIN)[2]];
+  const look = (yaw: number, up: number): Vec => [Math.sin(yaw) * Math.cos(up), Math.sin(up), Math.cos(yaw) * Math.cos(up)];
+
+  it("targets a point on the line of sight, in range, whichever way the builder looks", () => {
+    for (const yaw of [0, 1, 2.5, -2]) {
+      for (const up of [0, 0.1, 0.5, 1, 1.3]) {
+        const dir = look(yaw, up);
+        const to = openAirTarget(t, from, dir, PLAIN);
+        expect(checkRange(t, to, PLAIN)).toBe("ok");
+        // On the line of sight: the same direction from the eye.
+        const d = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+        expect(d).toBeLessThanOrEqual(maxRange(t, PLAIN));
+        for (let i = 0; i < 3; i++) expect((to[i]! - from[i]!) / d).toBeCloseTo(dir[i]!, 6);
+        // And the stone goes through it.
+        const f = planFlight(launchPoint(t, PLAIN), to, PLAIN);
+        const at = positionAt(f, f.time);
+        for (let i = 0; i < 3; i++) expect(at[i]).toBeCloseTo(to[i]!, 6);
+      }
+    }
+  });
+
+  it("stops at the ground when looking down", () => {
+    const to = openAirTarget(t, from, look(0, -0.2), PLAIN);
+    expect(to[1]).toBeCloseTo(0, 6);
+    expect(checkRange(t, to, PLAIN)).toBe("ok");
+  });
+
+  it("is too close only when looking almost straight up", () => {
+    expect(checkRange(t, openAirTarget(t, from, look(0, Math.PI / 2 - 0.01), PLAIN), PLAIN)).toBe("near");
   });
 });
 

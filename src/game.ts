@@ -56,7 +56,7 @@ import { RemotePlayers } from "./render/remotePlayers";
 import { TowerFlag } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
 import { TREBUCHET_BASE } from "./render/geometry";
-import { checkRange, hitPoints, launchPoint, maxRange, rangeTo, trebuchetBase, type Vec } from "./game/trebuchet";
+import { checkRange, hitPoints, launchPoint, maxRange, openAirTarget, rangeTo, trebuchetBase, type Vec } from "./game/trebuchet";
 import { Graphics } from "./render/graphics";
 import { ResolutionGovernor } from "./render/resolution";
 import { SoldierView } from "./render/soldierView";
@@ -1025,7 +1025,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    * trebuchet), or null. With `piecesOnly`, only a spot on a built piece.
    */
   function aimPoint(range: number, piecesOnly = false): Vec | null {
-    if (crewOn) return piecesOnly ? null : target;
+    if (crewOn) return piecesOnly || targetOpen ? null : target;
     rig.pivot.addToRef(rig.forward.scale(range), rayEnd);
     physics.raycastToRef(rig.pivot, rayEnd, ray, IGNORE_BUILDER);
     if (ray.hasHit && (!piecesOnly || view.pieceIdOf(ray.body) !== undefined)) return [ray.hitPointWorld.x, ray.hitPointWorld.y, ray.hitPointWorld.z];
@@ -1253,6 +1253,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** The trebuchet this builder is on, and where it is aimed. */
   let crewOn: string | null = null;
   let target: Vec | null = null;
+  /** The crosshair is on nothing: the target is a point in open air, the way the builder looks. */
+  let targetOpen = false;
   /** When this builder's trebuchet can throw again (performance.now() ms). */
   let readyAt = 0;
 
@@ -1339,7 +1341,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /**
    * On a trebuchet the crosshair is the target: every frame, the spot under it
    * becomes the target, the trebuchet turns toward it, and the ring and arc
-   * follow (green in range, red not).
+   * follow (green in range, red not). With nothing under it (open sky, or
+   * something flying, which is not solid here), the target is a point in the
+   * air along the line of sight: the shot goes that way and carries on.
    */
   function aimScope(): void {
     const t = crewOn ? state.get(crewOn) : undefined;
@@ -1356,8 +1360,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (view.pieceIdOf(ray.body) === t.id) start.copyFrom(hit.add(rig.forward.scale(0.2)));
       else point = [hit.x, hit.y, hit.z];
     }
+    targetOpen = !point;
+    point ??= openAirTarget(t, [rig.pivot.x, rig.pivot.y, rig.pivot.z], [rig.forward.x, rig.forward.y, rig.forward.z], env);
     target = point;
-    if (!point) return trebuchets.showTarget(null, null, false);
     trebuchets.aimAt(t.id, point);
     trebuchets.showTarget(launchPoint(t, env), point, checkRange(t, point, env) === "ok");
   }
@@ -1366,13 +1371,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     const t = crewOn ? state.get(crewOn) : undefined;
     if (!t) return;
     aimScope();
-    if (!target) {
-      hud.toast("Aim at something to fire at it");
-      return sfx.deny();
-    }
+    if (!target) return;
     const range = checkRange(t, target, env);
     if (range !== "ok") {
-      hud.toast(range === "near" ? `Too close: aim at least ${env.siege.minRange} m away` : "Out of range: build higher or get closer");
+      hud.toast(targetOpen ? "Too steep: aim lower to fire" : range === "near" ? `Too close: aim at least ${env.siege.minRange} m away` : "Out of range: build higher or get closer");
       return sfx.deny();
     }
     if (performance.now() < readyAt) {
@@ -1403,10 +1405,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       else {
         const d = Math.round(rangeTo(t, target));
         const range = checkRange(t, target, env);
-        if (range === "near") status = { text: `Target ${d} m: too close (min ${env.siege.minRange} m)`, ok: false };
+        const ready = `ready: ${touch ? "tap Fire" : "click to fire"}`;
+        if (targetOpen) status = range !== "ok" ? { text: "Open air: aim lower to fire", ok: false } : reload > 0 ? { text: `Open air · reloading ${reload.toFixed(1)} s`, ok: false } : { text: `Open air · ${ready}`, ok: true };
+        else if (range === "near") status = { text: `Target ${d} m: too close (min ${env.siege.minRange} m)`, ok: false };
         else if (range === "far") status = { text: `Target ${d} m: out of range (max ${Math.round(maxRange(t, env))} m)`, ok: false };
         else if (reload > 0) status = { text: `Target ${d} m · reloading ${reload.toFixed(1)} s`, ok: false };
-        else status = { text: `Target ${d} m · ready: ${touch ? "tap Fire" : "click to fire"}`, ok: true };
+        else status = { text: `Target ${d} m · ${ready}`, ok: true };
       }
       // Zoom as a magnification: how much bigger things look than without the scope.
       const magnify = Math.tan(SCOPE_ZOOMS[0] / 2) / Math.tan(SCOPE_ZOOMS[rig.zoom]! / 2);

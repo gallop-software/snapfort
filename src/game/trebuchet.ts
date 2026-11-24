@@ -47,6 +47,28 @@ export function checkRange(t: Piece, target: Vec, env: Environment): RangeCheck 
   return d < env.siege.minRange ? "near" : d > maxRange(t, env) ? "far" : "ok";
 }
 
+/**
+ * The target when the crosshair is on nothing (open sky): the point along the
+ * line of sight from `from` in direction `dir` (a unit vector) at the edge of
+ * the engine's range, so the shot goes the way the builder looks and carries
+ * on past it. Never further than the range in a straight line either (looking
+ * steeply up), nor under the ground.
+ */
+export function openAirTarget(t: Piece, from: Vec, dir: Vec, env: Environment): Vec {
+  const reach = maxRange(t, env) * 0.98;
+  const [bx, , bz] = trebuchetBase(t);
+  const ox = from[0] - bx, oz = from[2] - bz;
+  const a = dir[0] * dir[0] + dir[2] * dir[2];
+  const b = 2 * (ox * dir[0] + oz * dir[2]);
+  const c = ox * ox + oz * oz - reach * reach;
+  let s = reach;
+  const disc = b * b - 4 * a * c;
+  if (a > 1e-9 && disc >= 0) s = Math.min(s, (-b + Math.sqrt(disc)) / (2 * a));
+  if (dir[1] < -1e-6) s = Math.min(s, -from[1] / dir[1]);
+  s = Math.max(0, s);
+  return [from[0] + dir[0] * s, Math.max(0, from[1] + dir[1] * s), from[2] + dir[2] * s];
+}
+
 /** The stone's flight from `from` that passes exactly through `to`. */
 export interface Flight {
   from: Vec;

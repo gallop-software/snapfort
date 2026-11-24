@@ -43,7 +43,7 @@
       <div id="siege" hidden></div>
       <div id="banner"></div>
       <div id="toast"></div>
-      <div id="visit-bar" hidden><span class="what"><b>Visiting</b> · building here comes with the Full Game</span><button type="button" id="visit-buy">Unlock · $7<kbd class="desk">U</kbd></button><button type="button" id="visit-own" hidden>Get my own<kbd class="desk">O</kbd></button></div>
+      <div id="visit-bar" hidden><span class="what"><b>Visiting</b> · building here comes with the Full Game</span><button type="button" id="visit-buy">Unlock · $7<kbd class="desk">U</kbd></button><button type="button" id="visit-own" hidden>Add a seat · $7<kbd class="desk">O</kbd></button></div>
       <div id="tip" hidden></div>
       <div id="away-note">Click or press any key to keep building</div>
       <button type="button" id="chat-chip" aria-label="Chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 4.5h14A2.5 2.5 0 0 1 21.5 7v8a2.5 2.5 0 0 1-2.5 2.5h-6.6l-4.5 3.6c-.5.4-1.4.1-1.4-.6v-3H5A2.5 2.5 0 0 1 2.5 15V7A2.5 2.5 0 0 1 5 4.5Z"/></svg><kbd>Enter</kbd><span class="label">Chat</span></button>
@@ -57,16 +57,16 @@
 
         <div id="view-menu">
           <div id="thanks" hidden>
-            <b>Thanks! The Full Game is yours.</b>
+            <b id="thanks-title">Thanks! The Full Game is yours.</b>
             <div class="store-line">Your key <code id="thanks-key"></code><button type="button" id="thanks-copy" class="small">Copy</button></div>
-            <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?). <span id="thanks-emailed" hidden>We've emailed it to you as well.</span> <span id="thanks-switched" hidden>This device now uses your own key, not the one it had.</span></p>
+            <p>Keep it: it unlocks the Full Game on your other devices too (Settings, Have a key?). <span id="thanks-seats" hidden></span> <span id="thanks-emailed" hidden>We've emailed it to you as well.</span> <span id="thanks-switched" hidden>This device now uses your own key, not the one it had.</span></p>
             <div class="store-line"><a id="thanks-go" class="small" href="/" hidden>Go</a><button type="button" id="thanks-close" class="small ghost">OK</button></div>
           </div>
           <!-- The world cards, written from the list of worlds (src/ui/worlds.ts). -->
           <div id="worlds"></div>
           <div id="paid-offer" hidden>
             <button type="button" id="offer-buy" class="buy-big">Unlock · $7</button>
-            <span class="offer-note">One time, yours to keep · one player at a time · <button type="button" class="link" id="offer-key">Have a key?</button></span>
+            <span class="offer-note">One time, yours to keep · <button type="button" class="link" id="offer-more">Playing together?</button> · <button type="button" class="link" id="offer-key">Have a key?</button></span>
           </div>
           <div class="buttons">
             <button id="play-free" class="primary" type="button" disabled>Loading…</button>
@@ -139,8 +139,10 @@
           <div class="unlock-pic" id="unlock-pic"><span class="badge paid">Full Game</span></div>
           <h2 id="unlock-title">Build everywhere</h2>
           <ul class="perks" id="unlock-perks"></ul>
+          <p id="unlock-add" hidden></p>
+          <div class="seats-pick"><span id="seats-label">Players</span><button type="button" id="seats-less" aria-label="One fewer">−</button><output id="seats-count" aria-live="polite">1</output><button type="button" id="seats-more" aria-label="One more">+</button></div>
           <div class="buttons"><button id="unlock-buy" class="buy-big" type="button">Unlock · $7</button></div>
-          <p class="unlock-note">One-time purchase, no subscription · one player at a time, on any of your devices · <button type="button" class="link" id="unlock-key">Have a key?</button> · <a class="link" href="/terms" target="_blank" rel="noopener">Terms</a></p>
+          <p class="unlock-note">One-time purchase, no subscription · $7 a player, all on one key · <button type="button" class="link" id="unlock-key">Have a key?</button> · <a class="link" href="/terms" target="_blank" rel="noopener">Terms</a></p>
           <button type="button" class="link" id="unlock-later">Keep visiting</button>
         </div>
 
@@ -175,7 +177,7 @@
           <div class="setting" id="full-game">
             <span class="label">Full Game</span>
             <div class="store">
-              <div class="store-line" id="store-owned" hidden><span class="tick">✓ Yours</span><code id="store-key"></code><button type="button" id="store-copy" class="small">Copy</button><span class="store-links"><button type="button" id="store-other-key" class="link">Switch key</button><button type="button" id="store-own-buy" class="link store-own-buy">Buy my own · $7</button><button type="button" id="store-replace" class="link store-replace">Replace my key</button></span></div>
+              <div class="store-line" id="store-owned" hidden><span class="tick">✓ Yours</span><code id="store-key"></code><button type="button" id="store-copy" class="small">Copy</button><span id="store-seats" class="note"></span><span class="store-links"><button type="button" class="link store-add-seats">Add seats</button><button type="button" id="store-other-key" class="link">Switch key</button><button type="button" id="store-own-buy" class="link store-own-buy">Buy my own · $7</button><button type="button" id="store-replace" class="link store-replace">Replace my key</button></span></div>
               <div class="store-line store-offer">
                 <span id="store-buy" hidden><button type="button" id="store-buy-button" class="buy">Unlock · $7</button></span>
                 <span id="store-soon" class="note" hidden>Opens soon</span>
@@ -187,7 +189,7 @@
                 <button type="submit" class="small">Use</button>
                 <button type="button" id="store-enter-cancel" class="small ghost" aria-label="Cancel">✕</button>
               </form>
-              <div class="store-line" id="store-lost-link"><button type="button" id="store-lost-open" class="link">No key handy? Email me a link</button><button type="button" class="link store-own-buy phone-owned">Buy my own · $7</button><button type="button" class="link store-replace phone-owned">Replace my key</button></div>
+              <div class="store-line" id="store-lost-link"><button type="button" id="store-lost-open" class="link">No key handy? Email me a link</button><button type="button" class="link store-add-seats phone-owned">Add seats</button><button type="button" class="link store-own-buy phone-owned">Buy my own · $7</button><button type="button" class="link store-replace phone-owned">Replace my key</button></div>
               <form class="store-line" id="store-lost" autocomplete="on">
                 <input id="store-lost-email" type="email" placeholder="The email you paid with" spellcheck="false" autocapitalize="none" aria-label="The email you paid with" />
                 <button type="submit" class="small">Send</button>

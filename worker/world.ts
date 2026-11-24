@@ -107,6 +107,14 @@ const TOWERS_MS = 1_500;
 /** One logged change: time, who, the operation and what undoes it. */
 type LogEntry = [number, string, WireOp, WireOp];
 
+/** Whether a player may build here, and with which key (a paid world); `full`: their key is good but every seat is in use. */
+interface Access {
+  builder: boolean;
+  key?: string;
+  full?: boolean;
+  seats?: number;
+}
+
 /**
  * The one shared world. Holds the build in memory with the same rules the game
  * uses, saves it to this object's SQLite database in chunks a few seconds after
@@ -254,15 +262,16 @@ export class World extends DurableObject<Env> {
         // A key bought, typed in, or taken back ("Use it here") while here: building opens without
         // joining again (and, one player at a time, moves here from wherever the key was).
         const before = player.key;
-        const access = await this.mayBuild(msg.key, player.id);
+        const access = await this.mayBuild(msg.key, player.id, player.tab, msg.take === true);
         // Switched to another key (their own, after sharing one): the old one is free for whoever
         // else plays with it, and taking it over there no longer sends this player back to visiting.
-        if (before && before !== access) this.ledger().release(before, this.name, player.id).catch(() => {});
-        player.builder = access !== null;
-        if (typeof access === "string") player.key = access;
+        if (before && before !== access.key) this.ledger().release(before, this.name, player.id).catch(() => {});
+        player.builder = access.builder;
+        if (access.key) player.key = access.key;
         else delete player.key;
         ws.serializeAttachment(player);
-        return send(ws, { t: "access", builder: player.builder });
+        if (!player.builder) this.release(player.id);
+        return send(ws, { t: "access", builder: player.builder, ...(access.full ? { reason: "full" as const } : {}), ...(access.seats ? { seats: access.seats } : {}) });
       }
       case "move":
         // An outdated page stands still where it is, until it restarts.
@@ -317,20 +326,20 @@ export class World extends DurableObject<Env> {
       "INSERT INTO meta (key, value) VALUES ('players', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1 RETURNING value",
     ).one().value;
     const id = `p${n.toString(36)}`;
-    let access: string | true | null;
+    const tab = typeof msg.tab === "string" && /^[a-z0-9]{8,32}$/.test(msg.tab) ? msg.tab : undefined;
+    let access: Access;
     try {
-      access = await this.mayBuild(msg.key, id);
+      access = await this.mayBuild(msg.key, id, tab, false);
     } finally {
       this.greeting.delete(ws);
     }
-    const builder = access !== null;
+    const builder = access.builder;
     if (this.players.has(ws) || ws.readyState !== WebSocket.OPEN) {
-      if (typeof access === "string") this.ledger().release(access, this.name, id).catch(() => {});
+      if (access.key) this.ledger().release(access.key, this.name, id).catch(() => {});
       return;
     }
     // The same tab joining again (a reload, a dropped connection, a world switch and back):
     // its old connection goes first, so nobody is ever seen twice.
-    const tab = typeof msg.tab === "string" && /^[a-z0-9]{8,32}$/.test(msg.tab) ? msg.tab : undefined;
     if (tab) {
       for (const [other, p] of this.players) {
         if (other === ws || p.tab !== tab) continue;
@@ -345,7 +354,7 @@ export class World extends DurableObject<Env> {
     const build = typeof msg.build === "string" ? msg.build.slice(0, 40) : undefined;
     const outdated = !!build && olderBuild(build, BUILD_ID);
     const player: Attachment = { id, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
-    if (typeof access === "string") player.key = access;
+    if (access.key) player.key = access.key;
     ws.serializeAttachment(player);
     this.players.set(ws, player);
     const others = [...this.players.values()].filter((p) => p !== player);
@@ -361,6 +370,8 @@ export class World extends DurableObject<Env> {
       chat: this.recent(),
       env: this.environment.id,
       builder,
+      ...(access.full ? { full: true } : {}),
+      ...(access.seats ? { seats: access.seats } : {}),
     });
     if (outdated) send(ws, { t: "update" });
     void this.keepWatch();
@@ -508,27 +519,32 @@ export class World extends DurableObject<Env> {
 
   /**
    * Anyone may build in a free world; in a paid one, only with a key that is
-   * paid for, and one player at a time: building here takes the key over from
-   * wherever it was being played. Returns the key when building, true in a free
-   * world, null when not.
+   * paid for and has a seat free (a key has as many seats as were bought for
+   * it). With every seat in use the player stays a visitor (`full`), unless
+   * they `take` a seat: then whoever has played longest goes back to visiting.
    */
-  private async mayBuild(rawKey: unknown, playerId: string): Promise<string | true | null> {
-    if (!this.environment.paid) return true;
+  private async mayBuild(rawKey: unknown, playerId: string, tab: string | undefined, take: boolean): Promise<Access> {
+    if (!this.environment.paid) return { builder: true };
     const key = cleanKey(rawKey);
-    if (!key) return null;
+    if (!key) return { builder: false };
     try {
-      const book = this.ledger();
-      if (!(await book.check(key, stripeLive(this.env)))) return null;
-      await book.claim(key, this.name, playerId);
-      return key;
+      const seats = await this.ledger().claim(key, stripeLive(this.env), this.name, playerId, tab ?? null, take);
+      if (seats === "full") return { builder: false, full: true, seats: await this.ledger().seatsOf(key, stripeLive(this.env)) };
+      return seats > 0 ? { builder: true, key, seats } : { builder: false };
     } catch {
-      return null;
+      return { builder: false };
     }
   }
 
+  /** The key ledger asks: is this player still here, building with this key? (A seat nobody sits on is freed.) */
+  builds(playerId: string, key: string): boolean {
+    for (const player of this.players.values()) if (player.id === playerId) return player.builder === true && player.key === key;
+    return false;
+  }
+
   /**
-   * The key ledger sends a player back to visiting: their key is now played on
-   * another device (or was replaced). Their page shows why, with a way to take
+   * The key ledger sends a player back to visiting: their seat was taken by
+   * another device (or the key was replaced). Their page shows why, with a way to take
    * it back.
    */
   async demote(playerId: string): Promise<void> {

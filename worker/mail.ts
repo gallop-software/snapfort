@@ -42,27 +42,49 @@ export const unlockLink = (site: string, key: string) => `${site}${SHOWN.path ==
 /** The world a key email talks about and its link opens: the first one that needs the Full Game. */
 const SHOWN = FIRST_PAID_WORLD ?? DEFAULT_WORLD;
 
+/** A key in an email, with how many can build with it at once. */
+export interface MailKey {
+  key: string;
+  seats: number;
+}
+
+/** "3 players at a time" */
+const players = (seats: number) => (seats === 1 ? "One player at a time" : `${seats} players at a time`);
+
 /** The subject, HTML and text of a key email. `site` is the address links go to (https://snapfort.io). */
-export function keyEmail(keys: readonly string[], kind: KeyMailKind, site: string): Mail {
+export function keyEmail(owned: readonly MailKey[], kind: KeyMailKind, site: string): Mail {
+  const keys = owned.map((k) => k.key);
   const one = keys.length === 1;
+  const seats = owned[0]!.seats;
+  /** One key for several people (a family): say so, and how the others get in. */
+  const shared = one && seats > 1;
   const subject =
     kind === "bought" || kind === "given" ? "Your SnapFort key: the Full Game is yours" : kind === "replaced" ? "Your new SnapFort key" : "Your SnapFort link and key";
   const heading =
     kind === "bought" ? "Thanks! The Full Game is yours." : kind === "given" ? "The Full Game is yours." : kind === "replaced" ? "Here's your new key" : "Here's your link to SnapFort";
   const intro =
     kind === "bought"
-      ? `You can now build on the ${SHOWN.name}, and in every paid world we add. The browser you bought in is already unlocked.`
+      ? shared
+        ? `${seats} of you can now build on the ${SHOWN.name} at the same time, and in every paid world we add, all with this one key. The browser you bought in is already unlocked.`
+        : `You can now build on the ${SHOWN.name}, and in every paid world we add. The browser you bought in is already unlocked.`
       : kind === "given"
         ? `You've been given the SnapFort Full Game: you can build on the ${SHOWN.name}, and in every paid world we add. Tap the button on the device you play on.`
       : kind === "replaced"
         ? "Your old key no longer works, so nobody who saw it can use it. The device where you confirmed is already unlocked."
         : "You asked for a link to unlock SnapFort with the key bought with this email address. If that wasn't you, you can ignore this email: nobody else can see it.";
-  const how = "On another computer, phone or tablet: open this email there and tap the button. (Or open SnapFort, go to Settings, choose <b>Have a key?</b> and type the key.)";
-  const rule = "One player at a time: using it on a new device moves it there.";
-  const keyBoxes = keys
+  const how = shared
+    ? "For everyone else: open this email on their computer, phone or tablet and tap the button (forward it to them if you like). Or open SnapFort there, go to Settings, choose <b>Have a key?</b> and type the key."
+    : "On another computer, phone or tablet: open this email there and tap the button. (Or open SnapFort, go to Settings, choose <b>Have a key?</b> and type the key.)";
+  const rule = one
+    ? seats > 1
+      ? `${players(seats)}, each on their own device. Need room for one more? Add a seat in Settings.`
+      : "One player at a time. Want to play together? Add a seat in Settings."
+    : "Each key lets as many play at once as it has seats.";
+  const seatsOf = (k: MailKey) => (one ? "" : ` (${players(k.seats).toLowerCase()})`);
+  const keyBoxes = owned
     .map(
       (k) => `<tr><td align="center" style="padding:6px 0;">
-        <div style="display:inline-block;padding:12px 20px;border:2px dashed #2f8f8a;border-radius:14px;background:#ffffff;font:800 22px/1.2 ui-monospace,'SF Mono',Menlo,Consolas,monospace;letter-spacing:1px;color:#1f2a37;">${k}</div>
+        <div style="display:inline-block;padding:12px 20px;border:2px dashed #2f8f8a;border-radius:14px;background:#ffffff;font:800 22px/1.2 ui-monospace,'SF Mono',Menlo,Consolas,monospace;letter-spacing:1px;color:#1f2a37;">${k.key}</div>${one ? "" : `<div style="margin-top:4px;font-size:12px;font-weight:700;color:#4a5562;">${players(k.seats)}</div>`}
       </td></tr>`,
     )
     .join("");
@@ -91,7 +113,7 @@ export function keyEmail(keys: readonly string[], kind: KeyMailKind, site: strin
     "",
     how.replace(/<\/?b>/g, ""),
     "",
-    `${one ? "Your key" : "Your keys"}: ${keys.join(", ")}`,
+    `${one ? "Your key" : "Your keys"}: ${owned.map((k) => `${k.key}${seatsOf(k)}`).join(", ")}`,
     "",
     rule,
     "Keep this email: it's how you get back in.",
@@ -99,6 +121,29 @@ export function keyEmail(keys: readonly string[], kind: KeyMailKind, site: strin
     ...footerText(site),
   ].join("\n");
   return { subject, html: layout(subject, heading, intro, body, site, `Your key: ${keys.join(", ")}`), text };
+}
+
+/** The email after seats were added to a key: how many it has now, and how the new players get in. */
+export function seatsEmail(key: string, added: number, seats: number, site: string): Mail {
+  const subject = added === 1 ? "A seat was added to your SnapFort key" : `${added} seats were added to your SnapFort key`;
+  const heading = `Your key now has ${seats} seats`;
+  const intro = `Thanks! ${seats} players can now build with your key at the same time, each on their own device. Nothing changes for the devices already using it.`;
+  const how = "For a new player: open this email on their computer, phone or tablet and tap the button. (Or open SnapFort there, go to Settings, choose <b>Have a key?</b> and type the key.)";
+  const body = `
+    <tr><td align="center" style="padding:22px 30px 6px;">
+      ${button(unlockLink(site, key), "Unlock SnapFort on this device")}
+    </td></tr>
+    <tr><td align="center" style="padding:10px 34px 0;">
+      <p style="margin:0;font-size:14px;line-height:1.55;font-weight:600;color:#4a5562;">${how}</p>
+    </td></tr>
+    <tr><td align="center" style="padding:18px 30px 4px;">
+      <div style="font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#2f8f8a;">Your key</div>
+    </td></tr>
+    <tr><td align="center" style="padding:6px 30px 22px;">
+      <div style="display:inline-block;padding:12px 20px;border:2px dashed #2f8f8a;border-radius:14px;background:#ffffff;font:800 22px/1.2 ui-monospace,'SF Mono',Menlo,Consolas,monospace;letter-spacing:1px;color:#1f2a37;">${key}</div>
+    </td></tr>`;
+  const text = ["SnapFort.io", "", heading, "", intro, "", `Unlock SnapFort on this device: ${unlockLink(site, key)}`, "", how.replace(/<\/?b>/g, ""), "", `Your key: ${key}`, "", ...footerText(site)].join("\n");
+  return { subject, html: layout(subject, heading, intro, body, site, `Your key now has ${seats} seats`), text };
 }
 
 /** The email confirming a key replacement: nothing changes until the buyer taps its button. */
@@ -180,9 +225,14 @@ async function sendMail(mail: MailBinding | undefined, to: string, message: Mail
 }
 
 /** Sends a key email; false (and a line in the log) when it could not go. */
-export function sendKeyEmail(mail: MailBinding | undefined, to: string, keys: readonly string[], kind: KeyMailKind, site: string): Promise<boolean> {
+export function sendKeyEmail(mail: MailBinding | undefined, to: string, keys: readonly MailKey[], kind: KeyMailKind, site: string): Promise<boolean> {
   if (keys.length === 0) return Promise.resolve(false);
   return sendMail(mail, to, keyEmail(keys, kind, site), "Key");
+}
+
+/** Sends the note that seats were added to a key. */
+export function sendSeatsEmail(mail: MailBinding | undefined, to: string, key: string, added: number, seats: number, site: string): Promise<boolean> {
+  return sendMail(mail, to, seatsEmail(key, added, seats, site), "Seats");
 }
 
 /** Sends the link that confirms replacing a key. */

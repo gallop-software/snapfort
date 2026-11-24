@@ -33,10 +33,10 @@ import { COLORS, loadIdentity, saveIdentity } from "./identity";
 import { Input } from "./input";
 import { TouchControls } from "./ui/touch";
 import { NetClient, pageBuild, worldUrl } from "./net/client";
-import { olderBuild } from "./net/protocol";
+import { olderBuild, type SeatReason } from "./net/protocol";
 import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
-import { Store } from "./ui/store";
+import { PRICE, Store } from "./ui/store";
 import { Tips } from "./ui/tips";
 import { pieceLabel, type Environment } from "./game/environments";
 import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
@@ -333,28 +333,44 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** A visitor tried to build: the unlock panel, with the button to buy (or, owning it, how to take it back). */
   function lockedNote(): void {
     sfx.deny();
-    if (elsewhere) return void hud.toast(touch ? "Your key is in use on another device: tap Use it here" : "Your key is in use on another device: press U to use it here", 3500);
-    openPanel("unlock");
+    if (waiting) return void hud.toast(`${seatsTaken()}: ${touch ? "tap Use it here" : "press U to use it here"}`, 3500);
+    offerUnlock();
   }
-  /** Their key was taken over by another device (one player at a time): owned, but visiting here. */
-  let elsewhere = false;
-  /** Takes the key back from the other device ("Use it here"). */
+  /**
+   * Owning the Full Game but visiting here, for want of a seat: every seat of
+   * the key was in use on coming here ("full"), or this device's seat was
+   * taken by another ("elsewhere"). Null: building, or no key.
+   */
+  let waiting: SeatReason | null = null;
+  /** Why they wait, in a few words. */
+  function seatsTaken(): string {
+    if (waiting === "elsewhere") return "Your seat was taken by another device";
+    return store.seats > 1 ? `All ${store.seats} seats on your key are in use` : "Your key is in use on another device";
+  }
+  /** Takes a seat: whoever has played longest with the key goes back to visiting ("Use it here"). */
   function useKeyHere(): void {
-    if (store.key) net.sendKey(store.key);
+    if (store.key) net.sendKey(store.key, true);
+  }
+  /** The unlock panel: the Full Game for so many players, or (`add`) more seats on the key this device has. */
+  function offerUnlock(add = false): void {
+    store.offer(add);
+    openPanel("unlock");
   }
   /** The bar while visiting: an offer to unlock, or (the key in use elsewhere) a way to take it back. */
   function paintVisitBar(): void {
     const what = document.querySelector("#visit-bar .what")!;
     const button = document.getElementById("visit-buy")!;
-    // Sharing a key and the other person is playing: the way to a key of their own.
-    document.getElementById("visit-own")!.hidden = !elsewhere;
-    document.getElementById("visit-bar")!.classList.toggle("elsewhere", elsewhere);
-    if (elsewhere) {
-      what.innerHTML = "<b>Your key is in use on another device</b> · one player at a time";
+    // Every seat taken: the way to one more, so everyone can play together.
+    const add = document.getElementById("visit-own")!;
+    add.hidden = !waiting || !store.canBuy;
+    add.innerHTML = `Add a seat · ${PRICE}<kbd class="desk">O</kbd>`;
+    document.getElementById("visit-bar")!.classList.toggle("elsewhere", waiting !== null);
+    if (waiting) {
+      what.innerHTML = `<b>${seatsTaken()}</b>`;
       button.innerHTML = `Use it here<kbd class="desk">U</kbd>`;
     } else {
       what.innerHTML = `<b>Visiting the ${env.name}</b> · building here comes with the Full Game`;
-      button.innerHTML = `Unlock · $7<kbd class="desk">U</kbd>`;
+      button.innerHTML = `Unlock · ${PRICE}<kbd class="desk">U</kbd>`;
     }
   }
   /** Visiting (no building: nothing selected, the hotbar faded) or building. */
@@ -757,9 +773,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (command && code === "KeyY") return redo();
     if (command) return;
     // U: unlock the Full Game (while visiting a paid world).
-    if (code === "KeyU" && !builder) return elsewhere ? useKeyHere() : openPanel("unlock");
-    // O: a key of their own, when the one they share is being played on another device.
-    if (code === "KeyO" && !builder && elsewhere) return openPanel("unlock");
+    if (code === "KeyU" && !builder) return waiting ? useKeyHere() : offerUnlock();
+    // O: one more seat on their key, when every seat is in use.
+    if (code === "KeyO" && !builder && waiting && store.canBuy) return offerUnlock(true);
     // Enter talks (while editing it still confirms the cut).
     if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
     // "/" too, as in Minecraft and Roblox.
@@ -1050,7 +1066,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         tint(id);
       }
       showTowers(extras.towers);
+      if (extras.seats) store.learnSeats(extras.seats);
+      waiting = extras.full ? "full" : null;
       setBuilder(extras.builder);
+      paintVisitBar();
       chat.clear();
       for (const said of extras.chat) chat.show(said, myId, now);
       feature?.joined?.();
@@ -1181,15 +1200,17 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     world(data) {
       if (!solo) feature?.message?.(data);
     },
-    access(on, reason) {
-      const wasElsewhere = elsewhere;
-      elsewhere = !on && reason === "elsewhere";
+    access(on, reason, seats) {
+      const before = waiting;
+      if (seats) store.learnSeats(seats);
+      // (Asking again while waiting and still finding no seat changes nothing: they still know why.)
+      waiting = on ? null : before && reason === "full" ? before : (reason ?? null);
       setBuilder(on);
       paintVisitBar();
       // (A message the store just showed, like "you have a new key", is not covered up.)
       const storeSpoke = performance.now() - noticeAt < 4000;
-      if (elsewhere) hud.toast("Your Full Game key is now in use on another device", 4000);
-      else if (on && env.paid && !storeSpoke) hud.toast(wasElsewhere ? `Building here again: your key moved to this device` : `Unlocked: build anywhere on the ${env.name}!`, 3000);
+      if (waiting && waiting !== before) hud.toast(seatsTaken(), 4000);
+      else if (on && env.paid && !storeSpoke) hud.toast(before ? `Building here again: you have a seat` : `Unlocked: build anywhere on the ${env.name}!`, 3000);
     },
     hush() {
       hud.toast(SLOW_DOWN);
@@ -1409,8 +1430,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     openPanel(mode === "menu" ? "settings" : "paused");
     store.showEnter(true);
   };
-  document.getElementById("visit-buy")!.addEventListener("click", () => (elsewhere ? useKeyHere() : openPanel("unlock")));
-  document.getElementById("visit-own")!.addEventListener("click", () => openPanel("unlock"));
+  document.getElementById("visit-buy")!.addEventListener("click", () => (waiting ? useKeyHere() : offerUnlock()));
+  document.getElementById("visit-own")!.addEventListener("click", () => offerUnlock(true));
+  // "Add seats" in the settings, and "Playing together?" on the menu: the unlock panel, with its count of players.
+  store.onAddSeats = () => offerUnlock(true);
+  document.getElementById("offer-more")!.addEventListener("click", () => offerUnlock());
+  // Waiting for a seat: ask again now and then, so building opens by itself when someone stops.
+  setInterval(() => {
+    if (waiting && store.key && !document.hidden) net.sendKey(store.key);
+  }, 15_000);
   /** When the store last showed a message. */
   let noticeAt = -Infinity;
   store.onNotice = (text) => {

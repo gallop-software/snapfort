@@ -994,6 +994,18 @@ body.paid-world:not(.owned) #view-menu .buttons .primary { background: var(--tea
 .perks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin: 0 0 18px; padding: 0; list-style: none; text-align: left; font-size: 14px; font-weight: 700; }
 .perks li::before { content: "✓"; margin-right: 7px; color: var(--teal); font-weight: 900; }
 .unlock-note { margin: 12px 0 6px !important; font-size: 12.5px !important; }
+/* How many players (seats) to buy: − 1 + */
+.seats-pick { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 15px; font-weight: 800; }
+.seats-pick button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(31, 42, 55, 0.1); color: var(--ink); font: inherit; font-size: 20px; font-weight: 900; line-height: 1; cursor: pointer; }
+.seats-pick button:disabled { opacity: 0.35; cursor: default; }
+.seats-pick output { min-width: 26px; text-align: center; font-size: 20px; font-weight: 900; }
+/* Adding seats to a key already owned: no list of what the Full Game is, just how many more. */
+#view-unlock.adding .perks { display: none; }
+#unlock-add { max-width: 440px; margin: 0 0 14px !important; font-size: 14px !important; font-weight: 700; }
+#unlock-add[hidden] { display: none; }
+#store-seats { font-size: 12px; font-weight: 800; }
+.store-add-seats[hidden] { display: none; }
+body.touch #store-owned .store-add-seats, body.touch #store-seats { display: none; }
 #unlock-later { margin-top: 2px; font-size: 14px; }
 
 /* While visiting the Moon: always in sight, with the button to buy. */
@@ -1068,7 +1080,12 @@ body.chatting #tip { display: none; }
   body.touch button.buy-big { height: 42px; padding: 0 20px; font-size: 16px; }
   body.touch #menu-links { margin-top: 10px; font-size: 12px; }
   body.touch .panel:has(#view-unlock:not([hidden])) > h1 { display: none; }
-  body.touch .unlock-pic { margin-top: 0; aspect-ratio: auto; height: 84px; }
+  body.touch .unlock-pic { margin-top: 0; aspect-ratio: auto; height: 56px; }
+  body.touch .seats-pick { margin-bottom: 6px; gap: 8px; font-size: 13px; }
+  body.touch .seats-pick button { width: 30px; height: 30px; font-size: 18px; }
+  body.touch .seats-pick output { font-size: 17px; }
+  body.touch #unlock-add { margin-bottom: 8px !important; font-size: 12px !important; }
+  body.touch .unlock-note { margin: 8px 0 2px !important; }
   body.touch #view-unlock h2 { margin: 8px 0 6px; font-size: 19px; }
   body.touch .perks { margin-bottom: 10px; font-size: 12px; gap: 3px 14px; }
   body.touch .panel:has(#view-controls:not([hidden])) > h1 { display: none; }

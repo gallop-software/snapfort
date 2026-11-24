@@ -10,7 +10,7 @@ import { chromium } from "playwright-core";
 import { paidKey } from "./_paid.mjs";
 const SECONDS = Number(process.argv[2] ?? 180);
 const PATH = process.argv[4] ?? "/";
-const key = PATH === "/" ? null : await paidKey((process.env.QA_BASE ?? "http://localhost:5173"), PATH);
+const key = PATH === "/" ? null : await paidKey((process.env.QA_BASE ?? "http://localhost:5173"), PATH, 2); // (two seats: both pages build)
 const world = `chaos-${Date.now().toString(36)}`;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal"] });
 const errors = [];

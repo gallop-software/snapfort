@@ -5,9 +5,9 @@
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-export async function paidKey(base = (process.env.QA_BASE ?? "http://localhost:5173"), path = "/") {
+export async function paidKey(base = (process.env.QA_BASE ?? "http://localhost:5173"), path = "/", seats = 1) {
   const vars = Object.fromEntries(readFileSync(".dev.vars", "utf8").split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
-  const r = await fetch(`${base}/api/buy`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, testpay: true }) }).then((x) => x.json());
+  const r = await fetch(`${base}/api/buy`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, testpay: true, seats }) }).then((x) => x.json());
   const id = r.url.match(/cs_test_[A-Za-z0-9]+/)[0];
   const session = await fetch(`https://api.stripe.com/v1/checkout/sessions/${id}`, { headers: { Authorization: `Bearer ${vars.STRIPE_SECRET_KEY}` } }).then((x) => x.json());
   const body = JSON.stringify({ id: `evt_qa_${Date.now()}`, type: "checkout.session.completed", livemode: false, data: { object: { id, client_reference_id: session.client_reference_id, payment_status: "paid", livemode: false, customer_details: { email: "qa@example.com" } } } });

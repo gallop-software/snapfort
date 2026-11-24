@@ -2,7 +2,9 @@ import type { Environment } from "../src/game/environments";
 import { DEFAULT_WORLD, worldAtPath, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
-import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail } from "./mail";
+import type { Paid } from "./ledger";
+import { cleanSeats, MOST_SEATS } from "./seats";
+import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail, sendSeatsEmail } from "./mail";
 import { stripe, stripeLive, stripeReady, verifyWebhook, type CheckoutSession } from "./stripe";
 import type { Env } from "./world";
 
@@ -42,9 +44,21 @@ export default {
         if (request.method !== "POST") return new Response("Use POST", { status: 405 });
         const email = url.searchParams.get("email")?.trim().toLowerCase();
         if (!looksLikeEmail(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400 });
-        const key = await ledger(env).grant(email, stripeLive(env));
-        const emailed = url.searchParams.get("send") === "1" && (await sendKeyEmail(env.EMAIL, email, [key], "given", siteOf(url)));
-        return Response.json({ key, email, emailed });
+        // (&seats=3: a key several can build with at once.)
+        const seats = cleanSeats(url.searchParams.get("seats") ?? "1");
+        if (!seats) return Response.json({ error: "seats must be a number from 1 to 10." }, { status: 400 });
+        const key = await ledger(env).grant(email, stripeLive(env), seats);
+        const emailed = url.searchParams.get("send") === "1" && (await sendKeyEmail(env.EMAIL, email, [{ key, seats }], "given", siteOf(url)));
+        return Response.json({ key, email, seats, emailed });
+      }
+      // A key's seats set by hand (after refunding some, or as a gift): POST /admin/seats?key=…&seats=…
+      if (url.pathname === "/admin/seats") {
+        if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+        const key = cleanKey(url.searchParams.get("key"));
+        const seats = cleanSeats(url.searchParams.get("seats") ?? "");
+        if (!key || !seats) return Response.json({ error: "Give a key and seats from 1 to 10." }, { status: 400 });
+        const record = await ledger(env).setSeats(key, seats);
+        return record ? Response.json(record) : Response.json({ error: "No such key." }, { status: 404 });
       }
       return forward(world(env, request), request);
     }
@@ -86,13 +100,18 @@ function roomOf(url: URL, place: Environment): string {
 const siteOf = (url: URL) => (url.hostname === "localhost" || url.hostname === "127.0.0.1" ? url.origin : "https://snapfort.io");
 
 /**
- * Marks a key paid and, the first time, emails it to the buyer (after the
- * response, so neither the page nor Stripe waits for the email).
+ * A checkout was paid: its key becomes paid, or its seats go onto the key. The
+ * first time, an email goes out (after the response, so neither the page nor
+ * Stripe waits for it): the key to the buyer, or a note about the new seats to
+ * the key's own address. Null when the checkout is not one of ours.
  */
-async function markPaid(env: Env, ctx: ExecutionContext, url: URL, key: string, session: CheckoutSession): Promise<void> {
-  const email = session.customer_details?.email ?? null;
-  const first = await ledger(env).paid(key, session.id, email, session.livemode);
-  if (first === "new" && email) ctx.waitUntil(sendKeyEmail(env.EMAIL, email, [key], "bought", siteOf(url)));
+async function markPaid(env: Env, ctx: ExecutionContext, url: URL, session: CheckoutSession): Promise<Paid | null> {
+  const buyer = session.customer_details?.email ?? null;
+  const done = await ledger(env).paid(session.id, buyer, session.livemode, cleanKey(session.client_reference_id));
+  if (!done) return null;
+  if (done.kind === "new" && buyer) ctx.waitUntil(sendKeyEmail(env.EMAIL, buyer, [{ key: done.key, seats: done.seats }], "bought", siteOf(url)));
+  if (done.kind === "added" && done.email) ctx.waitUntil(sendSeatsEmail(env.EMAIL, done.email, done.key, done.bought, done.seats, siteOf(url)));
+  return done;
 }
 
 async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -112,37 +131,47 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
 
     case "/api/buy": {
       if (request.method !== "POST") return new Response("Use POST", { status: 405 });
-      const body = (await request.json().catch(() => ({}))) as { path?: string; testpay?: boolean };
+      const body = (await request.json().catch(() => ({}))) as { path?: string; testpay?: boolean; seats?: unknown; key?: unknown };
       if (!stripeReady(env)) return Response.json({ error: "Buying is not open yet." }, { status: 503 });
       if (!live && !body.testpay) return Response.json({ error: "Buying opens soon." }, { status: 403 });
+      // How many seats: a new key that many can build with at once, or (with a key) that many more on it.
+      const seats = cleanSeats(body.seats ?? 1);
+      if (!seats) return Response.json({ error: `Choose from 1 to ${MOST_SEATS} players.` }, { status: 400 });
+      const book = ledger(env);
+      const adds = body.key !== undefined;
+      const addTo = adds ? cleanKey(body.key) : null;
+      if (adds && (!addTo || (await book.seatsOf(addTo, live)) === 0)) return Response.json({ error: "That key cannot have seats added here." }, { status: 400 });
       // Back to the world they bought from.
       const path = worldAtPath(body.path).path;
       const back = `${url.origin}${path}`;
-      const key = await ledger(env).create(live);
+      const key = addTo ?? (await book.create(live, seats));
+      const what = adds
+        ? `SnapFort Full Game · ${seats === 1 ? "1 more seat" : `${seats} more seats`} for your key ${key}`
+        : `SnapFort Full Game · your key ${key}${seats > 1 ? ` · ${seats} seats` : ""}`;
       const session = await stripe<CheckoutSession>(env, "POST", "checkout/sessions", {
         mode: "payment",
-        line_items: { 0: { price: env.STRIPE_PRICE_ID, quantity: 1 } },
+        line_items: { 0: { price: env.STRIPE_PRICE_ID, quantity: seats } },
         client_reference_id: key,
-        metadata: { key },
-        payment_intent_data: { description: `SnapFort Full Game · your key ${key}`, metadata: { key } },
+        metadata: { key, seats, adds: adds ? 1 : 0 },
+        payment_intent_data: { description: what, metadata: { key } },
         // (No custom text on Stripe's page: Managed Payments, where Stripe is the seller, does not allow it.)
         success_url: `${back}?paid={CHECKOUT_SESSION_ID}`,
         cancel_url: back,
       });
-      await ledger(env).attach(key, session.id);
+      await book.order(session.id, key, seats, adds);
       return Response.json({ url: session.url });
     }
 
-    // Back from checkout: if Stripe says the session is paid, the key is good.
+    // Back from checkout: if Stripe says the session is paid, the key is good (or has its new seats).
     case "/api/claim": {
       const id = url.searchParams.get("session") ?? "";
       if (!/^cs_[A-Za-z0-9_]+$/.test(id) || !stripeReady(env)) return Response.json({ error: "Unknown purchase." }, { status: 400 });
       const session = await stripe<CheckoutSession>(env, "GET", `checkout/sessions/${id}`);
-      const key = cleanKey(session.client_reference_id);
-      if (!key) return Response.json({ error: "Unknown purchase." }, { status: 400 });
       if (session.payment_status === "unpaid") return Response.json({ status: "unpaid" });
-      await markPaid(env, ctx, url, key, session);
-      return withKeyCookie(Response.json({ status: "paid", key, emailed: !!session.customer_details?.email }), key);
+      const done = await markPaid(env, ctx, url, session);
+      if (!done) return Response.json({ error: "Unknown purchase." }, { status: 400 });
+      // (Seats added: the key was the device's already, and the email goes to the key's own address.)
+      return withKeyCookie(Response.json({ status: "paid", key: done.key, seats: done.seats, bought: done.bought, added: done.adds, emailed: done.adds ? !!done.email : !!session.customer_details?.email }), done.key);
     }
 
     // A key typed in, saved on the page, from an email link, or (none given) this device's cookie:
@@ -153,8 +182,9 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       const body = (await request.json().catch(() => ({}))) as { key?: string };
       const fromCookie = body.key === undefined;
       const key = cleanKey(fromCookie ? cookieKey(request) : body.key);
-      const valid = !!key && (await ledger(env).check(key, live));
-      const response = Response.json({ key: valid ? key : null, valid });
+      const seats = key ? await ledger(env).seatsOf(key, live) : 0;
+      const valid = seats > 0;
+      const response = Response.json({ key: valid ? key : null, valid, seats });
       if (valid) return withKeyCookie(response, key);
       // No longer good (replaced after a leak, or a test key on the live site): this device forgets it.
       return cookieKey(request) && (fromCookie || cleanKey(cookieKey(request)) === key) ? withKeyCookie(response, null) : response;
@@ -180,8 +210,8 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       const token = typeof body.token === "string" && /^[0-9a-f]{48}$/.test(body.token) ? body.token : null;
       const done = token ? await ledger(env).replace(token, live) : null;
       if (!done) return Response.json({ error: "That link has already been used or has expired." }, { status: 400 });
-      ctx.waitUntil(sendKeyEmail(env.EMAIL, done.email, [done.key], "replaced", siteOf(url)));
-      return withKeyCookie(Response.json({ key: done.key }), done.key);
+      ctx.waitUntil(sendKeyEmail(env.EMAIL, done.email, [{ key: done.key, seats: done.seats }], "replaced", siteOf(url)));
+      return withKeyCookie(Response.json({ key: done.key, seats: done.seats }), done.key);
     }
 
     // "Lost your key?": the keys bought with this email are sent to it. The page never sees them,
@@ -211,8 +241,7 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       if (!event) return new Response("Bad signature", { status: 400 });
       if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
         const session = event.data.object;
-        const key = cleanKey(session.client_reference_id);
-        if (key && session.payment_status !== "unpaid") await markPaid(env, ctx, url, key, session);
+        if (session.payment_status !== "unpaid") await markPaid(env, ctx, url, session);
       }
       return Response.json({ received: true });
     }

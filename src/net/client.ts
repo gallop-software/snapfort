@@ -10,6 +10,7 @@ import {
   encodeOp,
   PROTOCOL_VERSION,
   type ClientMessage,
+  type SeatReason,
   type ServerMessage,
   type WireMove,
   type WirePlayer,
@@ -26,6 +27,10 @@ export interface WelcomeExtras {
   chat: WireSaid[];
   /** May you build here (false: visiting a paid world without the Full Game). */
   builder: boolean;
+  /** Not building because every seat of the key is in use. */
+  full: boolean;
+  /** The seats of the key this page joined with, when it is a good one. */
+  seats: number | undefined;
 }
 
 export type NetStatus = "connecting" | "online" | "offline" | "full" | "outdated";
@@ -54,7 +59,7 @@ export interface NetHandlers {
   /** Your message was not passed on. */
   hush(reason: "flood", wait: number): void;
   /** Whether you may build here, after sending a key ("elsewhere": your key is now played on another device). */
-  access(builder: boolean, reason?: "elsewhere"): void;
+  access(builder: boolean, reason?: SeatReason, seats?: number): void;
   /** A newer version of SnapFort is live: this page should restart. */
   update(): void;
   /** A message of the world's own, for its page half. */
@@ -203,10 +208,13 @@ export class NetClient {
     this.raw(at ? { t: "say", text, to, at } : { t: "say", text, to });
   }
 
-  /** A key bought or typed in: remembered for joining, and sent now so building opens at once. */
-  sendKey(key: string): void {
+  /**
+   * A key bought or typed in: remembered for joining, and sent now so building
+   * opens at once. `take`: with every seat of the key in use, take one.
+   */
+  sendKey(key: string, take = false): void {
     this.key = key;
-    this.raw({ t: "key", key });
+    this.raw(take ? { t: "key", key, take } : { t: "key", key });
   }
 
   requestSnapshot(): void {
@@ -235,7 +243,7 @@ export class NetClient {
         this.retry = 500;
         this.lastMove = "";
         this.setStatus("online");
-        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [], chat: msg.chat ?? [], builder: msg.builder ?? true });
+        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [], chat: msg.chat ?? [], builder: msg.builder ?? true, full: msg.full === true, seats: msg.seats });
       case "snap":
         return h.snapshot(decodePieces(msg.pieces));
       case "ops":
@@ -267,7 +275,7 @@ export class NetClient {
       case "hush":
         return h.hush(msg.reason, msg.wait ?? 0);
       case "access":
-        return h.access(msg.builder, msg.reason);
+        return h.access(msg.builder, msg.reason, msg.seats);
       case "update":
         return h.update();
       case "w":

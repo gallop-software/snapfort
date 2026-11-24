@@ -38,6 +38,13 @@ export type WirePiece = [string, number, number, number, number, number, number,
 /** ["p", piece] place · ["r", id] remove · ["e", id, edit] edit */
 export type WireOp = ["p", WirePiece] | ["r", string] | ["e", string, number];
 
+/**
+ * Why a player with a good key is not building: "full", every seat of the key
+ * was already in use when they came; "elsewhere", their seat was taken by
+ * another device (or the key was replaced).
+ */
+export type SeatReason = "elsewhere" | "full";
+
 /** A builder: id, name and colour ("#rrggbb"). */
 export interface WirePlayer {
   id: string;
@@ -87,8 +94,12 @@ export type ClientMessage =
       /** This browser tab, the same across reloads and world switches: joining again replaces its old connection. */
       tab?: string;
     }
-  /** A key bought or typed in while here: asks again whether building is open. */
-  | { t: "key"; key: string }
+  /**
+   * A key bought or typed in while here: asks again whether building is open.
+   * `take`: with every seat of the key in use, take the seat of whoever has
+   * played longest ("Use it here").
+   */
+  | { t: "key"; key: string; take?: boolean }
   | { t: "act"; seq: number; ops: WireOp[] }
   /** [x, y, z, yaw, flags], encoded like WireMove without the id. */
   | { t: "move"; m: [number, number, number, number, number] }
@@ -119,6 +130,9 @@ export type ServerMessage =
       env?: string;
       /** May you build here (false: visiting a paid world without the Full Game). */
       builder?: boolean;
+      /** Not building because every seat of your key is in use; and how many seats it has. */
+      full?: boolean;
+      seats?: number;
     }
   /** Trebuchet `id` now has builder `by` on it (null: nobody). */
   | { t: "crew"; id: string; by: string | null }
@@ -142,7 +156,7 @@ export type ServerMessage =
   /** A board or fire request was turned down ("locked": building here needs the Full Game). */
   | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
   /** Whether you may build here (the answer to a "key" message; or "elsewhere": your key is now played on another device). */
-  | { t: "access"; builder: boolean; reason?: "elsewhere" }
+  | { t: "access"; builder: boolean; reason?: SeatReason; seats?: number }
   /** A world's own message, from its server half to its page half: the shared code only carries it. */
   | { t: "w"; d: unknown }
   /** A newer version of SnapFort is live: this page should restart (it can watch, not move or build, until it does). */

@@ -26,6 +26,7 @@
     "qa:rover": "node qa/rover.mjs",
     "qa:landing": "node qa/landing.mjs",
     "qa:railgun": "node qa/railgun.mjs",
+    "qa:seats": "node qa/seats-page.mjs",
     "qa:smoke": "node qa/smoke.mjs"
   },
   "dependencies": {

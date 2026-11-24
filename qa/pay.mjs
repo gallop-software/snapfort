@@ -73,6 +73,37 @@ const mailed = sentEmails().filter((m) => m.includes(pendingKey));
 check("…and the buyer is emailed the key, once, branded SnapFort with how to use it elsewhere", mailed.length === 1 && mailed[0].includes("Thanks! The Full Game is yours.") && mailed[0].includes("Have a key?") && mailed[0].includes("/moon"), `${mailed.length} emails with the key`);
 await webhook(event, sign(event));
 check("Stripe sending the same webhook again does not email again", sentEmails().filter((m) => m.includes(pendingKey)).length === 1);
+// Seats: several players on one key, bought together or added later.
+{
+  const paidEvent = (id, key, by) => JSON.stringify({ id: `evt_${id.slice(-8)}`, type: "checkout.session.completed", livemode: false, data: { object: { id, client_reference_id: key, payment_status: "paid", livemode: false, customer_details: { email: by } } } });
+  check("the key bought for one player has 1 seat", (await api("/api/key", { key: pendingKey })).seats === 1);
+  const three = await api("/api/buy", { path: "/moon", testpay: true, seats: 3 });
+  const threeId = three.url?.match(/cs_test_[A-Za-z0-9]+/)?.[0];
+  const threeSession = threeId ? await stripeGet(`checkout/sessions/${threeId}`) : {};
+  const familyKey = threeSession.client_reference_id;
+  check("buying for 3 players opens one Stripe checkout for 3 × $7 = $21, for one new key", threeSession.amount_total === 2100 && /^SNAP-/.test(familyKey ?? "") && familyKey !== pendingKey, `${threeSession.amount_total} ${familyKey}`);
+  const familyBuyer = `family-${buyerEmail}`;
+  await webhook(paidEvent(threeId, familyKey, familyBuyer), sign(paidEvent(threeId, familyKey, familyBuyer)));
+  check("…paid, the key has 3 seats", (await api("/api/key", { key: familyKey })).seats === 3);
+  const familyMail = sentEmails().filter((m) => m.includes(familyKey));
+  check("…and its email says 3 can play with the one key", familyMail.length === 1 && familyMail[0].includes("3 players at a time"), `${familyMail.length} emails`);
+  const more = await api("/api/buy", { path: "/moon", testpay: true, seats: 2, key: familyKey });
+  const moreId = more.url?.match(/cs_test_[A-Za-z0-9]+/)?.[0];
+  const moreSession = moreId ? await stripeGet(`checkout/sessions/${moreId}`) : {};
+  check("adding 2 seats to that key opens a checkout for $14, for the same key (no new one)", moreSession.amount_total === 1400 && moreSession.client_reference_id === familyKey, `${moreSession.amount_total} ${moreSession.client_reference_id}`);
+  check("…the seats are not there before paying", (await api("/api/key", { key: familyKey })).seats === 3 && (await api(`/api/claim?session=${moreId}`)).status === "unpaid");
+  const addEvent = paidEvent(moreId, familyKey, "grandma@example.com");
+  await webhook(addEvent, sign(addEvent));
+  check("…paid, the key has 5 seats", (await api("/api/key", { key: familyKey })).seats === 5);
+  await webhook(addEvent, sign(addEvent));
+  await webhook(paidEvent(threeId, familyKey, familyBuyer), sign(paidEvent(threeId, familyKey, familyBuyer)));
+  check("…Stripe saying so again (either purchase) adds nothing more", (await api("/api/key", { key: familyKey })).seats === 5);
+  await wait(600);
+  const seatMail = sentEmails().filter((m) => m.includes("Your key now has 5 seats") && m.includes(familyKey));
+  check("…and one email says the key now has 5 seats", seatMail.length === 1, `${seatMail.length} emails`);
+  check("seats cannot be added to a key that was never paid for, or is made up", (await api("/api/buy", { path: "/moon", testpay: true, seats: 1, key: "SNAP-2345-6789-ABCD" })).status === 400);
+  check("a purchase is for 1 to 10 players", (await api("/api/buy", { path: "/moon", testpay: true, seats: 11 })).status === 400 && (await api("/api/buy", { path: "/moon", testpay: true, seats: 0 })).status === 400 && (await api("/api/buy", { path: "/moon", testpay: true, seats: "lots" })).status === 400);
+}
 // "Lost your key?"
 check("'Lost your key?' turns down something that is not an email", (await api("/api/lost", { email: "nope" })).status === 400);
 const before = sentEmails().length;
@@ -97,9 +128,18 @@ await plain.context().close();
 
 const page = await open("/moon?testpay");
 check("with ?testpay, the Moon's menu has a big Unlock the Moon · $7 button", (await page.isVisible("#offer-buy")) && (await page.textContent("#offer-buy")) === "Unlock the Moon · $7" && !(await sf(page, () => document.getElementById("offer-buy").disabled)));
-await page.click("#offer-buy");
+// Playing together: the unlock panel counts the players.
+await page.click("#offer-more"); await wait(400);
+check("'Playing together?' opens the unlock panel, with Players − 1 +", (await page.isVisible("#view-unlock")) && (await page.textContent("#seats-count")) === "1" && (await page.textContent("#unlock-buy")) === "Unlock · $7" && (await sf(page, () => document.getElementById("seats-less").disabled)));
+await page.click("#seats-more"); await page.click("#seats-more");
+check("…+ twice: 'Unlock for 3 players · $21'", (await page.textContent("#unlock-buy")) === "Unlock for 3 players · $21" && (await page.textContent("#seats-count")) === "3");
+await page.screenshot({ path: "qa/shots/pay-players.png" });
+await page.click("#unlock-buy");
 await page.waitForURL(/checkout\.stripe\.com/, { timeout: 30000 });
 check("Unlock opens Stripe's checkout", true, new URL(page.url()).host);
+const checkoutId = page.url().match(/cs_test_[A-Za-z0-9]+/)?.[0];
+await page.waitForFunction(() => document.body.innerText.includes("$21.00"), null, { timeout: 30000 }).catch(() => {});
+check("…Stripe's page asks for $21.00, for 3", await page.evaluate(() => document.body.innerText.includes("$21.00")), (await page.evaluate(() => document.body.innerText)).slice(0, 160).replace(/\n+/g, " | "));
 const frameWith = async (sel) => { for (let i = 0; i < 80; i++) { for (const f of page.frames()) if (await f.$(sel).catch(() => null)) return f; await wait(250); } throw new Error(`no ${sel} on the checkout page`); };
 const email = await frameWith("#linkAuthentication-emailInput");
 // A fresh address each run: one Stripe has seen with Link (its saved-card service) asks for a Link sign-in.
@@ -139,6 +179,12 @@ if (back) {
   await wait(2500);
   const after = await sf(page, () => ({ thanks: !document.getElementById("thanks").hidden, key: document.getElementById("thanks-key").textContent, saved: localStorage.getItem("snapfort.key"), url: location.href }));
   check("paying brings you back to the Moon with a thank-you and your key", after.thanks && /^SNAP-/.test(after.key) && after.saved === after.key && !after.url.includes("paid="), JSON.stringify(after));
+  const said = await sf(page, () => ({ title: document.getElementById("thanks-title").textContent, seats: document.getElementById("thanks-seats").textContent, store: document.getElementById("store-seats").textContent }));
+  check("…the thank-you says it is for 3 players, all on this one key; Settings shows 3 seats", said.title === "Thanks! The Full Game is yours, for 3 players." && said.seats.includes("same key") && said.store === "3 seats" && (await api("/api/key", { key: after.key })).seats === 3, JSON.stringify(said));
+  // Stripe's webhook for the same purchase (it arrives as well as the page coming back): counted once.
+  const late = JSON.stringify({ id: "evt_late", type: "checkout.session.completed", livemode: false, data: { object: { id: checkoutId, client_reference_id: after.key, payment_status: "paid", livemode: false, customer_details: { email: "qa-late@example.com" } } } });
+  await webhook(late, sign(late));
+  check("…Stripe's webhook for the same purchase changes nothing: still 3 seats", (await api("/api/key", { key: after.key })).seats === 3);
   check("…and building is open at once", await builder(page));
   check("…the key is in Settings with a Copy button", (await sf(page, () => !document.getElementById("store-owned").hidden)) && (await page.textContent("#store-key")) === after.key);
   await page.screenshot({ path: "qa/shots/pay-thanks.png" });

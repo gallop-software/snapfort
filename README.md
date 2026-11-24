@@ -5,7 +5,7 @@ Build the tallest tower in one shared world, and knock the competition down with
 - Snap big pieces together (walls, floors, ramps, roofs) with Fortnite-style building: aim with the crosshair, hold the mouse to keep placing, cut doors and windows, undo and redo.
 - Everyone builds in one persistent world. What is built stays, for anyone who comes later.
 - Metal builds up to storey 10, brick to 30, wood all the way to storey 80 (about 300 m), so the tallest towers have a strong base and a fragile top.
-- Two worlds: the free **Meadow**, and **the Moon** (snapfort.io/moon): low gravity, space suits, domes, and building in lattice, regolith and titanium. The launcher fires big chunks of moon rock that arrive in under a second; a hit throws you into space and your rocket pack flies you back. There are rovers to sit in and drive, and off a ramp at speed a rover floats away turning over until its seat throws you clear. And there is a rail gun to build: a kit of 22 numbered parts, 175 m long, put together with the Railgun tool; whole, it throws whoever sits in its capsule once round the Moon. Anyone can visit the Moon (and drive); building there comes with the **Full Game**, a one-time $7 unlock (Stripe Checkout; you get a SnapFort key that unlocks your other devices too, no account needed).
+- Two worlds: the free **Meadow**, and **the Moon** (snapfort.io/moon): low gravity, space suits, domes, and building in lattice, regolith and titanium. The launcher fires big chunks of moon rock that arrive in under a second; a hit throws you into space and your rocket pack flies you back. There are rovers to sit in and drive, and off a ramp at speed a rover floats away turning over until its seat throws you clear. And there is a rail gun to build: a kit of 22 numbered parts, 175 m long, put together with the Railgun tool; whole, it throws whoever sits in its capsule 650 m above the Moon, to fly down on their rockets and land anywhere. Anyone can visit the Moon (and drive); building there comes with the **Full Game**, a one-time $7 unlock (Stripe Checkout; you get a SnapFort key that unlocks your other devices too, no account needed).
 - Phones and tablets work too, in landscape, with Fortnite-style touch controls (joystick, drag to look, build buttons).
 - Chat like building: press Enter to say something to everyone (a line at the top) or to builders nearby (a bubble over your head), and middle-click to ping a spot. Nothing scrolls and nothing is saved.
 - Trebuchets: build one on a floor, get on with H, aim through the scope, fire. Stones fly an exact arc and hit the first thing in their way; whatever loses its support falls as rubble, and anyone standing near the impact goes flying.
@@ -45,7 +45,7 @@ npm run qa:mobile       # phones and tablets: fit on screen, and every touch con
 npm run qa:chat         # chat: nearby, everyone, pings, limits, the filter
 npm run qa:moon         # the Moon: look, visitors, low gravity, the launcher, thrown into space and back
 npm run qa:rover        # the Moon's rovers: driving, lift-off, thrown clear, rockets back
-npm run qa:railgun      # the Moon's rail gun: the 22-part kit, damage, the ride round the Moon
+npm run qa:railgun      # the Moon's rail gun: the 22-part kit, damage, the launch and flying down
 npm run qa:landing      # a landing spot shot away mid-flight
 npm run qa:smoke        # a built or live site: every world loads, connects and draws
 npm run qa:pay          # buying the Full Game in Stripe's test mode, keys, webhooks

@@ -1,5 +1,5 @@
 import type { BuildState } from "../../game/buildState";
-import { CELL, LEVEL } from "../../game/constants";
+import { LEVEL } from "../../game/constants";
 import type { Environment } from "../../game/environments";
 import type { Fall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
@@ -23,7 +23,7 @@ import {
   type Gun,
   type GunToPage,
 } from "./railgunRules";
-import { landingUnder } from "./space";
+import { EDGE } from "./space";
 
 /** The server's side of the Moon's rail guns (see railgunRules.ts for what they are). */
 
@@ -208,39 +208,34 @@ export function gunsInTheWay(room: Room, flight: Flight): { time: number; point:
 }
 
 /**
- * The ride: down the rail faster and faster, up and away off the muzzle, out
- * of sight while the rider goes once round the Moon (their own page shows them
- * that), then back down out of the sky from the other side on their rockets,
- * to land just behind the gun. Every page plays it, as any flight.
+ * The launch: down the rail faster and faster, then up and away off the muzzle
+ * to a point high above the Moon, slowing as it gets there. Every page plays
+ * it, as any flight. It ends in the air on purpose: from there the rider flies
+ * down themselves (their own page moves them, as it does a builder on foot).
  */
-export function rideFlight(build: BuildState, env: Environment, gun: Gun): Fall {
+export function rideFlight(_build: BuildState, _env: Environment, gun: Gun): Fall {
   const { from, bend, to } = railLine(gun);
   const flat = Math.hypot(bend[0] - from[0], bend[2] - from[2]);
   const slope = Math.hypot(to[0] - bend[0], to[1] - bend[1], to[2] - bend[2]);
   const mix = (a: Vec, b: Vec, k: number): Vec => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
-  // Off the muzzle: on the way it points, a long way out and up.
-  const way: Vec = [(to[0] - bend[0]) / slope, (to[1] - bend[1]) / slope, (to[2] - bend[2]) / slope];
-  const away: Vec = [to[0] + way[0] * 700, to[1] + way[1] * 700 + 260, to[2] + way[2] * 700];
-  // Back from behind: high over the far side, down to just behind the base.
-  const behind: Vec = [from[0] - way[0] * 16, 0, from[2] - way[2] * 16];
-  const high: Vec = [from[0] - way[0] * 420, away[1], from[2] - way[2] * 420];
-  const land = landingUnder(build, env, behind[0], gun.y * LEVEL + 3 * CELL, behind[2]);
-  const t1 = RAILGUN.rideRail, t2 = t1 + RAILGUN.rideClimb, t3 = t2 + RAILGUN.rideOrbit, time = t3 + RAILGUN.rideBack;
+  // On along the way the gun points (but not out past the edge of the Moon as far as building goes), and a long way up.
+  const ahead = Math.hypot(to[0] - bend[0], to[2] - bend[2]);
+  const top: Vec = [edge(to[0] + ((to[0] - bend[0]) / ahead) * RAILGUN.launchOut), gun.y * LEVEL + RAILGUN.launchUp, edge(to[2] + ((to[2] - bend[2]) / ahead) * RAILGUN.launchOut)];
+  const t1 = RAILGUN.rideRail, time = t1 + RAILGUN.rideClimb;
   const at = (t: number): Vec => {
     if (t <= t1) {
       // Gathering speed all the way down the rail.
       const d = (t / t1) ** 2 * (flat + slope);
       return d <= flat ? mix(from, bend, d / flat) : mix(bend, to, (d - flat) / slope);
     }
-    if (t <= t2) return mix(to, away, (t - t1) / RAILGUN.rideClimb);
-    if (t <= t3) return away;
-    // Across first, then straight down onto the spot, slowing all the way.
-    const s = (t - t3) / RAILGUN.rideBack;
-    const across = Math.min(1, s / 0.6), ease = across * across * (3 - 2 * across), down = 1 - (1 - s) * (1 - s);
-    return [high[0] + (land[0] - high[0]) * ease, high[1] + (land[1] - high[1]) * down, high[2] + (land[2] - high[2]) * ease];
+    // Fast off the muzzle, easing to a stop at the top.
+    const k = (t - t1) / RAILGUN.rideClimb;
+    return mix(to, top, 1 - (1 - k) * (1 - k));
   };
   const path: Vec[] = [];
   for (let i = 0; i < time * 10 - 1e-6; i++) path.push(at(i / 10));
-  path.push(land);
-  return { from, v: [0, 0, 0], time, land, path, glideFrom: 0 };
+  path.push(top);
+  return { from, v: [0, 0, 0], time, land: top, path, glideFrom: 0, aloft: true };
 }
+
+const edge = (v: number) => Math.max(-EDGE, Math.min(EDGE, v));

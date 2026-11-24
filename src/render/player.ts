@@ -67,6 +67,7 @@ export class Player {
 
   /** Advances the character. Call after each physics step. */
   step(dt: number, input: MoveInput): void {
+    this.aloft = false;
     const cc = this.controller;
     const support = cc.checkSupport(dt, DOWN);
     const supported = support.supportedState === CharacterSupportedState.SUPPORTED;
@@ -206,7 +207,25 @@ export class Player {
     this.position.set(x, y, z);
     this.onGround = true;
     this.state = "ground";
+    this.aloft = false;
   }
+
+  /**
+   * Holds the builder at a spot in the air for this frame, in place of `step`
+   * (flying under their own control with something of a world's own: rockets,
+   * say). Drawn as gliding, for as long as this is called every frame.
+   */
+  fly(x: number, y: number, z: number): void {
+    this.controller.setPosition(new Vector3(x, y, z));
+    this.controller.setVelocity(Vector3.Zero());
+    this.position.set(x, y, z);
+    this.onGround = false;
+    this.state = "air";
+    this.aloft = true;
+  }
+
+  /** Flying under their own control (see `fly`). */
+  aloft = false;
 
   teleport(x: number, y: number, z: number): void {
     this.controller.setPosition(new Vector3(x, y, z));
@@ -224,6 +243,6 @@ export class Player {
     if (this.riding && !this.fall) return this.avatar.sit(this.riding.x, this.riding.y, this.riding.z, this.riding.yaw, this.riding.pitch, this.riding.roll);
     this.avatar.root.position.set(this.position.x, this.position.y - HEIGHT / 2, this.position.z);
     const v = this.controller.getVelocity();
-    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down, this.gliding);
+    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down, this.gliding || this.aloft);
   }
 }

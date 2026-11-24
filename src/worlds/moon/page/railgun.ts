@@ -1,4 +1,3 @@
-import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
@@ -12,6 +11,7 @@ import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlug
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeSphere } from "@babylonjs/core/Physics/v2/physicsShape";
 import { CELL, LEVEL } from "../../../game/constants";
+import { standHeight } from "../../../game/fall";
 import { BUILDER_GROUP, FRAME_GROUP } from "../../../render/physicsGroups";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature, WorldTool } from "../../pageDoors";
@@ -37,13 +37,13 @@ import {
   type GunToServer,
   type PartKind,
 } from "../railgunRules";
-import { moonGroundTexture } from "./textures";
+import { EDGE } from "../space";
 
 /**
  * The page's side of the Moon's rail guns (see railgunRules.ts for what they
  * are): draws every part of every gun, shows where the next part goes while
- * the Railgun tool is picked, seats whoever is in a capsule, and gives the
- * rider their trip round the Moon.
+ * the Railgun tool is picked, seats whoever is in a capsule, and after a
+ * launch lets the rider fly themselves down on their rockets.
  */
 
 export const RAILGUN_TOOL: WorldTool = {
@@ -183,7 +183,7 @@ function placement(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): { x: num
   return { x, y: feet[0]!.y * LEVEL + (rising ? LEVEL / 2 : 0), z, yaw: (gun.dir * Math.PI) / 2, pitch: rising ? -RISE : 0 };
 }
 
-export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number, Shown>; readonly seated: number | null; readonly preview: { gun: number | null; part: number; ok: boolean } | null; readonly riding: boolean } {
+export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number, Shown>; readonly seated: number | null; readonly preview: { gun: number | null; part: number; ok: boolean } | null; readonly riding: boolean; readonly flying: boolean } {
   const { scene } = game;
   const models = partModels(game);
   const solid = new StandardMaterial("railgun", scene);
@@ -340,82 +340,72 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     return wait > 0 ? `<b>Rail gun charging · ${wait} s</b>` : `<b class="ok">Rail gun ready</b>`;
   }
 
-  // ── The ride round the Moon ────────────────────────────────────────────
-  /** Made the first time someone here rides: a small Moon far off above the world, a capsule going round it, and a camera following. */
-  let globe: { camera: FreeCamera; capsule: Mesh; centre: Vector3 } | null = null;
-  /** This player's ride: when it began (performance.now()). */
+  // ── The launch, and flying down ────────────────────────────────────────
+  /** This player's own launch: when the gun fired (performance.now()); 0 when they are not on their way up. */
   let rideAt = 0;
-  const ORBIT = 380, MOON_SIZE = 600;
+  /** Off the top of the launch and flying down on their rockets: where they are, and how fast they are going. */
+  let flying: { at: Vector3; v: Vector3 } | null = null;
+  const HALF = 0.9;
+  const FAR = EDGE + 10;
 
-  function makeGlobe(): NonNullable<typeof globe> {
-    const centre = new Vector3(0, 40_000, 0);
-    const moon = CreateSphere("orbit-moon", { diameter: MOON_SIZE, segments: 48 }, scene);
-    const dust = new StandardMaterial("orbit-moon", scene);
-    const texture = moonGroundTexture(scene);
-    texture.uScale = 9;
-    texture.vScale = 5;
-    dust.diffuseTexture = texture;
-    dust.specularColor = Color3.Black();
-    // Seen from up here it is bright all over, not half in the dark.
-    dust.emissiveColor = new Color3(0.3, 0.3, 0.33);
-    dust.fogEnabled = false;
-    moon.material = dust;
-    moon.position.copyFrom(centre);
-    moon.applyFog = false;
-    moon.isPickable = false;
-    const capsule = models.capsule.clone("orbit-capsule");
-    capsule.setEnabled(true);
-    capsule.material = solid.clone("railgun-orbit");
-    (capsule.material as StandardMaterial).fogEnabled = false;
-    capsule.applyFog = false;
-    // Its rider, as far as can be seen from behind: a helmet and shoulders above the seat back.
-    const helmet = paintMesh(CreateSphere("orbit-helmet", { diameter: 0.5, segments: 10 }, scene), ...WHITE);
-    const shoulders = paintMesh(CreateBox("orbit-body", { width: 0.6, height: 0.7, depth: 0.4 }, scene), ...WHITE);
-    shoulders.position.y = -0.55;
-    const rider = Mesh.MergeMeshes([helmet, shoulders], true, true)!;
-    rider.material = capsule.material;
-    rider.parent = capsule;
-    rider.position.set(0, 3.0, -0.15);
-    rider.applyFog = false;
-    // Stars all round (the sky down in the world only has them above its horizon): one small ball, drawn many times.
-    const star = CreateSphere("orbit-star", { diameter: 1, segments: 4 }, scene);
-    star.material = ghostMaterial("star", 1, 1, 1, 1);
-    star.applyFog = false;
-    star.isPickable = false;
-    star.alwaysSelectAsActiveMesh = true;
-    const stars: number[] = [];
-    let seed = 77;
-    const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-    for (let i = 0; i < 700; i++) {
-      const u = rand() * 2 - 1, a = rand() * Math.PI * 2, r = Math.sqrt(1 - u * u), size = 14 + rand() * rand() * 60;
-      stars.push(size, 0, 0, 0, 0, size, 0, 0, 0, 0, size, 0, centre.x + r * Math.cos(a) * 16_000, centre.y + u * 16_000, centre.z + r * Math.sin(a) * 16_000, 1);
+  /** The top of whatever is under (x, z) at or below height `y` (the ground, at least), from what is built. */
+  function surfaceUnder(x: number, y: number, z: number): number {
+    let top = 0;
+    for (const piece of game.build.near(x, y, z)) {
+      const h = standHeight(piece, x, z, game.env.roof);
+      if (h !== null && h <= y + 0.3 && h > top) top = h;
     }
-    star.thinInstanceSetBuffer("matrix", new Float32Array(stars), 16, true);
-    // Where they left from, a bright dot on the ground.
-    const home = CreateSphere("orbit-home", { diameter: 7, segments: 8 }, scene);
-    home.material = ghostMaterial("home", 0.3, 0.85, 1, 1);
-    home.position.set(centre.x, centre.y + MOON_SIZE / 2, centre.z);
-    home.applyFog = false;
-    const camera = new FreeCamera("orbit-camera", centre.clone(), scene);
-    camera.minZ = 0.5;
-    camera.maxZ = 90_000;
-    camera.fov = 0.95;
-    return { camera, capsule, centre };
+    return top;
   }
 
-  /** Draws the trip round the Moon, `k` (0..1) of the way round: over the top, down the far side, and back up to where they left. */
-  function orbit(k: number): void {
-    const g = (globe ??= makeGlobe());
-    const at = (a: number, r: number) => new Vector3(g.centre.x, g.centre.y + Math.cos(a) * r, g.centre.z + Math.sin(a) * r);
-    const a = k * Math.PI * 2;
-    const here = at(a, ORBIT);
-    g.capsule.position.copyFrom(here);
-    // Nose along the way it is going, feet toward the Moon.
-    g.capsule.rotation.set(a, 0, 0);
-    // From just behind and above it, looking over its nose at the Moon's edge ahead.
-    g.camera.position.copyFrom(at(a - 0.035, ORBIT + 5.5));
-    g.camera.upVector = here.subtract(g.centre).normalize();
-    g.camera.setTarget(at(a + 0.5, ORBIT - 60));
+  /** True when a body centred there would be inside the side of a wall. */
+  function inWall(x: number, y: number, z: number): boolean {
+    for (const piece of game.build.near(x, y, z)) {
+      if (piece.type !== "wall") continue;
+      const top = standHeight(piece, x, z);
+      if (top !== null && y - HALF < top - 0.25 && y + HALF > piece.y * LEVEL) return true;
+    }
+    return false;
+  }
+
+  /**
+   * One frame of flying down: the rockets carry the rider the way they look
+   * (down is a dive; they will not climb), sinking a little all the while,
+   * less with the jump key held. Walls stop them; the first thing under their
+   * feet (a floor, a roof, the ground) is where they land.
+   */
+  function fly(dt: number, input: DriveInput): void {
+    const f = flying!;
+    const pitch = game.viewPitch();
+    const ahead = new Vector3(Math.sin(input.yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(input.yaw) * Math.cos(pitch));
+    const right = new Vector3(Math.cos(input.yaw), 0, -Math.sin(input.yaw));
+    const speed = input.run ? RAILGUN.flyFast : RAILGUN.flySpeed;
+    // Back is the brakes.
+    const want = ahead.scale(Math.max(0, input.forward) * speed).add(right.scale(input.strafe * speed * 0.6));
+    want.y = Math.min(want.y, 0) - (input.jump ? RAILGUN.sinkSlow : RAILGUN.sink);
+    f.v.addInPlace(want.subtract(f.v).scale(1 - Math.exp(-dt * 2.4)));
+    let x = Math.max(-FAR, Math.min(FAR, f.at.x + f.v.x * dt)), z = Math.max(-FAR, Math.min(FAR, f.at.z + f.v.z * dt));
+    let y = f.at.y + f.v.y * dt;
+    if (inWall(x, y, z)) {
+      // Into a wall: no further that way.
+      x = f.at.x;
+      z = f.at.z;
+      f.v.x = f.v.z = 0;
+    }
+    const ground = surfaceUnder(x, f.at.y - HALF, z);
+    if (y - HALF <= ground) {
+      // Down: on their feet, rockets off, walking from here.
+      flying = null;
+      y = ground + HALF + 0.03;
+      game.player.seat(x, y, z);
+      game.panel(null);
+      game.sound.tone("sine", 110, 50, 0.25, 0.35);
+      game.sound.noise(0.2, 0.12, 700);
+      return;
+    }
+    f.at.set(x, y, z);
+    game.player.fly(x, y, z);
+    game.panel(`<b>Rockets · ${Math.round(y - HALF - ground)} m up</b><small>${game.touch ? "Push to fly where you look · Jump slows the fall" : "<kbd>W</kbd> fly where you look · <kbd>Space</kbd> slow the fall · <kbd>Shift</kbd> faster"}</small>`);
   }
 
   const feature = {
@@ -428,6 +418,9 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     },
     get riding() {
       return rideAt > 0;
+    },
+    get flying() {
+      return flying !== null;
     },
 
     joined() {
@@ -503,8 +496,12 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       }
     },
 
-    /** Sitting in a capsule holds the player there. */
-    drive(_dt: number, _input: DriveInput): boolean {
+    /** Sitting in a capsule holds the player there; flying down, their rockets carry them. */
+    drive(dt: number, input: DriveInput): boolean {
+      if (flying) {
+        fly(dt, input);
+        return true;
+      }
       const s = seated === null ? undefined : guns.get(seated);
       if (!s) return false;
       const seat = seatOf(s.gun);
@@ -555,24 +552,21 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         }
       }
 
-      // This player's own ride: once off the rail and away, the view is of their trip round the Moon.
+      // This player's own launch: at the top of it the server lets go, and they fly themselves from there.
       if (rideAt > 0) {
         const t = (now - rideAt) / 1000;
-        const out = RAILGUN.rideRail + RAILGUN.rideClimb;
         if (!game.player.knockedDown && t > 1) {
-          // (Cut short: the flight never came, or is over.)
           rideAt = 0;
-          game.view(null);
-        } else if (t >= out && t < out + RAILGUN.rideOrbit) {
-          orbit((t - out) / RAILGUN.rideOrbit);
-          game.view(globe!.camera);
-          if (t - out < dt * 2) game.toast("Once round the Moon", 4000);
-        } else if (t >= out + RAILGUN.rideOrbit) {
-          rideAt = 0;
-          game.view(null);
-          game.toast("Rockets on: back down beside the rail gun", 3500);
+          const p = game.player.position;
+          // (Unless the flight never came: then they are still by the gun, on the ground.)
+          if (p.y > 30) {
+            flying = { at: new Vector3(p.x, p.y, p.z), v: new Vector3(0, -RAILGUN.sink, 0) };
+            game.toast(game.touch ? "Your rockets: push the stick to fly where you look" : "Your rockets: W flies where you look. Land anywhere", 5000);
+          }
         }
       }
+      // Hit by a shot on the way down: thrown like anyone, the flying is over.
+      if (flying && game.player.knockedDown) flying = null;
 
       // The plan and the panel show only while the Railgun tool is being aimed, or beside a capsule.
       if (!aimed) {
@@ -580,13 +574,14 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         showNeeds([]);
         preview = null;
         const s = seated !== null ? guns.get(seated) : nearCapsule();
-        game.panel(s && rideAt === 0 ? statusOf(s.gun) + (seated !== null && operational(game.build, s.gun) && charging(s.gun) === 0 ? `<small>${game.touch ? "Tap Place" : "Click"} to launch</small>` : "") : null);
+        if (!flying) game.panel(s && rideAt === 0 ? statusOf(s.gun) + (seated !== null && operational(game.build, s.gun) && charging(s.gun) === 0 ? `<small>${game.touch ? "Tap Place" : "Click"} to launch</small>` : "") : null);
       }
       aimed = false;
       if (asked && now - asked > 2500) asked = 0;
     },
 
     board(): boolean {
+      if (flying) return true;
       if (seated !== null) {
         const s = guns.get(seated);
         leaveSeat(true);
@@ -608,6 +603,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     },
 
     prompt() {
+      if (flying) return null;
       if (seated !== null) return { text: "<kbd>H</kbd> get out of the capsule", button: "Get out" };
       const s = nearCapsule();
       if (!s || s.gun.rider !== null) return null;
@@ -615,7 +611,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     },
 
     busy() {
-      return seated !== null;
+      return seated !== null || flying !== null;
     },
 
     /** In the capsule, a click fires it. */

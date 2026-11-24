@@ -1499,7 +1499,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (!solo && net.online) {
       const action = synced.takeAction();
       if (action) net.sendAction(action.seq, action.ops);
-      net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now, player.tumbling);
+      net.sendMove(player.position.x, player.position.y, player.position.z, rig.yaw, player.onGround, now, player.tumbling, player.gliding || player.aloft);
     }
     remotes.update(dt, now, rig.camera.globalPosition, rig.camera.fov);
     showMaterial();
@@ -1546,6 +1546,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         else remotes.ride(id, seat);
       },
       viewYaw: () => rig.yaw,
+      viewPitch: () => rig.pitch,
       myId: () => myId,
       send: (data) => {
         if (!solo && net.online) net.sendWorld(data);
@@ -1560,9 +1561,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
           if (el.innerHTML !== html) el.innerHTML = html;
           el.hidden = false;
         }
-      },
-      view: (camera) => {
-        scene.activeCamera = camera ?? rig.camera;
       },
       sound: sfx.kit,
       touch: input.touch,

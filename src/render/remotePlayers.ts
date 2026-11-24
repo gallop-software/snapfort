@@ -40,6 +40,8 @@ interface Sample {
   yaw: number;
   ground: boolean;
   tumbling: boolean;
+  /** Flying under their own control (shown as gliding: upright, the outfit's "glide" extra on). */
+  flying: boolean;
 }
 
 interface Remote {
@@ -143,7 +145,7 @@ export class RemotePlayers {
   move(m: WireMove, now: number): void {
     const remote = this.remotes.get(m[0]);
     if (!remote) return;
-    const sample: Sample = { at: now, x: m[1] / 100, y: m[2] / 100, z: m[3] / 100, yaw: m[4] / 1000, ground: (m[5] & 1) === 1, tumbling: (m[5] & 2) === 2 };
+    const sample: Sample = { at: now, x: m[1] / 100, y: m[2] / 100, z: m[3] / 100, yaw: m[4] / 1000, ground: (m[5] & 1) === 1, tumbling: (m[5] & 2) === 2, flying: (m[5] & 4) === 4 };
     if (remote.samples.length === 0) {
       // First sighting: appear there at once.
       remote.x = sample.x;
@@ -178,7 +180,7 @@ export class RemotePlayers {
       const dist = Math.max(0.1, Math.hypot(remote.x - viewer.x, remote.y - viewer.y, remote.z - viewer.z));
       const size = BODY / (dist * halfView);
       // Someone thrown always gets the full body: the flailing is the point.
-      remote.full = remote.fall !== null || ride !== null || size >= FULL_SIZE || (remote.full && size >= STAND_IN_SIZE);
+      remote.full = remote.fall !== null || ride !== null || remote.gliding || size >= FULL_SIZE || (remote.full && size >= STAND_IN_SIZE);
       if (!remote.full) {
         this.release(remote);
         if (remote.tag) remote.tag.setEnabled(false);
@@ -221,7 +223,7 @@ export class RemotePlayers {
       remote.fall = null;
       remote.down = 0;
       // Hold the landing spot until their own page says otherwise (it may be asleep).
-      remote.samples = [{ at: now, x, y, z, yaw: remote.yaw, ground: true, tumbling: false }];
+      remote.samples = [{ at: now, x, y, z, yaw: remote.yaw, ground: true, tumbling: false, flying: false }];
     }
   }
 
@@ -241,6 +243,7 @@ export class RemotePlayers {
       remote.yaw = latest.yaw;
       remote.ground = latest.ground;
       remote.tumbling = latest.tumbling;
+      remote.gliding = latest.flying;
       remote.vx = remote.vz = 0;
       return;
     }
@@ -252,6 +255,7 @@ export class RemotePlayers {
     remote.yaw = a.yaw + wrap(b.yaw - a.yaw) * t;
     remote.ground = t < 0.5 ? a.ground : b.ground;
     remote.tumbling = a.tumbling || b.tumbling;
+    remote.gliding = t < 0.5 ? a.flying : b.flying;
     // A long gap means they stood still in between, not that they crept along.
     const moving = t < 1 && span < 400;
     remote.vx = moving ? ((b.x - a.x) / span) * 1000 : 0;

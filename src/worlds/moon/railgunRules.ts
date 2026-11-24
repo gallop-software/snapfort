@@ -10,7 +10,8 @@ import type { Vec } from "../../game/trebuchet";
  * capacitor bank each side, 160 m of rail (thirteen level 10 m segments, then
  * three rising one storey each, about 20 degrees), a muzzle, and the capsule a
  * builder rides. Assembled right, it powers up, and whoever sits in the capsule
- * is thrown once round the Moon and flown back down beside it on their rockets.
+ * is thrown high above the Moon, to fly down on their rockets to anywhere on it:
+ * the top of the tallest tower, or the farthest corner.
  *
  * Its parts are not building pieces (the building core knows nothing of them):
  * they are the Moon's own things, like the rovers. A part needs the ground or
@@ -40,11 +41,23 @@ export const RAILGUN = {
   abandonedAfter: 24 * 3600_000,
   /** Most rail guns on the Moon at once (so the world cannot fill up with them). */
   most: 40,
-  /** The ride: seconds down the rail, climbing away, going round the Moon, and coming back down on the rockets. */
+  /**
+   * The launch: seconds down the rail, then seconds climbing to `launchUp`
+   * metres above the gun, `launchOut` metres on along the way it points. From
+   * there the rider flies themselves down on their rockets, wherever they like
+   * (user, 2026-11-24: "launch very high into space, and I should be able to
+   * fly and get anywhere i want").
+   */
   rideRail: 1.2,
-  rideClimb: 3,
-  rideOrbit: 24,
-  rideBack: 6,
+  rideClimb: 4,
+  launchUp: 650,
+  launchOut: 200,
+  /** Flying down: how fast the rockets carry a rider the way they look, m/s, cruising and flat out (the run key). */
+  flySpeed: 50,
+  flyFast: 85,
+  /** ...and how fast they sink while they do, m/s: as it comes, and holding back (the jump key). */
+  sink: 6,
+  sinkSlow: 1.5,
 } as const;
 
 /** A rail gun as saved and sent: where its base is (cell x, storey, cell z), which way it points (0: +z, 1: +x, 2: -z, 3: -x), and which parts are on it. */

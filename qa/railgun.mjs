@@ -3,8 +3,8 @@
  * numbered parts put on by aiming at where each goes, any number of guns;
  * the rising end needs holding up with ordinary pieces; a launcher's shot
  * knocks parts out and something built on the rail blocks it; whole, it
- * charges, and whoever sits in the capsule (visitors too) is thrown once
- * round the Moon and flown back down beside it. Needs the Gallop dev server
+ * charges, and whoever sits in the capsule (visitors too) is thrown high above
+ * the Moon, to fly down on their rockets to wherever they choose. Needs the Gallop dev server
  * with Stripe test keys in .dev.vars. Run: npm run qa:railgun
  */
 import { chromium, devices } from "playwright-core";
@@ -165,32 +165,72 @@ check("it will not fire while it is charging", /Still charging/.test(await toast
 // Everyone sits still while it charges (long enough for the Moon's room to sleep and wake).
 for (let i = 0; i < 40 && !/ready/.test(await panel(v)); i++) await wait(1000);
 check("charged: ready, click to launch", /Rail gun ready/.test(await panel(v)) && /to launch/.test(await panel(v)), await panel(v));
+// A tall platform far off to fly to: 12 storeys up, the other side of the Moon from the gun.
+const PAD = { x: 30, z: -30, level: 12 };
+await sf(b, (pad) => {
+  const s = window.snapfort;
+  const put = (type, x, y, z) => s.history.do({ kind: "place", piece: { type, x, y, z, rot: 0, id: s.nextId(), material: "wood", edit: 0 } });
+  for (let y = 0; y < pad.level; y++) put("wall", pad.x, y, pad.z);
+  for (let ring = 0; ring <= 1; ring++) for (let x = pad.x - ring; x <= pad.x + ring; x++) for (let z = pad.z - ring; z <= pad.z + ring; z++) if (Math.max(Math.abs(x - pad.x), Math.abs(z - pad.z)) === ring) put("floor", x, pad.level, z);
+}, PAD);
+await wait(900);
+const padTop = PAD.level * 3.75 + 0.15, padAt = [(PAD.x + 0.5) * 5, (PAD.z + 0.5) * 5];
+await v.bringToFront();
 await v.mouse.down(); await v.mouse.up();
 const t0 = Date.now();
-let onRail = false, top = 0, orbitCam = false, orbitToast = false, seenGone = false, seenCapsuleRun = false, backCam = false;
+let onRail = false, top = 0, seenHigh = 0, seenCapsuleRun = false, seenFlying = false, cams = new Set(), flyingAt = 0, flames = false;
 const from = spot(g, 22);
-for (let i = 0; i < 420; i++) {
+const state = () => sf(v, () => { const s = window.snapfort; return { x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, feet: s.player.feetY, down: s.player.knockedDown, flying: s.feature.railgun.flying, aloft: s.player.aloft, cam: s.scene.activeCamera.name, locked: s.input.locked, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root) }; });
+for (let i = 0; i < 90; i++) {
   await wait(100);
   const t = (Date.now() - t0) / 1000;
-  const q = await sf(v, () => { const s = window.snapfort; return { x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, down: s.player.knockedDown, gliding: s.player.gliding, cam: s.scene.activeCamera.name, toast: document.getElementById("toast").textContent }; });
+  const q = await state();
+  cams.add(q.cam);
   if (t < 1.4 && q.down && q.x > from[0] + 15 && q.y < 20) onRail = true;
   top = Math.max(top, q.y);
-  if (q.cam === "orbit-camera") orbitCam = true;
-  if (/Once round the Moon/.test(q.toast)) orbitToast = true;
-  if (orbitCam && q.cam !== "orbit-camera") backCam = true;
-  const seen = await sf(b, (id) => { const s = window.snapfort; const p = s.remotes.positionOf(id); const cap = [...s.feature.railgun.guns.values()][0].meshes.get(22).mesh; return { y: p ? p[1] : -1, capsule: cap.isEnabled(), capX: cap.position.x }; }, vId);
-  if (seen.y > 300) seenGone = true;
+  const seen = await sf(b, (id) => { const s = window.snapfort; const p = s.remotes.positionOf(id); const cap = [...s.feature.railgun.guns.values()][0].meshes.get(22).mesh; return { y: p ? p[1] : -1, capX: cap.position.x }; }, vId);
+  seenHigh = Math.max(seenHigh, seen.y);
   if (t < 1.4 && seen.capX > from[0] + 10) seenCapsuleRun = true;
-  if (t > 30 && !q.down) break;
+  if (q.flying) { flyingAt = t; break; }
 }
-const took = (Date.now() - t0) / 1000;
-const landed = await sf(v, () => { const s = window.snapfort; return { x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, down: s.player.knockedDown, cam: s.scene.activeCamera.name, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled()) }; });
 check("a click fires it: down the rail", onRail && seenCapsuleRun);
-check("…up and away, out of sight of everyone below", top > 400 && seenGone, `${top.toFixed(0)} m up`);
-check("…and the rider's view is of their trip once round the Moon", orbitCam && orbitToast);
-check("…then back on the rockets, to land on their feet just behind the gun, in about 34 seconds", backCam && landed.cam === "camera" && !landed.down && !landed.flames && Math.abs(landed.y - 0.9) < 0.3 && Math.hypot(landed.x - from[0], landed.z - from[2]) < 30 && took > 31 && took < 44, `${took.toFixed(0)} s; ${Math.hypot(landed.x - from[0], landed.z - from[2]).toFixed(0)} m from the breech`);
+check("…and very high above the Moon: about 650 m, in about 5 seconds", top > 600 && top < 700 && flyingAt > 4.5 && flyingAt < 8, `${top.toFixed(0)} m up after ${flyingAt.toFixed(1)} s`);
+const start = await state();
+check("…where the rockets are the rider's own: flying, the view still theirs, nothing taken over", start.flying && start.aloft && start.locked && cams.size === 1 && start.cam === "camera" && /Rockets · \d+ m up/.test(await panel(v)), await panel(v));
+// Hands off: it sinks gently, straight down.
+await wait(2000);
+const sunk = await state();
+check("hands off, they sink gently, about 6 m a second", start.y - sunk.y > 8 && start.y - sunk.y < 20 && Math.hypot(sunk.x - start.x, sunk.z - start.z) < 3 && sunk.flames, `${((start.y - sunk.y) / 2).toFixed(1)} m/s`);
+// Holding the jump key slows the fall.
+await v.keyboard.down("Space"); await wait(2000); await v.keyboard.up("Space");
+const held = await state();
+check("…slower with the jump key held", sunk.y - held.y < 6, `${((sunk.y - held.y) / 2).toFixed(1)} m/s`);
+// Now fly to the top of that far platform: look at it and push forward, flat out, easing off to settle onto it.
+let landedOn = null, others = 0;
+for (let i = 0; i < 700; i++) {
+  const q = await state();
+  if (!q.flying) { landedOn = q; break; }
+  const dx = padAt[0] - q.x, dz = padAt[1] - q.z, flat = Math.hypot(dx, dz), dy = q.feet - padTop;
+  // Aim a little above the pad from far off (they sink as they go), straight at it close in.
+  await sf(v, ([yaw, pitch]) => { const s = window.snapfort; s.rig.yaw = yaw; s.rig.pitch = pitch; }, [Math.atan2(dx, dz), Math.max(-0.2, Math.min(1.3, Math.atan2(dy - Math.min(40, flat * 0.12), Math.max(flat, 0.5))))]);
+  if (flat > 4) await v.keyboard.down("KeyW"); else await v.keyboard.up("KeyW");
+  if (flat > 120) await v.keyboard.down("ShiftLeft"); else await v.keyboard.up("ShiftLeft");
+  if (i % 10 === 0) { const seen = await sf(b, (id) => { const s = window.snapfort; const p = s.remotes.positionOf(id); return { y: p ? p[1] : -1, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent !== s.player.avatar.root) }; }, vId); others = Math.max(others, seen.y); seenFlying ||= seen.flames && seen.y > 60; }
+  await wait(60);
+}
+await v.keyboard.up("KeyW"); await v.keyboard.up("ShiftLeft");
+const flew = (Date.now() - t0) / 1000;
+check("looking where they want to go and pushing forward, they fly right across the Moon", !!landedOn, `landed after ${flew.toFixed(0)} s at ${landedOn?.x.toFixed(0)}, ${landedOn?.z.toFixed(0)}`);
+check("…and set down on top of a tower 12 storeys up, far from the gun", !!landedOn && Math.abs(landedOn.feet - padTop) < 0.3 && Math.hypot(landedOn.x - padAt[0], landedOn.z - padAt[1]) < 8 && Math.hypot(padAt[0] - from[0], padAt[1] - from[2]) > 200, `feet at ${landedOn?.feet.toFixed(1)} m (the platform is at ${padTop.toFixed(1)} m), ${Math.hypot(padAt[0] - from[0], padAt[1] - from[2]).toFixed(0)} m from the gun`);
+check("…while everyone below sees them up there, rockets burning", others > 300 && seenFlying, `seen ${others.toFixed(0)} m up`);
+await wait(500);
+const walk = await state();
+await v.keyboard.down("KeyW"); await wait(350); await v.keyboard.up("KeyW");
+const walked = await state();
+const panelGone = await sf(v, () => document.getElementById("world-panel").hidden);
+check("…on their feet, rockets off, walking again", !walk.flying && !walk.aloft && !walk.flames && !walk.down && Math.hypot(walked.x - walk.x, walked.z - walk.z) > 0.5 && panelGone, JSON.stringify({ flying: walk.flying, aloft: walk.aloft, flames: walk.flames, down: walk.down, walked: +Math.hypot(walked.x - walk.x, walked.z - walk.z).toFixed(1), panelGone }));
 const after = (await guns(b))[0];
-check("…the capsule is back, empty, and the gun is charging for the next ride", after.rider === null && after.parts.length === 22 && /charging/.test(await (async () => { await sf(b, ([x, y, z]) => window.snapfort.player.teleport(x + 2.5, y + 0.95, z + 3), spot(g, 22)); await wait(700); return panel(b); })()));
+check("…the capsule is back, empty, and the gun is charging or ready for the next", after.rider === null && after.parts.length === 22);
 
 // ── Still there for whoever arrives ──────────────────────────────────────
 await b.reload(); await b.waitForSelector("body.ready"); await b.click("#play-free"); await wait(1000);

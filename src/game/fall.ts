@@ -37,6 +37,12 @@ export interface Fall {
    * their feet. Left out for an ordinary fall, which ends flat on the ground.
    */
   glideFrom?: number;
+  /**
+   * The flight ends in the air on purpose (a world's own launch): the builder
+   * is not brought down from there, but carries on under their own control.
+   * For the server only; not sent.
+   */
+  aloft?: boolean;
 }
 
 /** What a builder on a planned flight is doing `t` seconds in. */

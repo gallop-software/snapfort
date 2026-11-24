@@ -366,7 +366,7 @@ describe("riding a rail gun", () => {
     expect(t.flown.length).toBe(0);
   });
 
-  it("fires with one builder: down the rail, away, and back on their rockets to land just behind it", () => {
+  it("fires with one builder: down the rail and very high above the Moon, where it lets them go to fly down themselves", () => {
     const { t, gun } = ready();
     sit(t, "a", gun);
     gun.readyAt = Date.now() - 1;
@@ -375,24 +375,35 @@ describe("riding a rail gun", () => {
     expect(t.flown.length).toBe(1);
     expect(gun.rider).toBeNull();
     const ride = t.flown[0]!.fall;
-    const total = RAILGUN.rideRail + RAILGUN.rideClimb + RAILGUN.rideOrbit + RAILGUN.rideBack;
+    const total = RAILGUN.rideRail + RAILGUN.rideClimb;
     expect(ride.time).toBeCloseTo(total, 6);
     expect(ride.path.length).toBe(Math.round(total * 10) + 1);
-    // On their rockets all the way: no tumbling, no lying down at the end.
+    // On their rockets all the way up: no tumbling.
     expect(fallPhase(ride, 0.5)).toBe("glide");
     expect(fallPhase(ride, total + 0.01)).toBe("done");
     // Faster and faster down the rail (it points along +z), to the muzzle three storeys up.
-    const quarter = fallPosition(ride, RAILGUN.rideRail / 2), end = fallPosition(ride, RAILGUN.rideRail);
-    expect(quarter[2] - ride.from[2]).toBeLessThan((end[2] - ride.from[2]) * 0.35);
+    const half = fallPosition(ride, RAILGUN.rideRail / 2), end = fallPosition(ride, RAILGUN.rideRail);
+    expect(half[2] - ride.from[2]).toBeLessThan((end[2] - ride.from[2]) * 0.35);
     expect(end[2] - ride.from[2]).toBeCloseTo(33.5 * CELL, 0);
     expect(end[1] - ride.from[1]).toBeCloseTo(3 * LEVEL, 0);
-    // Then far out of sight, and back down to the ground a few metres behind the base.
-    expect(fallPosition(ride, RAILGUN.rideRail + RAILGUN.rideClimb + 5)[1]).toBeGreaterThan(400);
-    expect(ride.land[1]).toBeCloseTo(0.9, 6);
-    expect(ride.land[2]).toBeLessThan(ride.from[2]);
-    expect(Math.hypot(ride.land[0] - ride.from[0], ride.land[2] - ride.from[2])).toBeLessThan(25);
-    // And it has to charge again before the next.
+    // Then up, always up, to 650 m above the gun and up to 200 m on the way it points, slowing as it gets there.
+    for (let k = 1; k <= 40; k++) expect(fallPosition(ride, RAILGUN.rideRail + (k / 40) * RAILGUN.rideClimb)[1]).toBeGreaterThanOrEqual(fallPosition(ride, RAILGUN.rideRail + ((k - 1) / 40) * RAILGUN.rideClimb)[1]);
+    expect(ride.land[1]).toBeCloseTo(RAILGUN.launchUp, 6);
+    // (This gun points at the edge from 55 m short of it: it goes on that far, not the whole 200 m.)
+    expect(ride.land[2]).toBeCloseTo(Math.min(end[2] + RAILGUN.launchOut, 238), 0);
+    expect(ride.land[0]).toBeCloseTo(ride.from[0], 6);
+    const late = fallPosition(ride, total - 0.5), earlier = fallPosition(ride, total - 1);
+    expect(ride.land[1] - late[1]).toBeLessThan(late[1] - earlier[1]);
+    // It ends in the air on purpose: the server does not bring them down from there.
+    expect(ride.aloft).toBe(true);
+    // And the gun has to charge again before the next.
     expect(gun.readyAt).toBeGreaterThan(Date.now() + (RAILGUN.charge - 1) * 1000);
+  });
+
+  it("never throws its rider out past the edge of the Moon", () => {
+    const near: Gun = { id: 1, x: 10, y: 0, z: 0, dir: 1, parts: [], touched: 0, readyAt: 0, rider: null };
+    const ride = rideFlight(new BuildState(), MOON, near);
+    for (const p of ride.path) expect(Math.abs(p[0])).toBeLessThanOrEqual(240);
   });
 
   it("charges sooner next time with builders standing by the capacitor banks", () => {
@@ -407,15 +418,4 @@ describe("riding a rail gun", () => {
     expect(wait).toBeGreaterThan(RAILGUN.charge - 2 * RAILGUN.chargeHelp - 1);
   });
 
-  it("lands the rider on whatever is built behind the gun", () => {
-    const build = new BuildState();
-    const gun: Gun = { id: 1, x: 2, y: 0, z: 10, dir: 0, parts: [], touched: 0, readyAt: 0, rider: null };
-    const ride = rideFlight(build, MOON, gun);
-    const cx = Math.floor(ride.land[0] / CELL), cz = Math.floor(ride.land[2] / CELL);
-    put(build, piece("wall", cx, 0, cz));
-    put(build, piece("floor", cx, 1, cz));
-    const onto = rideFlight(build, MOON, gun);
-    expect(ride.land[1]).toBeCloseTo(0.9, 6);
-    expect(onto.land[1]).toBeCloseTo(LEVEL + 0.15 + 0.9, 1);
-  });
 });

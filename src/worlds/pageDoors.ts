@@ -65,6 +65,8 @@ export interface PageGame {
     readonly knockedDown: boolean;
     /** Puts the player's body centre here and holds them still this frame (riding something). */
     seat(x: number, y: number, z: number): void;
+    /** Puts the player's body centre here, in the air, this frame (flying with something of the world's own): drawn gliding, and seen so by everyone. */
+    fly(x: number, y: number, z: number): void;
   };
   /**
    * Draws a builder (this player or anyone else, by id) sitting on a seat,
@@ -74,6 +76,8 @@ export interface PageGame {
   ride(playerId: string, seat: Ride | null): void;
   /** Which way the player looks, radians about the vertical. */
   viewYaw(): number;
+  /** How far down the player looks, radians (level is 0; up is negative). */
+  viewPitch(): number;
   /** This player's id in the shared world ("" until joined). */
   myId(): string;
   /** Sends a message to this world's server half (see WorldServer.message). */
@@ -89,8 +93,6 @@ export interface PageGame {
   mayBuild(): boolean;
   /** Shows a few words of the world's own above the hotbar (HTML), or takes them away (null). */
   panel(html: string | null): void;
-  /** Looks through a camera of the world's own for a while (a ride, say); null gives the view back. */
-  view(camera: Camera | null): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */

@@ -97,8 +97,9 @@ const TICK_MS = 100;
 const IDLE_TICKS = 20;
 /** How long the change log is kept, for rolling back vandalism. */
 const LOG_MS = 7 * 24 * 3600_000;
-/** Positions accepted, in centimetres: the building area plus a margin. */
+/** Positions accepted, in centimetres: the building area plus a margin, and as high as a world's own flying can take a builder. */
 const MAX_COORD = 60_000;
+const MAX_HEIGHT = 150_000;
 
 /** Tower heights go out this long after the build changes (they take a full search to work out). */
 const TOWERS_MS = 1_500;
@@ -784,8 +785,9 @@ export class World extends DurableObject<Env> {
       // away while they were in the air), they are not left standing on nothing: on down they
       // go, to whatever is under them now, the same way they were coming down.
       if (![...this.players.values()].includes(player)) return;
+      // (A flight that ends in the air on purpose leaves them there: from then on they fly themselves.)
       const on = planFall(this.build, fall.land, [0, 0, 0], this.environment);
-      if (fall.land[1] - on.land[1] > 0.3) this.fly(player, fall.glideFrom === undefined ? on : { ...on, glideFrom: 0 });
+      if (!planned.aloft && fall.land[1] - on.land[1] > 0.3) this.fly(player, fall.glideFrom === undefined ? on : { ...on, glideFrom: 0 });
     }, fall.time * 1000);
   }
 
@@ -871,8 +873,8 @@ export class World extends DurableObject<Env> {
   private move(player: Attachment, m: unknown): void {
     if (!Array.isArray(m) || m.length !== 5 || !m.every((v) => Number.isInteger(v))) return;
     const [x, y, z, yaw, flags] = m as number[];
-    if (Math.abs(x!) > MAX_COORD || Math.abs(z!) > MAX_COORD || y! < -5_000 || y! > (MAX_LEVEL + 3) * LEVEL * 100) return;
-    const move: WireMove = [player.id, x!, y!, z!, yaw! % 6284, flags! & 3];
+    if (Math.abs(x!) > MAX_COORD || Math.abs(z!) > MAX_COORD || y! < -5_000 || y! > MAX_HEIGHT) return;
+    const move: WireMove = [player.id, x!, y!, z!, yaw! % 6284, flags! & 7];
     player.move = move;
     this.moves.set(player.id, move);
     this.quietTicks = 0;

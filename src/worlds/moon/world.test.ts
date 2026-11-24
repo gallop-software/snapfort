@@ -176,6 +176,10 @@ function fakeRoom(build = new BuildState()) {
     broadcast: (msg, except) => void sent.push({ to: `all${except ? ` but ${except}` : ""}`, msg: msg as ToPage }),
     fly: (id, fall) => void flown.push({ id, fall }),
     later: (ms, fn) => void timers.push({ ms, fn }),
+    players: () => [...at.keys()],
+    mayBuild: () => true,
+    save: () => {},
+    load: () => undefined,
   };
   room.memory = server.open!(room);
   const rovers = () => (room.memory as { rovers: { id: number; pose: RoverPose; rider: string | null; home: boolean }[] }).rovers;

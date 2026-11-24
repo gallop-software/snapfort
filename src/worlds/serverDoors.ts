@@ -62,6 +62,8 @@ export interface Room {
   build: BuildState;
   /** What `open` returned. */
   memory: unknown;
+  /** The ids of everyone in the room. */
+  players(): string[];
   /** Where a builder's body centre was last known to be, or null (unknown, or no such builder). */
   positionOf(playerId: string): Vec | null;
   /** Whether that builder is in the air or getting up from a throw or fall. */
@@ -73,4 +75,14 @@ export interface Room {
   fly(playerId: string, fall: Fall): void;
   /** Runs `fn` after `ms` (the room stays awake until then). */
   later(ms: number, fn: () => void): void;
+  /** Whether that builder may build here (in a paid world: has the Full Game; anyone else is visiting). */
+  mayBuild(playerId: string): boolean;
+  /**
+   * Keeps something of this world's own with the room, under a name, so it is
+   * still there after the room has slept (`memory` is not). Small things only:
+   * it is saved whole each time. `load` gives back what was last saved, or
+   * undefined.
+   */
+  save(name: string, value: unknown): void;
+  load(name: string): unknown;
 }

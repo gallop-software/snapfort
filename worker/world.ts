@@ -807,6 +807,7 @@ export class World extends DurableObject<Env> {
       env: this.environment,
       build: this.build,
       memory: undefined,
+      players: () => [...this.players.values()].map((p) => p.id),
       positionOf: (id) => {
         const m = this.moves.get(id) ?? find(id)?.player.move;
         return m ? [m[1] / 100, m[2] / 100, m[3] / 100] : null;
@@ -822,6 +823,18 @@ export class World extends DurableObject<Env> {
         if (who) this.fly(who.player, fall);
       },
       later: (ms, fn) => void setTimeout(fn, ms),
+      mayBuild: (id) => find(id)?.player.builder === true,
+      save: (name, value) => {
+        if (/^[a-z0-9-]{1,40}$/.test(name)) this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", `world:${name}`, JSON.stringify(value));
+      },
+      load: (name) => {
+        const row = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM state WHERE key = ?", `world:${name}`).toArray()[0];
+        try {
+          return row ? JSON.parse(row.value) : undefined;
+        } catch {
+          return undefined;
+        }
+      },
     };
     this.theRoom = room;
     room.memory = serverOf(this.environment).open?.(room);

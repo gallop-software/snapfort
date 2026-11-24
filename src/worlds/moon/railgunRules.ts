@@ -1,0 +1,243 @@
+import type { BuildState } from "../../game/buildState";
+import { CELL, LEVEL, MAX_LEVEL, WORLD_HALF_CELLS } from "../../game/constants";
+import type { Vec } from "../../game/trebuchet";
+
+/**
+ * The Moon's rail gun: what its page and server halves agree on. A rail gun is
+ * a kit of 22 numbered parts that builders put together on the spot, any
+ * number of them anywhere on the Moon. It is long, low and slender, like the
+ * real designs for throwing things off the Moon: a base and breech with a
+ * capacitor bank each side, 160 m of rail (thirteen level 10 m segments, then
+ * three rising one storey each, about 20 degrees), a muzzle, and the capsule a
+ * builder rides. Assembled right, it powers up, and whoever sits in the capsule
+ * is thrown once round the Moon and flown back down beside it on their rockets.
+ *
+ * Its parts are not building pieces (the building core knows nothing of them):
+ * they are the Moon's own things, like the rovers. A part needs the ground or
+ * a floor under it, so the rising end has to be held up with ordinary pieces.
+ */
+
+/** How many parts in the kit, numbered from 1. */
+export const PARTS = 22;
+
+export type PartKind = "base" | "breech" | "capacitor" | "rail" | "rise" | "muzzle" | "capsule";
+
+export const RAILGUN = {
+  /** How near a builder must be to put a part on, m. */
+  placeReach: 22,
+  /** How near to the capsule to get in, m. */
+  boardReach: 6,
+  /** A shot landing this near a part's middle knocks it out, m. */
+  knockWithin: 3.6,
+  /** A shot hits a part when it comes this near its middle, m. */
+  hitSize: 2.2,
+  /** Seconds to charge once it is whole, and again after each launch; less for each builder standing by a capacitor bank. */
+  charge: 30,
+  chargeHelp: 10,
+  /** How near a capacitor bank a builder must stand to help it charge, m. */
+  helpReach: 5,
+  /** An unfinished gun nobody has added to for this long clears itself, ms. */
+  abandonedAfter: 24 * 3600_000,
+  /** Most rail guns on the Moon at once (so the world cannot fill up with them). */
+  most: 40,
+  /** The ride: seconds down the rail, climbing away, going round the Moon, and coming back down on the rockets. */
+  rideRail: 1.2,
+  rideClimb: 3,
+  rideOrbit: 24,
+  rideBack: 6,
+} as const;
+
+/** A rail gun as saved and sent: where its base is (cell x, storey, cell z), which way it points (0: +z, 1: +x, 2: -z, 3: -x), and which parts are on it. */
+export interface Gun {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  dir: number;
+  /** Numbers of the parts in place, in no particular order. */
+  parts: number[];
+  /** When a part was last put on (ms). */
+  touched: number;
+  /** When it can next fire (ms); 0 while it is not whole. */
+  readyAt: number;
+  /** Who sits in the capsule. */
+  rider: string | null;
+}
+
+const AHEAD: readonly (readonly [number, number])[] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+
+/** What part number `n` is. */
+export function kindOf(n: number): PartKind {
+  if (n === 1) return "base";
+  if (n === 2) return "breech";
+  if (n === 3 || n === 4) return "capacitor";
+  if (n >= 5 && n <= 17) return "rail";
+  if (n >= 18 && n <= 20) return "rise";
+  if (n === 21) return "muzzle";
+  return "capsule";
+}
+
+export function nameOf(n: number): string {
+  const kind = kindOf(n);
+  return { base: "Base", breech: "Breech", capacitor: `Capacitor bank ${n === 3 ? "A" : "B"}`, rail: `Rail ${n - 4}`, rise: `Rail ${n - 4} (rising)`, muzzle: "Muzzle", capsule: "Capsule" }[kind];
+}
+
+/** One cell a part stands in: cell x and z, and the storey its foot is on. */
+export interface Foot {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Where part `n` of a gun goes: the cells it stands in (one, or two for a
+ * rail segment, nearer the breech first), each with the storey of its foot.
+ * Along the gun: the base, the breech (capacitors either side, the capsule on
+ * it), sixteen two-cell rail segments, the muzzle. The last three segments
+ * and the muzzle step up a storey each.
+ */
+export function feetOf(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): Foot[] {
+  const [ax, az] = AHEAD[gun.dir]!;
+  // To the right of the way it points.
+  const sx = az, sz = -ax;
+  const at = (along: number, side: number, up: number): Foot => ({ x: gun.x + ax * along + sx * side, y: gun.y + up, z: gun.z + az * along + sz * side });
+  const kind = kindOf(n);
+  if (kind === "base") return [at(0, 0, 0)];
+  if (kind === "breech" || kind === "capsule") return [at(1, 0, 0)];
+  if (kind === "capacitor") return [at(1, n === 3 ? -1 : 1, 0)];
+  if (kind === "muzzle") return [at(34, 0, 3)];
+  const k = n - 5;
+  const up = Math.max(0, k - 13);
+  // A rising segment stands on its low end and carries its high end itself.
+  return [at(2 + 2 * k, 0, up), at(3 + 2 * k, 0, up)];
+}
+
+/** The middle of part `n`, in metres: for aiming at it, hitting it and drawing it. */
+export function middleOf(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): Vec {
+  const feet = feetOf(gun, n);
+  const kind = kindOf(n);
+  const x = feet.reduce((s, f) => s + f.x + 0.5, 0) / feet.length, z = feet.reduce((s, f) => s + f.z + 0.5, 0) / feet.length;
+  const rise = kind === "rise" ? LEVEL / 2 : 0;
+  const up = kind === "capsule" ? 2.2 : kind === "capacitor" ? 1.2 : 1;
+  return [x * CELL, feet[0]!.y * LEVEL + rise + up, z * CELL];
+}
+
+/** The parts part `n` joins to: it can be put on once any of these is in place (the base goes down first, on its own). */
+export function joinsOf(n: number): number[] {
+  const kind = kindOf(n);
+  if (kind === "base") return [];
+  if (kind === "breech") return [1, 3, 4, 5, 22];
+  if (kind === "capacitor" || kind === "capsule") return [2];
+  if (kind === "muzzle") return [20];
+  return n === 5 ? [2, 6] : [n - 1, n + 1];
+}
+
+/** True when a part's foot has the ground or a floor under it. */
+export function footed(build: BuildState, foot: Foot): boolean {
+  if (foot.y === 0) return true;
+  return build.occupant({ type: "floor", x: foot.x, y: foot.y, z: foot.z, rot: 0 })?.type === "floor";
+}
+
+/** True when something is built where a part's foot stands (a ramp, a dome, a launcher), so the part cannot be there or cannot work. */
+export function crowded(build: BuildState, foot: Foot): boolean {
+  return build.occupant({ type: "ramp", x: foot.x, y: foot.y, z: foot.z, rot: 0 }) !== undefined;
+}
+
+/** The feet of a part that must have something under them: all of them, but only the low end of a rising segment. */
+export function standingFeet(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): Foot[] {
+  const feet = feetOf(gun, n);
+  return kindOf(n) === "rise" ? feet.slice(0, 1) : feet;
+}
+
+export type PlaceProblem = "have" | "join" | "under" | "crowded" | "room";
+
+/** Why part `n` cannot go on this gun now, or null when it can. */
+export function cannotPlace(build: BuildState, gun: Gun, n: number): PlaceProblem | null {
+  if (!Number.isInteger(n) || n < 1 || n > PARTS) return "room";
+  if (gun.parts.includes(n)) return "have";
+  if (n !== 1 && !joinsOf(n).some((m) => gun.parts.includes(m))) return "join";
+  if (feetOf(gun, n).some((f) => crowded(build, f))) return "crowded";
+  if (!standingFeet(gun, n).every((f) => footed(build, f))) return "under";
+  return null;
+}
+
+/** True when a whole gun from this base, pointing this way, fits inside the building area (and under its ceiling). */
+export function fits(gun: Pick<Gun, "x" | "y" | "z" | "dir">): boolean {
+  if (gun.y < 0 || gun.y + 4 > MAX_LEVEL) return false;
+  for (let n = 1; n <= PARTS; n++) {
+    for (const f of feetOf(gun, n)) if (f.x < -WORLD_HALF_CELLS || f.x >= WORLD_HALF_CELLS || f.z < -WORLD_HALF_CELLS || f.z >= WORLD_HALF_CELLS) return false;
+  }
+  return true;
+}
+
+/** The parts in place that can no longer stay: nothing under them any more. */
+export function fallen(build: BuildState, gun: Gun): number[] {
+  return gun.parts.filter((n) => !standingFeet(gun, n).every((f) => footed(build, f)));
+}
+
+/** The parts in place that something has been built over (they stay, but the gun will not work until it is cleared). */
+export function blocked(build: BuildState, gun: Gun): number[] {
+  return gun.parts.filter((n) => feetOf(gun, n).some((f) => crowded(build, f)));
+}
+
+/** Whole and clear: every part in place and nothing built over any of them. */
+export function operational(build: BuildState, gun: Gun): boolean {
+  return gun.parts.length === PARTS && blocked(build, gun).length === 0;
+}
+
+/** True when two guns would stand in any of the same cells. */
+export function overlap(a: Pick<Gun, "x" | "y" | "z" | "dir">, b: Pick<Gun, "x" | "y" | "z" | "dir">): boolean {
+  const cells = new Set<string>();
+  for (let n = 1; n <= PARTS; n++) for (const f of feetOf(a, n)) cells.add(`${f.x},${f.z}`);
+  for (let n = 1; n <= PARTS; n++) for (const f of feetOf(b, n)) if (cells.has(`${f.x},${f.z}`)) return true;
+  return false;
+}
+
+/** Where the capsule's seat is (its surface), and which way it faces (radians about the vertical). */
+export function seatOf(gun: Pick<Gun, "x" | "y" | "z" | "dir">): { x: number; y: number; z: number; yaw: number } {
+  const [f] = feetOf(gun, 22);
+  return { x: (f!.x + 0.5) * CELL, y: f!.y * LEVEL + 2.0, z: (f!.z + 0.5) * CELL, yaw: (gun.dir * Math.PI) / 2 };
+}
+
+/** The line the capsule runs: from the breech to the muzzle's mouth, in metres. */
+export function railLine(gun: Pick<Gun, "x" | "y" | "z" | "dir">): { from: Vec; bend: Vec; to: Vec } {
+  const [ax, az] = AHEAD[gun.dir]!;
+  const p = (along: number, up: number): Vec => [(gun.x + 0.5 + ax * along) * CELL, gun.y * LEVEL + up, (gun.z + 0.5 + az * along) * CELL];
+  // Level to where the rising segments begin (28 cells on), then up three storeys over the last 30 m.
+  return { from: p(1, 2.0), bend: p(27.5, 2.0), to: p(34.5, 3 * LEVEL + 2.0) };
+}
+
+/** A gun from a message or from saving, or null when it is not one. */
+export function readGun(v: unknown): Gun | null {
+  if (typeof v !== "object" || v === null) return null;
+  const g = v as Record<string, unknown>;
+  const whole = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n);
+  if (!whole(g.id) || !whole(g.x) || !whole(g.y) || !whole(g.z) || !whole(g.dir) || g.dir < 0 || g.dir > 3 || !Array.isArray(g.parts)) return null;
+  const parts = [...new Set(g.parts.filter((n): n is number => whole(n) && n >= 1 && n <= PARTS))];
+  const gun: Gun = { id: g.id, x: g.x, y: g.y, z: g.z, dir: g.dir, parts, touched: typeof g.touched === "number" ? g.touched : 0, readyAt: typeof g.readyAt === "number" ? g.readyAt : 0, rider: null };
+  return fits(gun) ? gun : null;
+}
+
+/** From the server's half to the page's. */
+export type GunToPage =
+  /** Every rail gun, on joining. `now` is the server's clock (ms), to read `readyAt` by. */
+  | { k: "guns"; list: Gun[]; now: number }
+  /** A gun as it now is (new, or changed). `knocked` lists parts that just came off, for the page to show falling. */
+  | { k: "gun"; gun: Gun; now: number; knocked?: number[] }
+  /** Gun `id` is gone (its last part came off, or it was cleared away). */
+  | { k: "gun-gone"; id: number }
+  /** Putting a part on was refused. */
+  | { k: "gun-no"; why: PlaceProblem | "far" | "locked" | "full" | "overlap" | "busy" | "charging" | "broken" }
+  /** Gun `id` fires: the builder in its capsule is on their way (their flight comes separately, as any flight does). */
+  | { k: "gun-fire"; id: number; by: string };
+
+/** From the page's half to the server's. */
+export type GunToServer =
+  /** Starts a new gun: its base at this cell and storey, pointing this way. */
+  | { k: "gun-new"; x: number; y: number; z: number; dir: number }
+  /** Puts part `n` on gun `id`. */
+  | { k: "gun-part"; id: number; n: number }
+  /** Gets into (or out of) the capsule of gun `id`. */
+  | { k: "gun-sit"; id: number; on: boolean }
+  /** Fires the gun whose capsule this builder sits in. */
+  | { k: "gun-launch" };

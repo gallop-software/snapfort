@@ -120,6 +120,10 @@ export interface WorldFeature {
   aimTool?(id: string): void;
   /** One of this world's tools is picked, and the player clicked. */
   useTool?(id: string): void;
+  /** The Remove tool is picked and the crosshair is not on a piece: called every frame, to show what of this world's own it would take away (if anything). */
+  aimRemove?(): void;
+  /** The player used Remove (the tool, or the right button) and the crosshair was not on a piece: take away what of this world's own is there. True when something was. */
+  remove?(): boolean;
 }
 
 /** A seat a builder sits on: where its surface is, and how it is turned (radians: about the vertical, nose down, and rolled). */

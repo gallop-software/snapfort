@@ -723,6 +723,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (own) return feature?.useTool?.(own.id);
       if (TOOLS[toolIndex] === "remove") {
         if (aimPieceId) removePiece(aimPieceId);
+        else if (feature?.remove?.()) return;
         else if (pieceFarAway()) hud.toast("Get closer to remove it");
       } else {
         placing = true;
@@ -730,6 +731,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       }
     } else if (button === 2) {
       if (aimPieceId) removePiece(aimPieceId);
+      else if (feature?.remove?.()) return;
       else if (pieceFarAway()) hud.toast("Get closer to remove it");
     }
   };
@@ -855,7 +857,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (tool === "remove") {
       const piece = aimPieceId ? state.get(aimPieceId) : undefined;
       if (piece) ghost.show(piece, "remove", piece.edit);
-      else ghost.hide();
+      else {
+        ghost.hide();
+        // Not on a piece: something of the world's own, perhaps.
+        feature?.aimRemove?.();
+      }
       return;
     }
 

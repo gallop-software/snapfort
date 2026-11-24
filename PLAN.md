@@ -260,6 +260,12 @@ All of it is in `src/worlds/moon/` (`railgunRules.ts`, `railguns.ts`, `page/rail
 - A shot landing by a flier throws them like anyone (and the flying is over).
 - **Shared code**: a builder may be "flying under their own control" (a third movement flag, so everyone sees them gliding with their rockets on; `PageGame.player.fly`, `viewPitch`), positions are accepted up to 1500 m high (was 311 m), and a flight may end in the air. The camera door (`view`) added for the old trip is removed again.
 
+## The rail gun is solid, and comes apart (user, 2026-11-24: "i shouldn't be able to walk through the rail gun"; "I should also be able to remove parts of it with the remove tool")
+
+- **Solid**: every part but the capsule has a body builders and rovers bump into and can stand on (the base and its cabinet, the breech's block, cheeks and back, the capacitor banks, the rails, the muzzle). The accelerator rings are left open, so a builder can walk the rail through them, and the capsule is a seat. Crosshairs land on the parts (this replaces the unseen aiming balls they had). A flier can land on top of a part.
+- **The Remove tool** (V, or the right button with anything picked) on a part shows it in red with its number and name, and a click takes it off, for any builder from close by, as with pieces (new server message `gun-take`; visitors cannot). New general door for this: `aimRemove` and `remove`, asked when Remove is used and the crosshair is not on a piece.
+- **Damage** was already there and is unchanged: a launcher's shot knocks out every part within 3.6 m of where it lands, a part whose floor goes falls off, and a gun missing any part (or with something built on it) does not work until it is whole and clear again, then charges from the start.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

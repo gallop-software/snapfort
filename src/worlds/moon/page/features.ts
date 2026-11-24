@@ -23,5 +23,7 @@ export function together(...parts: WorldFeature[]): WorldFeature {
     act: () => parts.forEach((p) => p.busy?.() && p.act?.()),
     aimTool: (id) => parts.forEach((p) => p.aimTool?.(id)),
     useTool: (id) => parts.forEach((p) => p.useTool?.(id)),
+    aimRemove: () => parts.forEach((p) => p.aimRemove?.()),
+    remove: () => parts.some((p) => p.remove?.() === true),
   };
 }

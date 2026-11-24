@@ -1,6 +1,6 @@
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
@@ -9,10 +9,9 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
-import { PhysicsShapeSphere } from "@babylonjs/core/Physics/v2/physicsShape";
+import { PhysicsShapeBox, PhysicsShapeContainer } from "@babylonjs/core/Physics/v2/physicsShape";
 import { CELL, LEVEL } from "../../../game/constants";
 import { standHeight } from "../../../game/fall";
-import { BUILDER_GROUP, FRAME_GROUP } from "../../../render/physicsGroups";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature, WorldTool } from "../../pageDoors";
 import {
@@ -26,6 +25,7 @@ import {
   middleOf,
   nameOf,
   operational,
+  partAt,
   overlap,
   PARTS,
   railLine,
@@ -42,8 +42,9 @@ import { EDGE } from "../space";
 /**
  * The page's side of the Moon's rail guns (see railgunRules.ts for what they
  * are): draws every part of every gun, shows where the next part goes while
- * the Railgun tool is picked, seats whoever is in a capsule, and after a
- * launch lets the rider fly themselves down on their rockets.
+ * the Railgun tool is picked, makes the parts solid, takes parts off with the
+ * Remove tool, seats whoever is in a capsule, and after a launch lets the
+ * rider fly themselves down on their rockets.
  */
 
 export const RAILGUN_TOOL: WorldTool = {
@@ -168,9 +169,25 @@ function partModels(game: PageGame): Record<PartKind, Mesh> {
   return { base, breech, capacitor, rail: rail("gun-rail", 2 * CELL), rise: rail("gun-rise", riseLength), muzzle, capsule };
 }
 
+/**
+ * How solid each kind of part is: boxes ([width, height, depth] round a middle
+ * [x, y, z]) in the part's own space, nose along +z. Builders and rovers bump
+ * into them and stand on them, and crosshairs land on them. The rings are left
+ * open (a builder walks the rail through them), and the capsule is a seat.
+ */
+const SOLID: Record<PartKind, readonly (readonly [number, number, number, number, number, number])[]> = {
+  base: [[3.4, 0.45, 3.4, 0, 0.22, 0], [1.5, 1.9, 1.1, 0, 1.0, -0.5]],
+  breech: [[3.6, 0.9, 4.4, 0, 0.45, 0], [0.5, 2.3, 4.0, -1.5, 2.05, 0], [0.5, 2.3, 4.0, 1.5, 2.05, 0], [3.5, 2.3, 0.5, 0, 2.05, -2.0]],
+  capacitor: [[3.6, 3.3, 3.8, 0, 1.65, 0]],
+  rail: [[1.9, 0.85, 2 * CELL, 0, 0.42, 0]],
+  rise: [[1.9, 0.85, Math.hypot(2 * CELL, LEVEL), 0, 0.42, 0]],
+  muzzle: [[2.6, 3.6, 3.6, 0, 1.8, 0.2]],
+  capsule: [],
+};
+
 interface Shown {
   gun: Gun;
-  meshes: Map<number, { mesh: Mesh; aim: PhysicsBody; node: TransformNode }>;
+  meshes: Map<number, { mesh: Mesh; aim: PhysicsBody | null; node: TransformNode }>;
   /** The capsule running the rail after a launch: since when (performance.now()). */
   firedAt: number;
 }
@@ -259,7 +276,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     s.gun = gun;
     for (const [n, held] of s.meshes) {
       if (gun.parts.includes(n)) continue;
-      held.aim.dispose();
+      held.aim?.dispose();
       held.node.dispose();
       if (knocked.includes(n)) fallAway(held.mesh);
       else held.mesh.dispose();
@@ -270,16 +287,20 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       const mesh = makePart(gun, n, solid, `gun-${gun.id}-${n}`);
       mesh.receiveShadows = true;
       game.shadows.addShadowCaster(mesh);
-      // Something for a launcher's crosshair to land on (builders walk through).
-      const middle = middleOf(gun, n);
-      const node = new TransformNode(`gun-aim-${gun.id}-${n}`, scene);
-      node.position.set(middle[0], middle[1], middle[2]);
-      const ball = new PhysicsShapeSphere(Vector3.Zero(), RAILGUN.hitSize * 0.85, scene);
-      ball.filterMembershipMask = FRAME_GROUP;
-      ball.filterCollideMask = ~BUILDER_GROUP;
-      const aim = new PhysicsBody(node, PhysicsMotionType.STATIC, false, scene);
-      aim.shape = ball;
-      aim.disableSync = true;
+      // Solid: builders cannot walk through it, and crosshairs (a launcher's, the Remove tool's) land on it.
+      const at = placement(gun, n);
+      const node = new TransformNode(`gun-solid-${gun.id}-${n}`, scene);
+      node.position.set(at.x, at.y, at.z);
+      node.rotationQuaternion = Quaternion.RotationYawPitchRoll(at.yaw, at.pitch, 0);
+      let aim: PhysicsBody | null = null;
+      const boxes = SOLID[kindOf(n)];
+      if (boxes.length > 0) {
+        const shape = new PhysicsShapeContainer(scene);
+        for (const [w, h, d, x, y, z] of boxes) shape.addChild(new PhysicsShapeBox(new Vector3(x, y, z), Quaternion.Identity(), new Vector3(w, h, d), scene));
+        aim = new PhysicsBody(node, PhysicsMotionType.STATIC, false, scene);
+        aim.shape = shape;
+        aim.disableSync = true;
+      }
       s.meshes.set(n, { mesh, aim, node });
     }
   }
@@ -288,7 +309,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     const s = guns.get(id);
     if (!s) return;
     for (const held of s.meshes.values()) {
-      held.aim.dispose();
+      held.aim?.dispose();
       held.node.dispose();
       fallAway(held.mesh);
     }
@@ -354,6 +375,21 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     for (const piece of game.build.near(x, y, z)) {
       const h = standHeight(piece, x, z, game.env.roof);
       if (h !== null && h <= y + 0.3 && h > top) top = h;
+    }
+    // Rail gun parts are solid too: the top of one is somewhere to land.
+    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+    for (const s of guns.values()) {
+      for (const n of s.gun.parts) {
+        const kind = kindOf(n);
+        if (kind === "capsule") continue;
+        const feet = feetOf(s.gun, n);
+        const i = feet.findIndex((f) => f.x === cx && f.z === cz);
+        if (i < 0) continue;
+        const tall = Math.max(...SOLID[kind].map((box) => box[4] + box[1] / 2));
+        // (A rising rail climbs a storey over its two cells.)
+        const h = feet[i]!.y * LEVEL + tall + (kind === "rise" ? LEVEL * (i === 0 ? 0.25 : 0.75) : 0);
+        if (h <= y + 0.3 && h > top) top = h;
+      }
     }
     return top;
   }
@@ -427,7 +463,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       for (const id of [...guns.keys()]) {
         const s = guns.get(id)!;
         for (const held of s.meshes.values()) {
-          held.aim.dispose();
+          held.aim?.dispose();
           held.node.dispose();
           held.mesh.dispose();
         }
@@ -644,6 +680,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         used++;
         mesh.setEnabled(true);
         mesh.material = material;
+        mesh.scaling.setAll(1);
         const at = placement(gun, n);
         mesh.position.set(at.x, at.y, at.z);
         mesh.rotation.set(at.pitch, at.yaw, 0);
@@ -687,6 +724,38 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       for (let i = used; i < planMeshes.length; i++) planMeshes[i]!.setEnabled(false);
     },
 
+    /** The Remove tool is on a part of a rail gun: show which, in red. */
+    aimRemove() {
+      const found = partUnderCrosshair();
+      if (!found) return;
+      aimed = true;
+      const mesh = (planMeshes[0]?.metadata === kindOf(found.n) ? planMeshes[0] : undefined) ?? (() => {
+        planMeshes[0]?.dispose();
+        const made = models[kindOf(found.n)].clone("gun-plan");
+        made.metadata = kindOf(found.n);
+        planMeshes[0] = made;
+        return made;
+      })();
+      const at = placement(found.s.gun, found.n);
+      mesh.setEnabled(true);
+      mesh.material = ghosts.bad;
+      mesh.position.set(at.x, at.y, at.z);
+      mesh.rotation.set(at.pitch, at.yaw, 0);
+      mesh.scaling.setAll(1.03);
+      for (let i = 1; i < planMeshes.length; i++) planMeshes[i]!.setEnabled(false);
+      showNeeds([]);
+      game.panel(`${statusOf(found.s.gun)}<small><span class="bad">${found.n} · ${nameOf(found.n)}</span> · ${game.touch ? "tap Remove" : "click"} to take it off</small>`);
+    },
+
+    /** Remove was used on a part of a rail gun: ask for it to come off. */
+    remove(): boolean {
+      const found = partUnderCrosshair();
+      if (!found) return false;
+      if (!game.mayBuild()) return false;
+      send({ k: "gun-take", id: found.s.gun.id, n: found.n });
+      return true;
+    },
+
     useTool(id: string) {
       if (id !== RAILGUN_TOOL.id || !preview || asked) return;
       if (!preview.ok) {
@@ -700,6 +769,19 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       game.sound.tone("sine", 1250, 1500, 0.035, 0.1, 0.02);
     },
   };
+
+  /** The rail gun part the crosshair is on, within the Remove tool's reach. */
+  function partUnderCrosshair(): { s: Shown; n: number } | null {
+    const spot = game.aim(16);
+    if (!spot) return null;
+    for (const s of guns.values()) {
+      // (A little into what was hit, so a spot on a part's face counts as that part.)
+      const yaw = game.viewYaw(), pitch = game.viewPitch();
+      const n = partAt(s.gun, spot[0] + Math.sin(yaw) * Math.cos(pitch) * 0.15, spot[1], spot[2] + Math.cos(yaw) * Math.cos(pitch) * 0.15);
+      if (n !== null && Math.hypot(middleOf(s.gun, n)[1] - spot[1]) < 4.5) return { s, n };
+    }
+    return null;
+  }
 
   /** The gun whose capsule this player stands beside, if any. */
   function nearCapsule(): Shown | null {

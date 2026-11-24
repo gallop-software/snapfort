@@ -144,6 +144,15 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     return tell(room, gun);
   }
 
+  if (msg.k === "gun-take") {
+    // The Remove tool: any builder may take a part off, from close by, as with pieces.
+    const gun = m.list.find((g) => g.id === msg.id);
+    if (!gun || !whole(msg.n) || !gun.parts.includes(msg.n)) return;
+    if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
+    if (!near(room, playerId, middleOf(gun, msg.n), RAILGUN.placeReach)) return no(room, playerId, "far");
+    return knockOff(room, gun, [msg.n]);
+  }
+
   if (msg.k === "gun-sit") {
     const gun = m.list.find((g) => g.id === msg.id);
     if (!gun) return;

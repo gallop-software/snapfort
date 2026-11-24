@@ -206,6 +206,19 @@ export function overlap(a: Pick<Gun, "x" | "y" | "z" | "dir">, b: Pick<Gun, "x" 
   return false;
 }
 
+/**
+ * The part of a gun at a spot (in metres), if one is in place there: the one
+ * whose cell the spot is in. The capsule sits on the breech: high up it is the
+ * capsule, low down the breech.
+ */
+export function partAt(gun: Gun, x: number, y: number, z: number): number | null {
+  const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+  const here = gun.parts.filter((n) => feetOf(gun, n).some((f) => f.x === cx && f.z === cz));
+  if (here.length === 0) return null;
+  if (here.includes(22) && (y - gun.y * LEVEL > 1.6 || !here.includes(2))) return 22;
+  return here.find((n) => n !== 22) ?? here[0]!;
+}
+
 /** Where the capsule's seat is (its surface), and which way it faces (radians about the vertical). */
 export function seatOf(gun: Pick<Gun, "x" | "y" | "z" | "dir">): { x: number; y: number; z: number; yaw: number } {
   const [f] = feetOf(gun, 22);
@@ -250,6 +263,8 @@ export type GunToServer =
   | { k: "gun-new"; x: number; y: number; z: number; dir: number }
   /** Puts part `n` on gun `id`. */
   | { k: "gun-part"; id: number; n: number }
+  /** Takes part `n` off gun `id` (the Remove tool). */
+  | { k: "gun-take"; id: number; n: number }
   /** Gets into (or out of) the capsule of gun `id`. */
   | { k: "gun-sit"; id: number; on: boolean }
   /** Fires the gun whose capsule this builder sits in. */

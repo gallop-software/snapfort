@@ -5,7 +5,7 @@ import { fallPhase, fallPosition, type Fall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
 import { planFlight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
-import { cannotPlace, feetOf, fits, joinsOf, kindOf, middleOf, operational, PARTS, RAILGUN, seatOf, type Gun, type GunToPage } from "./railgunRules";
+import { cannotPlace, feetOf, fits, joinsOf, kindOf, middleOf, operational, partAt, PARTS, RAILGUN, seatOf, type Gun, type GunToPage } from "./railgunRules";
 import { rideFlight } from "./railguns";
 import { server } from "./server";
 import { world as MOON } from "./world";
@@ -293,6 +293,47 @@ describe("a rail gun under fire", () => {
     expect(gun.parts.includes(21)).toBe(false);
     expect(gun.parts.includes(20)).toBe(true);
     expect(gun.parts.length).toBe(PARTS - 1);
+  });
+
+  it("gives up a part to the Remove tool: any builder, from close by, and it no longer works", () => {
+    const { t, gun, build } = whole();
+    // A visitor cannot, nor anyone from far away.
+    t.by("v", gun, 10);
+    t.say("v", { k: "gun-take", id: gun.id, n: 10 });
+    expect(t.last()).toEqual({ k: "gun-no", why: "locked" });
+    t.at.set("b", [-200, 0.9, -200]);
+    t.say("b", { k: "gun-take", id: gun.id, n: 10 });
+    expect(t.last()).toEqual({ k: "gun-no", why: "far" });
+    expect(gun.parts.length).toBe(PARTS);
+    // Another builder (not the one who built it) walks up and takes rail 6 off.
+    t.by("b", gun, 10);
+    t.say("b", { k: "gun-take", id: gun.id, n: 10 });
+    expect(gun.parts.includes(10)).toBe(false);
+    expect(gun.parts.length).toBe(PARTS - 1);
+    expect(gun.readyAt).toBe(0);
+    expect(operational(build, gun)).toBe(false);
+    expect((t.last() as Extract<GunToPage, { k: "gun" }>).knocked).toEqual([10]);
+    // A part that is not there, or nonsense, changes nothing.
+    t.say("b", { k: "gun-take", id: gun.id, n: 10 });
+    t.say("b", { k: "gun-take", id: gun.id, n: "ten" });
+    expect(gun.parts.length).toBe(PARTS - 1);
+  });
+
+  it("knows which part is where: by the cell a spot is in, the capsule above the breech", () => {
+    const gun: Gun = { id: 1, x: 0, y: 0, z: 0, dir: 1, parts: Array.from({ length: PARTS }, (_, i) => i + 1), touched: 0, readyAt: 0, rider: null };
+    expect(partAt(gun, 2.5, 0.5, 2.5)).toBe(1);
+    expect(partAt(gun, 7.5, 0.6, 2.5)).toBe(2);
+    expect(partAt(gun, 7.5, 2.4, 2.5)).toBe(22);
+    expect(partAt(gun, 7.5, 1.5, 7.5)).toBe(3);
+    expect(partAt(gun, 7.5, 1.5, -2.5)).toBe(4);
+    // Both cells of a rail segment are that segment.
+    expect(partAt(gun, 12.5, 0.7, 2.5)).toBe(5);
+    expect(partAt(gun, 17.5, 0.7, 2.5)).toBe(5);
+    expect(partAt(gun, 22.5, 0.7, 2.5)).toBe(6);
+    expect(partAt(gun, 172.5, 12, 2.5)).toBe(21);
+    // Off the gun, nothing; and nothing where a part has come off.
+    expect(partAt(gun, 22.5, 0.7, 12.5)).toBeNull();
+    expect(partAt({ ...gun, parts: gun.parts.filter((n) => n !== 6) }, 22.5, 0.7, 2.5)).toBeNull();
   });
 
   it("is gone when its last part is", () => {

@@ -126,6 +126,50 @@ await b.mouse.down(); await b.mouse.up(); await wait(700);
 check("another can be started anywhere there is room", (await guns(v)).length === 2);
 await putAway(b);
 
+// ── Solid, and taken apart with the Remove tool ──────────────────────────
+// Walking straight at the rail from the side: it stops them (they do not pass through).
+const wall = spot(g, 10);
+await sf(b, ([x, z]) => { const s = window.snapfort; s.player.teleport(x - 2.5, 0.95, z - 9); s.rig.yaw = 0; s.rig.pitch = 0.1; }, [wall[0], wall[2]]);
+await wait(400);
+await b.keyboard.down("KeyW"); await wait(1500); await b.keyboard.up("KeyW"); await wait(300);
+const stopped = await sf(b, () => ({ z: window.snapfort.player.position.z, feet: window.snapfort.player.feetY }));
+check("the rail gun is solid: walking at the rail, a builder is stopped by it (or climbs onto it), not through it", stopped.z < wall[2] - 0.9 || stopped.feet > 0.5, `stopped ${(wall[2] - stopped.z).toFixed(1)} m short of its middle, feet at ${stopped.feet.toFixed(2)} m`);
+// And a capacitor bank cannot be walked through at all.
+const bank = spot(g, 3);
+await sf(b, ([x, z]) => { const s = window.snapfort; s.player.teleport(x, 0.95, z + 8); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; }, [bank[0], bank[2]]);
+await wait(400);
+await b.keyboard.down("KeyW"); await wait(1500); await b.keyboard.up("KeyW"); await wait(300);
+const blockedAt = await sf(b, () => window.snapfort.player.position.z);
+check("…a capacitor bank stops them dead", blockedAt > bank[2] + 1.9, `${(blockedAt - bank[2]).toFixed(1)} m from its middle`);
+// The Remove tool on a part: it shows which, and a click takes it off.
+await sf(b, ([x, z]) => { const s = window.snapfort; s.player.teleport(x - 2.5, 0.95, z - 7); }, [wall[0], wall[2]]);
+await wait(300);
+await b.keyboard.press("KeyV"); await wait(300);
+for (let i = 0; i < 3; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const e = s.rig.pivot; s.rig.yaw = Math.atan2(x - e.x, z - e.z); s.rig.pitch = -Math.atan2(y - e.y, Math.hypot(x - e.x, z - e.z)); }, [wall[0] - 2.5, 0.7, wall[2]]); await wait(120); }
+check("with the Remove tool on a part, it says which one a click will take off", /10 · Rail 6/.test(await panel(b)) && /to take it off/.test(await panel(b)), await panel(b));
+await b.mouse.down(); await b.mouse.up(); await wait(600);
+const taken = (await guns(v))[0];
+check("…a click takes that part off, for everyone, and the gun no longer works", !taken.parts.includes(10) && taken.parts.length === 21 && taken.drawn === 21 && taken.readyAt === 0);
+// The right button does the same, whatever is picked.
+await pick(b);
+for (let i = 0; i < 3; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const e = s.rig.pivot; s.rig.yaw = Math.atan2(x - e.x, z - e.z); s.rig.pitch = -Math.atan2(y - e.y, Math.hypot(x - e.x, z - e.z)); }, [spot(g, 11)[0] - 2.5, 0.7, spot(g, 11)[2]]); await wait(120); }
+await b.mouse.down({ button: "right" }); await b.mouse.up({ button: "right" }); await wait(600);
+check("…the right button takes a part off too", !(await guns(v))[0].parts.includes(11));
+// A visitor cannot take anything off.
+await v.bringToFront();
+await sf(v, ([x, z]) => { const s = window.snapfort; s.player.teleport(x - 2.5, 0.95, z - 7); }, [spot(g, 12)[0], spot(g, 12)[2]]);
+await wait(300);
+for (let i = 0; i < 3; i++) { await sf(v, ([x, y, z]) => { const s = window.snapfort; const e = s.rig.pivot; s.rig.yaw = Math.atan2(x - e.x, z - e.z); s.rig.pitch = -Math.atan2(y - e.y, Math.hypot(x - e.x, z - e.z)); }, [spot(g, 12)[0] - 2.5, 0.7, spot(g, 12)[2]]); await wait(120); }
+await v.mouse.down({ button: "right" }); await v.mouse.up({ button: "right" }); await wait(1300);
+check("…a visitor cannot", (await guns(b))[0].parts.includes(12));
+if (await v.isVisible("#view-unlock")) { await v.click("#unlock-later"); await wait(1300); }
+await b.bringToFront();
+// Put the two back.
+await pick(b);
+for (const n of [10, 11]) await place(b, g, n);
+check("…and the parts go back on with the Railgun tool", (await guns(b))[0].parts.length === 22);
+await putAway(b);
+
 // ── Blocked, and shot at ─────────────────────────────────────────────────
 const jam = spot(g, 9);
 await sf(b, ([x, z]) => { const s = window.snapfort; const cx = Math.floor(x / 5) , cz = Math.floor(z / 5); window.__jam = [s.nextId(), s.nextId()]; s.history.do({ kind: "place", piece: { type: "floor", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[0], material: "wood", edit: 0 } }); s.history.do({ kind: "place", piece: { type: "roof", x: cx, y: 0, z: cz, rot: 0, id: window.__jam[1], material: "wood", edit: 0 } }); }, [jam[0] - 2.5, jam[2]]);
@@ -142,7 +186,7 @@ check("…cleared, it is charging or ready again", /charging|ready/.test(await p
 const target = spot(g, 12);
 await sf(b, ([x, z]) => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "trebuchet", x: Math.floor(x / 5), y: 0, z: Math.floor(z / 5) - 12, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); s.player.teleport(x + 1.5, 1.4, z - 59); }, [target[0], target[2]]);
 await wait(700); await b.keyboard.press("KeyH"); await wait(700);
-for (let i = 0; i < 4; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(y - p.y, Math.hypot(x - p.x, z - p.z)); }, [target[0], target[1] + 1, target[2]]); await wait(80); }
+for (let i = 0; i < 4; i++) { await sf(b, ([x, y, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(y - p.y, Math.hypot(x - p.x, z - p.z)); }, [target[0], target[1] + 0.5, target[2]]); await wait(80); }
 const aimed = await sf(b, () => window.snapfort.target);
 check("the launcher's crosshair lands on a rail gun part", !!aimed && Math.hypot(aimed[0] - target[0], aimed[2] - target[2]) < 3 && aimed[1] > 0.3, JSON.stringify(aimed?.map((n) => +n.toFixed(1))));
 await b.mouse.down(); await b.mouse.up(); await wait(2500);

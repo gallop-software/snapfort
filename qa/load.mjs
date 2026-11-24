@@ -9,7 +9,7 @@ import { chromium } from "playwright-core";
 
 const BOTS = Number(process.argv[2] ?? 100);
 const SECONDS = Number(process.argv[3] ?? 60);
-const base = new URL(process.argv[4] ?? "http://localhost:5173/");
+const base = new URL(process.argv[4] ?? (process.env.QA_BASE ?? (process.env.QA_BASE ?? "http://localhost:5173")) + "/");
 const world = `load-${Date.now().toString(36)}`;
 base.searchParams.set("world", world);
 const wsUrl = `${base.protocol === "https:" ? "wss" : "ws"}://${base.host}/ws?world=${world}`;

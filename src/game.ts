@@ -61,7 +61,8 @@ import { SoldierView } from "./render/soldierView";
 import { clock, Hud, showStats, type HotbarItem } from "./ui/hud";
 
 type Tool = PieceType | "remove";
-const TOOLS: readonly Tool[] = ["wall", "floor", "ramp", "roof", "remove", "trebuchet"];
+/** The tools every world has. A world may add its own after them (WorldPage.tools). */
+const SHARED_TOOLS: readonly Tool[] = ["wall", "floor", "ramp", "roof", "remove", "trebuchet"];
 /** Quick keys beside WASD, one per piece. F1 to F4 and the number keys work too. */
 const TOOL_KEYS: Record<Tool, string> = { wall: "Z", floor: "F", ramp: "X", roof: "C", remove: "V", trebuchet: "B" };
 const FUNCTION_KEYS: Record<string, Tool> = { F1: "wall", F2: "floor", F3: "ramp", F4: "roof" };
@@ -206,11 +207,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   let aimPieceId: string | undefined;
   let editing: EditSession | null = null;
 
-  const items: HotbarItem[] = TOOLS.map((tool) => ({
-    id: tool,
-    label: tool === "remove" ? "Remove" : pieceLabel(tool, env),
-    key: TOOL_KEYS[tool],
-  }));
+  /** The hotbar: the shared tools, then the world's own. A world's tool is not a piece: its feature does the aiming and placing. */
+  const ownTools = page.tools ?? [];
+  const TOOLS: readonly string[] = [...SHARED_TOOLS, ...ownTools.map((t) => t.id)];
+  const ownTool = (index: number) => ownTools[index - SHARED_TOOLS.length];
+  const keyOf = (tool: string) => TOOL_KEYS[tool as Tool] ?? ownTools.find((t) => t.id === tool)?.key ?? "";
+  const items: HotbarItem[] = [
+    ...SHARED_TOOLS.map((tool) => ({ id: tool, label: tool === "remove" ? "Remove" : pieceLabel(tool, env), key: TOOL_KEYS[tool] })),
+    ...ownTools.map((t) => ({ id: t.id, label: t.label, key: t.key, icon: t.icon })),
+  ];
   const hud = new Hud(items, {
     selectTool: (i) => toggleTool(i),
     play(next) {
@@ -691,8 +696,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     sfx.unlock();
     // Middle click pings the spot under the crosshair.
     if (button === 1) return ping();
-    // Riding something of the world's own: hands are busy (visitors too).
-    if (feature?.busy?.()) return;
+    // Riding something of the world's own: hands are busy (visitors too); a click is for that.
+    if (feature?.busy?.()) return button === 0 ? feature.act?.() : undefined;
     if (!builder) return lockedNote();
     // Flying through the air, or flat on the ground: hands are busy.
     if (player.knockedDown) return;
@@ -713,6 +718,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     updateAim();
     if (button === 0) {
       if (toolIndex < 0) return;
+      // Something of the world's own: its feature places it.
+      const own = ownTool(toolIndex);
+      if (own) return feature?.useTool?.(own.id);
       if (TOOLS[toolIndex] === "remove") {
         if (aimPieceId) removePiece(aimPieceId);
         else if (pieceFarAway()) hud.toast("Get closer to remove it");
@@ -775,7 +783,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     } else if (code === "KeyQ") undo();
     else if (code === "KeyE") redo();
     else {
-      const index = TOOLS.findIndex((tool) => `Key${TOOL_KEYS[tool]}` === code);
+      const index = TOOLS.findIndex((tool) => `Key${keyOf(tool)}` === code);
       if (index >= 0) toggleTool(index);
     }
   };
@@ -836,7 +844,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     aimProblem = null;
     // Nothing selected: just running around, no preview. (G can still edit what the crosshair is on.)
     if (toolIndex < 0) return ghost.hide();
-    const tool = TOOLS[toolIndex]!;
+    // Something of the world's own: its feature shows where it would go.
+    const own = ownTool(toolIndex);
+    if (own) {
+      ghost.hide();
+      return feature?.aimTool?.(own.id);
+    }
+    const tool = TOOLS[toolIndex] as Tool;
 
     if (tool === "remove") {
       const piece = aimPieceId ? state.get(aimPieceId) : undefined;
@@ -1537,6 +1551,19 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         if (!solo && net.online) net.sendWorld(data);
       },
       toast: (text, ms) => hud.toast(text, ms),
+      aim: (range) => aimPoint(range),
+      mayBuild: () => builder,
+      panel: (html) => {
+        const el = document.getElementById("world-panel")!;
+        if (html === null) el.hidden = true;
+        else {
+          if (el.innerHTML !== html) el.innerHTML = html;
+          el.hidden = false;
+        }
+      },
+      view: (camera) => {
+        scene.activeCamera = camera ?? rig.camera;
+      },
       sound: sfx.kit,
       touch: input.touch,
     }) ?? null;

@@ -11,7 +11,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 
-const base = new URL(process.argv[2] ?? "http://localhost:5173/");
+const base = new URL(process.argv[2] ?? (process.env.QA_BASE ?? (process.env.QA_BASE ?? "http://localhost:5173")) + "/");
 const world = `pay-${Date.now().toString(36)}`;
 /** A fresh buyer address each run (one email per address every 5 minutes). */
 const buyerEmail = `qa-buyer-${Date.now().toString(36)}@example.com`;

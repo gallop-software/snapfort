@@ -160,11 +160,11 @@ describe("coming back from anywhere on the rockets", () => {
 });
 
 /** A room with two builders in it, recording what the Moon's server half does. */
-function fakeRoom(build = new BuildState()) {
+function fakeRoom(build = new BuildState(), saved = new Map<string, unknown>(), here: string[] = ["a", "b"]) {
   const sent: { to: string; msg: ToPage }[] = [];
   const flown: { id: string; fall: Fall }[] = [];
   const timers: { ms: number; fn: () => void }[] = [];
-  const at = new Map<string, Vec>([["a", [0, 0.9, 0]], ["b", [0, 0.9, 0]]]);
+  const at = new Map<string, Vec>(here.map((id) => [id, [0, 0.9, 0]]));
   const down = new Set<string>();
   const room: Room = {
     env: MOON,
@@ -178,8 +178,8 @@ function fakeRoom(build = new BuildState()) {
     later: (ms, fn) => void timers.push({ ms, fn }),
     players: () => [...at.keys()],
     mayBuild: () => true,
-    save: () => {},
-    load: () => undefined,
+    save: (name, value) => void saved.set(name, JSON.parse(JSON.stringify(value))),
+    load: (name) => saved.get(name),
   };
   room.memory = server.open!(room);
   const rovers = () => (room.memory as { rovers: { id: number; pose: RoverPose; rider: string | null; home: boolean }[] }).rovers;
@@ -384,6 +384,26 @@ describe("rovers", () => {
     const flight = server.thrown!({ build: t.room.build, env: MOON, playerId: "a", from, v, fall: planFall(t.room.build, from, v, MOON) }, t.room);
     expect(flight?.glideFrom).toBe(SPACE_OUT);
     expect(t.rovers()[5]!.rider).toBeNull();
+  });
+
+  it("are still where they were left, with whoever is driving, after the Moon's room has slept and woken", () => {
+    const saved = new Map<string, unknown>();
+    const t = fakeRoom(new BuildState(), saved);
+    const start = t.rovers()[1]!.pose;
+    t.stand("a", start);
+    t.say("a", { k: "board", id: 1 });
+    const left: RoverPose = [start[0] + 4, 0, start[2] + 2, 1, 0, 0];
+    t.say("a", { k: "leave", pose: left });
+    t.stand("b", t.rovers()[3]!.pose);
+    t.say("b", { k: "board", id: 3 });
+    // Everyone stands still, the room sleeps, and wakes with both of them still there.
+    const woke = fakeRoom(new BuildState(), saved);
+    expect(woke.rovers()[1]!).toMatchObject({ pose: left, rider: null, home: false });
+    expect(woke.rovers()[3]!.rider).toBe("b");
+    expect(woke.rovers()[0]!.home).toBe(true);
+    // Had the driver left while it slept, the seat would be empty.
+    const emptied = fakeRoom(new BuildState(), saved, ["a"]);
+    expect(emptied.rovers()[3]!.rider).toBeNull();
   });
 
   it("drop to what is below when the floor they are parked on goes", () => {

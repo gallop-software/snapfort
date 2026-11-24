@@ -7,6 +7,8 @@ export interface HotbarItem {
   id: string;
   label: string;
   key: string;
+  /** A picture of its own (the inside of a 40 by 40 SVG), for something that is not one of the shared tools. */
+  icon?: string;
 }
 
 export interface HudActions {
@@ -83,7 +85,7 @@ export class Hud {
       slot.type = "button";
       slot.innerHTML =
         `<span class="key">${item.key}</span>` +
-        `<svg viewBox="0 0 40 40" aria-hidden="true">${ICONS[item.id] ?? ""}</svg>` +
+        `<svg viewBox="0 0 40 40" aria-hidden="true">${item.icon ?? ICONS[item.id] ?? ""}</svg>` +
         `<span class="label">${item.label}</span>`;
       slot.addEventListener("click", () => actions.selectTool(index));
       bar.appendChild(slot);

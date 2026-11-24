@@ -11,7 +11,7 @@ import { PNG } from "pngjs";
 // Each run builds in a fresh world of its own, so it neither sees nor changes the shared dev world.
 const QA_WORLD = `qa-${Date.now().toString(36)}`;
 const withWorld = (u) => { const url = new URL(u); url.searchParams.set("world", QA_WORLD); return url.toString(); };
-const URL_ = withWorld(process.argv[2] ?? "http://localhost:5173/");
+const URL_ = withWorld(process.argv[2] ?? (process.env.QA_BASE ?? (process.env.QA_BASE ?? "http://localhost:5173")) + "/");
 mkdirSync("qa/shots", { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });

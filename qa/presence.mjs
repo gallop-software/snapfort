@@ -9,7 +9,7 @@
  */
 import { chromium } from "playwright-core";
 
-const base = new URL(process.argv[2] ?? "http://localhost:5173/");
+const base = new URL(process.argv[2] ?? (process.env.QA_BASE ?? (process.env.QA_BASE ?? "http://localhost:5173")) + "/");
 const world = `pres-${Date.now().toString(36)}`;
 const wsUrl = `${base.protocol === "https:" ? "wss" : "ws"}://${base.host}/ws?world=${world}`;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });

@@ -8,7 +8,7 @@ import { mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
 
 const world = `treb-${Date.now().toString(36)}`;
-const base = new URL(process.argv[2] ?? "http://localhost:5173/");
+const base = new URL(process.argv[2] ?? (process.env.QA_BASE ?? (process.env.QA_BASE ?? "http://localhost:5173")) + "/");
 base.searchParams.set("world", world);
 mkdirSync("qa/shots", { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });

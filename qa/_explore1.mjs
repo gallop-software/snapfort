@@ -6,7 +6,7 @@ const p = await ctx.newPage();
 const errors = []; p.on("pageerror", (e) => errors.push(e.message)); p.on("console", (m) => (m.type() === "error" || m.type() === "warning") && errors.push(m.text().slice(0, 150)));
 const out = (k, v) => console.log(`${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-await p.goto(`http://localhost:5173/?world=${world}`); await p.waitForSelector("body.ready");
+await p.goto(`${process.env.QA_BASE ?? "http://localhost:5173"}/?world=${world}`); await p.waitForSelector("body.ready");
 // 2. Settings: change name, colour, sound, graphics, mouse speed; reload.
 await p.fill("#player-name", "QA Tester"); await p.press("#player-name", "Enter");
 await p.click("#player-colors button:nth-child(5)");

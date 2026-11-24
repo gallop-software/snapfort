@@ -333,6 +333,22 @@ describe("riding a rail gun", () => {
     expect(gun.rider).toBeNull();
   });
 
+  it("keeps whoever is in the capsule while the Moon's room sleeps (everyone sitting still), and can still fire when it wakes", () => {
+    const build = new BuildState();
+    const saved = new Map<string, unknown>();
+    const t = fakeRoom(build, saved);
+    const gun = start(t);
+    scaffold(build, gun);
+    t.assemble("a");
+    sit(t, "a", gun);
+    const woke = fakeRoom(build, saved);
+    const again = woke.guns()[0]!;
+    expect(again.rider).toBe("a");
+    again.readyAt = Date.now() - 1;
+    woke.say("a", { k: "gun-launch" });
+    expect(woke.flown.length).toBe(1);
+  });
+
   it("will not fire until it has charged, or while it is broken or blocked", () => {
     const { t, gun, build } = ready();
     sit(t, "a", gun);

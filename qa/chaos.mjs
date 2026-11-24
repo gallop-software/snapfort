@@ -10,7 +10,7 @@ import { chromium } from "playwright-core";
 import { paidKey } from "./_paid.mjs";
 const SECONDS = Number(process.argv[2] ?? 180);
 const PATH = process.argv[4] ?? "/";
-const key = PATH === "/" ? null : await paidKey("http://localhost:5173", PATH);
+const key = PATH === "/" ? null : await paidKey((process.env.QA_BASE ?? "http://localhost:5173"), PATH);
 const world = `chaos-${Date.now().toString(36)}`;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal"] });
 const errors = [];
@@ -20,14 +20,14 @@ const open = async (label) => {
   const p = await context.newPage();
   p.on("pageerror", (e) => errors.push(`[${label}] ${e.message.slice(0, 200)}`));
   p.on("console", (m) => m.type() === "error" && !m.text().includes("WebSocket") && errors.push(`[${label}] ${m.text().slice(0, 200)}`));
-  await p.goto(`http://localhost:5173${PATH}?world=${world}`); await p.waitForSelector("body.ready"); await p.click("#play-free");
+  await p.goto(`${process.env.QA_BASE ?? "http://localhost:5173"}${PATH}?world=${world}`); await p.waitForSelector("body.ready"); await p.click("#play-free");
   return p;
 };
 const pages = [await open("A"), await open("B")];
 await pages[1].evaluate(() => window.snapfort.player.teleport(12.5, 0.95, 2.5));
 let seed = Number(process.argv[3] ?? 7); const r = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 const pick = (list) => list[Math.floor(r() * list.length)];
-const keys = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyZ", "KeyF", "KeyX", "KeyC", "KeyV", "KeyB", "KeyG", "KeyT", "KeyR", "KeyQ", "KeyE", "KeyH", "Enter", "Digit1", "Digit6", "ShiftLeft"];
+const keys = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyZ", "KeyF", "KeyX", "KeyC", "KeyV", "KeyB", "KeyN", "KeyG", "KeyT", "KeyR", "KeyQ", "KeyE", "KeyH", "Enter", "Digit1", "Digit6", "ShiftLeft"];
 const counts = {};
 const end = Date.now() + SECONDS * 1000;
 while (Date.now() < end) {

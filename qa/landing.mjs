@@ -8,7 +8,7 @@
 import { chromium } from "playwright-core";
 import { paidKey } from "./_paid.mjs";
 
-const base = "http://localhost:5173";
+const base = (process.env.QA_BASE ?? "http://localhost:5173");
 const world = `landing-${Date.now().toString(36)}`;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const results = [], errors = [];

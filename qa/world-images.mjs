@@ -8,7 +8,7 @@ import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 
-const base = "http://localhost:5173";
+const base = (process.env.QA_BASE ?? "http://localhost:5173");
 const vars = Object.fromEntries(readFileSync(".dev.vars", "utf8").split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 mkdirSync("/tmp/worlds", { recursive: true });
 
@@ -56,7 +56,7 @@ for (const [name, path, camera, target, rover] of [
     // Stand a rover in the foreground with this builder in its seat (drawn there for the picture; nobody drives it).
     await p.evaluate(([x, z, yaw]) => {
       const s = window.snapfort;
-      const r = s.feature.rovers.get(5);
+      const r = s.feature.rover.rovers.get(5);
       r.pose = [x, 0, z, yaw, 0, 0];
       r.target = [...r.pose];
       // The seat: 1.02 m up and half a metre behind the rover's middle.

@@ -16,7 +16,7 @@ import { chromium } from "playwright-core";
 import { PNG } from "pngjs";
 import { paidKey } from "./_paid.mjs";
 
-const base = "http://localhost:5173";
+const base = (process.env.QA_BASE ?? "http://localhost:5173");
 const save = process.argv.includes("--save");
 const only = process.argv.slice(2).find((a) => !a.startsWith("--"));
 mkdirSync("qa/refs", { recursive: true });

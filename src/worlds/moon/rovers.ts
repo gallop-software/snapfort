@@ -26,13 +26,42 @@ export interface RoverMemory {
   /** Rovers that moved since everyone was last told. */
   moved: Set<number>;
   telling: boolean;
+  /** When the rovers were last saved (ms). */
+  savedAt: number;
 }
+
+/** While a rover is driven, where they all are is saved this often, ms (and at once whenever one is got on, left, thrown or lands). */
+const SAVE_MS = 2000;
 
 /** Rover positions go out this often while any is driven, ms. */
 const TELL_MS = 100;
 
+/**
+ * The rovers when the room wakes. It sleeps whenever nobody has sent anything
+ * for a few seconds (builders present or not, if they are all standing still),
+ * so where each rover stands and who drives it is saved, and found again here:
+ * a rover stays where it was left. Drivers who are no longer here are off.
+ */
 export function openRovers(room: Room): RoverMemory {
-  return { rovers: homes(room.build).map((pose, id) => ({ id, pose, rider: null, lostUntil: 0, touched: Date.now(), home: true })), moved: new Set(), telling: false };
+  const now = Date.now();
+  const fresh = (): Rover[] => homes(room.build).map((pose, id) => ({ id, pose, rider: null, lostUntil: 0, touched: now, home: true }));
+  const saved = room.load("rovers");
+  const here = new Set(room.players());
+  const kept = Array.isArray(saved) && saved.length === fresh().length ? saved.map((r, id): Rover | null => {
+    const pose = readPose((r as { pose?: unknown } | null)?.pose);
+    if (!pose) return null;
+    const { rider, touched, home } = r as { rider?: unknown; touched?: unknown; home?: unknown };
+    // (One that was in the air has landed: where it was going is where it is.)
+    return { id, pose, rider: typeof rider === "string" && here.has(rider) ? rider : null, lostUntil: 0, touched: typeof touched === "number" ? touched : now, home: home === true };
+  }) : null;
+  const rovers = kept && kept.every((r) => r !== null) ? (kept as Rover[]) : fresh();
+  return { rovers, moved: new Set(), telling: false, savedAt: now };
+}
+
+function saveRovers(room: Room): void {
+  const m = mem(room);
+  m.savedAt = Date.now();
+  room.save("rovers", m.rovers.map(({ pose, rider, touched, home }) => ({ pose, rider, touched, home })));
 }
 
 const mem = (room: Room) => room.memory as RoverMemory;
@@ -47,6 +76,7 @@ function sendHome(room: Room, rover: Rover): void {
   rover.home = true;
   rover.touched = Date.now();
   say(room, { k: "rider", id: rover.id, by: null, pose: rover.pose });
+  saveRovers(room);
 }
 
 /**
@@ -67,6 +97,7 @@ function comeDown(room: Room, rover: Rover, from: RoverPose, x: number, z: numbe
   rover.touched = now;
   rover.lostUntil = now + time * 1000;
   const until = rover.lostUntil;
+  saveRovers(room);
   say(room, { k: "fall", id: rover.id, from, to, seconds: time, arc });
   room.later(time * 1000, () => {
     // (Unless something else has happened to it since: thrown again, say.)
@@ -113,6 +144,7 @@ export function roversLetGo(room: Room, playerId: string): void {
     rover.rider = null;
     rover.touched = Date.now();
     say(room, { k: "rider", id: rover.id, by: null, pose: rover.pose });
+    saveRovers(room);
   }
 }
 
@@ -135,6 +167,7 @@ export function roversMessage(room: Room, playerId: string, data: unknown): void
     rover.rider = playerId;
     rover.touched = now;
     rover.home = false;
+    saveRovers(room);
     return say(room, { k: "rider", id: rover.id, by: playerId, pose: rover.pose });
   }
   if (!mine) return;
@@ -147,12 +180,14 @@ export function roversMessage(room: Room, playerId: string, data: unknown): void
     mine.pose = pose;
     mine.touched = now;
     m.moved.add(mine.id);
+    if (now - m.savedAt > SAVE_MS) saveRovers(room);
     return tellMoved(room);
   }
   if (msg.k === "leave") {
     if (pose && Math.hypot(pose[0] - mine.pose[0], pose[1] - mine.pose[1], pose[2] - mine.pose[2]) < 30) mine.pose = pose;
     mine.rider = null;
     mine.touched = now;
+    saveRovers(room);
     return say(room, { k: "rider", id: mine.id, by: null, pose: mine.pose });
   }
   if (msg.k === "eject") {
@@ -219,5 +254,6 @@ export function roversDrop(room: Room, pieces: readonly Piece[]): void {
     rover.touched = Date.now();
     m.moved.add(rover.id);
     tellMoved(room);
+    saveRovers(room);
   }
 }

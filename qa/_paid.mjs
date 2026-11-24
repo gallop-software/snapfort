@@ -5,7 +5,7 @@
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-export async function paidKey(base = "http://localhost:5173", path = "/") {
+export async function paidKey(base = (process.env.QA_BASE ?? "http://localhost:5173"), path = "/") {
   const vars = Object.fromEntries(readFileSync(".dev.vars", "utf8").split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
   const r = await fetch(`${base}/api/buy`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, testpay: true }) }).then((x) => x.json());
   const id = r.url.match(/cs_test_[A-Za-z0-9]+/)[0];

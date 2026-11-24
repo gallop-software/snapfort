@@ -3,7 +3,7 @@
 import { chromium } from "playwright-core";
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const p = await (await browser.newContext({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 2 })).newPage();
-await p.goto(`http://localhost:5173/?world=og${Date.now().toString(36)}`); await p.waitForSelector("body.ready");
+await p.goto(`${process.env.QA_BASE ?? "http://localhost:5173"}/?world=og${Date.now().toString(36)}`); await p.waitForSelector("body.ready");
 await p.click("#play-free"); await p.waitForTimeout(500);
 await p.evaluate(() => {
   const s = window.snapfort;

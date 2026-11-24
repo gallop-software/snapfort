@@ -35,13 +35,26 @@ export interface GunMemory {
 const mem = (room: Room) => (room.memory as { guns: GunMemory }).guns;
 const say = (room: Room, msg: GunToPage) => room.broadcast(msg);
 const no = (room: Room, playerId: string, why: Extract<GunToPage, { k: "gun-no" }>["why"]) => room.send(playerId, { k: "gun-no", why } satisfies GunToPage);
-const save = (room: Room) => room.save("railguns", { nextId: mem(room).nextId, list: mem(room).list.map(({ rider: _rider, ...gun }) => gun) });
+// (Riders are saved too: a room with everyone sitting still goes to sleep, and must wake knowing who is in which capsule.)
+const save = (room: Room) => room.save("railguns", { nextId: mem(room).nextId, list: mem(room).list });
 const tell = (room: Room, gun: Gun, knocked?: number[]) => say(room, { k: "gun", gun, now: Date.now(), ...(knocked?.length ? { knocked } : {}) });
 
-/** Reads the saved guns when the room wakes; unfinished ones nobody has touched for a long while are cleared away. */
+/**
+ * Reads the saved guns when the room wakes (it sleeps whenever nobody has sent
+ * anything for a few seconds, builders present or not); unfinished ones nobody
+ * has touched for a long while are cleared away. Whoever sat in a capsule
+ * still does, if they are still here.
+ */
 export function openGuns(room: Room): GunMemory {
   const saved = room.load("railguns") as { nextId?: unknown; list?: unknown } | undefined;
-  const list = (Array.isArray(saved?.list) ? saved.list : []).flatMap((g) => readGun(g) ?? []);
+  const here = new Set(room.players());
+  const list = (Array.isArray(saved?.list) ? saved.list : []).flatMap((g) => {
+    const gun = readGun(g);
+    if (!gun) return [];
+    const rider = (g as { rider?: unknown }).rider;
+    gun.rider = typeof rider === "string" && here.has(rider) ? rider : null;
+    return gun;
+  });
   const now = Date.now();
   const kept = list.filter((g) => g.parts.length === PARTS || now - g.touched < RAILGUN.abandonedAfter);
   return { list: kept, nextId: Math.max(typeof saved?.nextId === "number" ? saved.nextId : 1, 1 + Math.max(0, ...kept.map((g) => g.id))) };
@@ -69,6 +82,7 @@ export function gunsLetGo(room: Room, playerId: string): void {
     if (gun.rider !== playerId) continue;
     gun.rider = null;
     tell(room, gun);
+    save(room);
   }
 }
 
@@ -136,6 +150,7 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     if (msg.on !== true) {
       if (gun.rider !== playerId) return;
       gun.rider = null;
+      save(room);
       return tell(room, gun);
     }
     if (!gun.parts.includes(22) || room.isDown(playerId) || m.list.some((g) => g.rider === playerId)) return;
@@ -143,6 +158,7 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     const seat = seatOf(gun);
     if (!near(room, playerId, [seat.x, seat.y, seat.z], RAILGUN.boardReach + 2)) return no(room, playerId, "far");
     gun.rider = playerId;
+    save(room);
     return tell(room, gun);
   }
 

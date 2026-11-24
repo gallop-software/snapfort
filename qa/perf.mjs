@@ -8,7 +8,7 @@ import { chromium } from "playwright-core";
 const label = process.argv[2] ?? "";
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-await page.goto(`http://localhost:5173/?world=perf-${Date.now().toString(36)}`);
+await page.goto(`${process.env.QA_BASE ?? "http://localhost:5173"}/?world=perf-${Date.now().toString(36)}`);
 await page.waitForSelector("body.ready");
 await page.click("#play-free");
 const out = await page.evaluate(async () => {

@@ -30,10 +30,26 @@ export interface WorldPage {
   /** Colour of the dust where things break, RGB 0..1. */
   dust: readonly [number, number, number];
   /**
+   * Things of this world's own to pick on the hotbar, after the shared ones.
+   * Picking one hands aiming and clicking to the world's feature (`aimTool`, `useTool`).
+   */
+  tools?: readonly WorldTool[];
+  /**
    * Starts whatever this world has that no other does (vehicles, say), once
    * the game is set up. Optional. It reaches the game only through `game`.
    */
   start?(game: PageGame): WorldFeature;
+}
+
+/** Something of a world's own on the hotbar. */
+export interface WorldTool {
+  /** Not the name of any piece. */
+  id: string;
+  label: string;
+  /** The letter key that picks it (one no shared tool uses). */
+  key: string;
+  /** Its picture: the inside of a 40 by 40 SVG, drawn in lines. */
+  icon: string;
 }
 
 /** The running game, as a world's own page code sees it. */
@@ -67,6 +83,14 @@ export interface PageGame {
   sound: SoundKit;
   /** True on phones and tablets. */
   touch: boolean;
+  /** The spot under the crosshair within `range` metres (on the ground or anything solid), or null. */
+  aim(range: number): [number, number, number] | null;
+  /** Whether this player may build here (false: visiting). */
+  mayBuild(): boolean;
+  /** Shows a few words of the world's own above the hotbar (HTML), or takes them away (null). */
+  panel(html: string | null): void;
+  /** Looks through a camera of the world's own for a while (a ride, say); null gives the view back. */
+  view(camera: Camera | null): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */
@@ -88,6 +112,12 @@ export interface WorldFeature {
   prompt?(): { text: string; button: string } | null;
   /** True while the player's hands are busy with something of this world's (no building). */
   busy?(): boolean;
+  /** While busy, the player clicked (or tapped the main button). */
+  act?(): void;
+  /** One of this world's tools is picked, and the player is playing: called every frame, to show where it would go. */
+  aimTool?(id: string): void;
+  /** One of this world's tools is picked, and the player clicked. */
+  useTool?(id: string): void;
 }
 
 /** A seat a builder sits on: where its surface is, and how it is turned (radians: about the vertical, nose down, and rolled). */

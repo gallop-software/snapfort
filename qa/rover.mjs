@@ -9,7 +9,7 @@
 import { chromium, devices } from "playwright-core";
 import { paidKey } from "./_paid.mjs";
 
-const base = "http://localhost:5173";
+const base = (process.env.QA_BASE ?? "http://localhost:5173");
 const world = `rover-${Date.now().toString(36)}`;
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const results = [];
@@ -30,8 +30,8 @@ async function open(label, key) {
   return page;
 }
 const sf = (page, fn, arg) => page.evaluate(fn, arg);
-const rovers = (page) => sf(page, () => [...window.snapfort.feature.rovers].map(([id, r]) => ({ id, pose: [...r.pose], rider: r.rider, lost: !!r.falling })));
-const me = (page) => sf(page, () => { const s = window.snapfort; return { sitting: !!s.player.riding, tilt: s.feature.mine === null ? 0 : Math.abs(s.feature.rovers.get(s.feature.mine).pose[4]) + Math.abs(s.feature.rovers.get(s.feature.mine).pose[5]), x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, mine: s.feature.mine, speed: s.feature.speed, floating: s.feature.floating, gliding: s.player.gliding, down: s.player.knockedDown, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root) }; });
+const rovers = (page) => sf(page, () => [...window.snapfort.feature.rover.rovers].map(([id, r]) => ({ id, pose: [...r.pose], rider: r.rider, lost: !!r.falling })));
+const me = (page) => sf(page, () => { const s = window.snapfort; return { sitting: !!s.player.riding, tilt: s.feature.rover.mine === null ? 0 : Math.abs(s.feature.rover.rovers.get(s.feature.rover.mine).pose[4]) + Math.abs(s.feature.rover.rovers.get(s.feature.rover.mine).pose[5]), x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, mine: s.feature.rover.mine, speed: s.feature.rover.speed, floating: s.feature.rover.floating, gliding: s.player.gliding, down: s.player.knockedDown, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root) }; });
 /** Stands a builder beside rover `id`, looking the way `yaw`. */
 const standBy = async (page, id, yaw = 0) => { const r = (await rovers(page)).find((x) => x.id === id); await sf(page, ([x, y, z, yaw]) => { const s = window.snapfort; s.player.teleport(x - 2.5, y + 0.95, z); s.rig.yaw = yaw; s.rig.pitch = 0.15; }, [r.pose[0], r.pose[1], r.pose[2], yaw]); await wait(500); };
 

@@ -12,7 +12,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 
-const base = new URL(process.argv[2] ?? "http://localhost:5173/");
+const base = new URL(process.argv[2] ?? (process.env.QA_BASE ?? (process.env.QA_BASE ?? "http://localhost:5173")) + "/");
 const world = `keys-${Date.now().toString(36)}`;
 const buyer = `qa-keys-${Date.now().toString(36)}@example.com`;
 const vars = Object.fromEntries(readFileSync(".dev.vars", "utf8").split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));

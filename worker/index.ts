@@ -36,6 +36,15 @@ export default {
         const email = url.searchParams.get("email") ?? "";
         return Response.json(await ledger(env).findByEmail(email));
       }
+      // A key given away: POST /admin/grant?email=…, and &send=1 to email it to them as well.
+      if (url.pathname === "/admin/grant") {
+        if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+        const email = url.searchParams.get("email")?.trim().toLowerCase();
+        if (!looksLikeEmail(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400 });
+        const key = await ledger(env).grant(email, stripeLive(env));
+        const emailed = url.searchParams.get("send") === "1" && (await sendKeyEmail(env.EMAIL, email, [key], "given", siteOf(url)));
+        return Response.json({ key, email, emailed });
+      }
       return forward(world(env, request), request);
     }
     return env.ASSETS.fetch(request);

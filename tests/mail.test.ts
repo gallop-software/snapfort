@@ -42,7 +42,7 @@ describe("email links", () => {
   it("key emails carry a button that unlocks the device it is tapped on, with the key after the #", () => {
     const link = unlockLink("https://snapfort.io", "SNAP-7K2M-Q9XD-4RTW");
     expect(link).toBe("https://snapfort.io/moon#key=SNAP-7K2M-Q9XD-4RTW");
-    for (const kind of ["bought", "asked", "replaced"] as const) {
+    for (const kind of ["bought", "asked", "replaced", "given"] as const) {
       const { html, text } = keyEmail(["SNAP-7K2M-Q9XD-4RTW"], kind, "https://snapfort.io");
       expect(html).toContain(`href="${link}"`);
       expect(html).toContain("Unlock SnapFort on this device");

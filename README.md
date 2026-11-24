@@ -55,6 +55,6 @@ npm run qa:keys         # email unlock links, remembered devices, one player per
 npm run deploy          # build, then wrangler deploy (snapfort.io and workers.dev)
 ```
 
-The admin endpoints (`/admin/stats`, `/admin/reset`, `/admin/rollback?minutes=N`, each with `&env=moon` for the Moon, and `/admin/keys?email=` to find a lost key) need the `ADMIN_SECRET` Worker secret in an `x-admin-secret` header.
+The admin endpoints (`/admin/stats`, `/admin/reset`, `/admin/rollback?minutes=N`, each with `&env=moon` for the Moon, `/admin/keys?email=` to find a lost key, and `POST /admin/grant?email=` to give someone a key without a purchase, `&send=1` to email it to them) need the `ADMIN_SECRET` Worker secret in an `x-admin-secret` header.
 
 Buying needs the Worker secrets `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (and `STRIPE_PRICE_ID` in `wrangler.jsonc`, the live price). Locally all three go in `.dev.vars` (never committed), with Stripe's sandbox key, webhook secret and price, so development never touches real money; with a test key the Unlock button only shows with `?testpay`.

@@ -26,7 +26,8 @@ export interface MailBinding {
   }): Promise<{ messageId: string }>;
 }
 
-export type KeyMailKind = "bought" | "asked" | "replaced";
+/** "given": a key the owner made for someone (no purchase). */
+export type KeyMailKind = "bought" | "asked" | "replaced" | "given";
 
 interface Mail {
   subject: string;
@@ -41,12 +42,14 @@ export const unlockLink = (site: string, key: string) => `${site}/moon#key=${enc
 export function keyEmail(keys: readonly string[], kind: KeyMailKind, site: string): Mail {
   const one = keys.length === 1;
   const subject =
-    kind === "bought" ? "Your SnapFort key: the Full Game is yours" : kind === "replaced" ? "Your new SnapFort key" : "Your SnapFort link and key";
+    kind === "bought" || kind === "given" ? "Your SnapFort key: the Full Game is yours" : kind === "replaced" ? "Your new SnapFort key" : "Your SnapFort link and key";
   const heading =
-    kind === "bought" ? "Thanks! The Full Game is yours." : kind === "replaced" ? "Here's your new key" : "Here's your link to SnapFort";
+    kind === "bought" ? "Thanks! The Full Game is yours." : kind === "given" ? "The Full Game is yours." : kind === "replaced" ? "Here's your new key" : "Here's your link to SnapFort";
   const intro =
     kind === "bought"
       ? "You can now build on the Moon, and in every paid world we add. The browser you bought in is already unlocked."
+      : kind === "given"
+        ? "You've been given the SnapFort Full Game: you can build on the Moon, and in every paid world we add. Tap the button on the device you play on."
       : kind === "replaced"
         ? "Your old key no longer works, so nobody who saw it can use it. The device where you confirmed is already unlocked."
         : "You asked for a link to unlock SnapFort with the key bought with this email address. If that wasn't you, you can ignore this email: nobody else can see it.";

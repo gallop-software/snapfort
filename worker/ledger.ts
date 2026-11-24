@@ -72,6 +72,16 @@ export class Ledger extends DurableObject<LedgerEnv> {
     return key;
   }
 
+  /**
+   * A paid key made by the owner for `email`, with no purchase (no checkout
+   * session). The address can get it again with "Lost your key?" and replace it.
+   */
+  grant(email: string, live: boolean): string {
+    const key = newKey();
+    this.ctx.storage.sql.exec("INSERT INTO keys (key, email, live, status, created) VALUES (?, ?, ?, 'paid', ?)", key, email.toLowerCase(), live ? 1 : 0, Date.now());
+    return key;
+  }
+
   /** Notes the checkout session a key is being bought in. */
   attach(key: string, session: string): void {
     this.ctx.storage.sql.exec("UPDATE keys SET session = ? WHERE key = ?", session, key);

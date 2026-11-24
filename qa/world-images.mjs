@@ -55,6 +55,8 @@ for (const [name, path, camera, target] of [
     const cam = s.scene.activeCamera;
     const V = cam.position.constructor;
     s.scene.onBeforeRenderObservable.add(() => {
+      // Full sharpness, however busy the computer.
+      if (s.engine.getHardwareScalingLevel() !== 0.5) s.engine.setHardwareScalingLevel(0.5);
       cam.position.copyFromFloats(...camera);
       cam.setTarget(new V(...target));
       for (const m of s.scene.meshes) if (m.name.startsWith("ghost")) m.isVisible = false;

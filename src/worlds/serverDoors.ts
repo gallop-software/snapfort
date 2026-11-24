@@ -30,6 +30,8 @@ export interface WorldServer {
   left?(room: Room, playerId: string): void;
   /** A world message from a builder's page (see WorldPage.start): anything at all, so check it. */
   message?(room: Room, playerId: string, data: unknown): void;
+  /** A stone (or whatever this world's engine throws) landed at `point`, after the shared rules dealt with it. */
+  struck?(room: Room, point: Vec): void;
   /** Pieces were taken out of the build (removed, broken or fallen). */
   removed?(room: Room, pieces: readonly Piece[]): void;
 }

@@ -725,6 +725,7 @@ export class World extends DurableObject<Env> {
     const fallen = gone.length > 0 ? findLooseAfterRemoval(this.build, gone).filter(remove) : [];
     this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
     this.knock(point, [...gone, ...fallen]);
+    serverOf(this.environment).struck?.(this.room(), point);
     if (ops.length > 0) {
       this.scheduleFlush();
       this.scheduleTowers();

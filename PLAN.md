@@ -222,6 +222,12 @@ All in `src/worlds/moon/` again; the Meadow's reference pictures still match to 
 - Every world's card on the menu and its button in the settings' world switcher says how many builders are there now ("3 builders"; just the number on the small buttons; grey when nobody is). Each world's room tells the Ledger its count whenever someone joins or leaves (`present`), and `/api/worlds` reads them all in one go, so showing the menu never wakes a sleeping world. The page asks when it loads, a moment after joining, when a panel with the cards opens, and every 12 s while one is showing.
 - The card (and switcher button) of the world you are in is no longer a link: clicking it used to load the page again.
 
+## Rovers come back down (user, 2026-11-23: "the rover should slowly fall back to the ground to be used by another person where it landed"; "that is not realistic"; "the rover should also spin and tumble and fly in the air")
+
+- **After the driver is thrown clear** the rover no longer drifts off into the sky and reappears on its pad. It sinks slowly back to the ground under it (about 9 m/s, 2 to 9 s), righting itself on the way, and stands where it lands for the next driver. Driving off the edge leaves it standing just inside the edge. Left unused for 3 minutes it still goes home.
+- **A launcher's shot landing within 7 m of a rover** throws the rover too: 12 m up and 11 m away from the shot over 4.5 s, turning over hard, landing the right way up and ready to drive. With a driver in the seat, the driver goes into space as before and the rover across the ground. A rover already in the air is not thrown again. New server door for this: `struck(room, point)`, called after the shared rules have dealt with a shot.
+- One message covers both (`fall`: from, to, seconds, arc); the server works out where it lands (on whatever is built under the spot) and every page draws the same trip. Nobody can get on a rover while it is in the air.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

@@ -31,6 +31,7 @@ const smooth = (k: number) => k * k * (3 - 2 * k);
 
 /** Where the rockets set someone down who is above (x, z) at height `y`: on the first thing under that spot, inside the building area. */
 export function landingUnder(build: BuildState, env: Environment, x: number, y: number, z: number): Vec {
+  // (Also used for a rover coming down: the same first thing under the spot.)
   return planFall(build, [clamp(x), Math.max(y, 2), clamp(z)], [0, 0, 0], env).land;
 }
 

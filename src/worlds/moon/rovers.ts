@@ -2,8 +2,9 @@ import { planFall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
 import { pieceBounds } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
-import { homes, readPose, readVec, ROVER, type RoverPose, type ToPage, type WireRover } from "./roverRules";
-import { rocketsBack } from "./space";
+import type { Vec } from "../../game/trebuchet";
+import { homes, readPose, ROVER, type RoverPose, type ToPage, type WireRover } from "./roverRules";
+import { landingUnder, rocketsBack } from "./space";
 
 /** The server's side of the Moon's rovers (see roverRules.ts for what they are). */
 
@@ -12,7 +13,7 @@ interface Rover {
   pose: RoverPose;
   /** Who is driving. */
   rider: string | null;
-  /** Drifting in space until this time (ms); 0 when it is not. */
+  /** In the air with nobody on it (sinking back, or thrown by a shot) until this time (ms); 0 when it is not. */
   lostUntil: number;
   /** When it was last driven or got on or off (ms). */
   touched: number;
@@ -46,6 +47,34 @@ function sendHome(room: Room, rover: Rover): void {
   rover.home = true;
   rover.touched = Date.now();
   say(room, { k: "rider", id: rover.id, by: null, pose: rover.pose });
+}
+
+/**
+ * An empty rover comes down from `from` to rest on whatever is under (x, z),
+ * the right way up, taking `seconds` (worked out from the height when not
+ * given) and rising `arc` metres on the way. Nobody can get on until it lands;
+ * then it is free, there, for anyone.
+ */
+function comeDown(room: Room, rover: Rover, from: RoverPose, x: number, z: number, arc: number, seconds?: number): void {
+  const land = landingUnder(room.build, room.env, x, Math.max(from[1], 0) + 1 + arc, z);
+  const to: RoverPose = [Math.round(land[0] * 100) / 100, Math.round((land[1] - 0.9) * 100) / 100, Math.round(land[2] * 100) / 100, from[3], 0, 0];
+  const far = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+  const time = Math.round((seconds ?? Math.max(2, Math.min(9, far / ROVER.sinkSpeed))) * 10) / 10;
+  const now = Date.now();
+  rover.pose = to;
+  rover.rider = null;
+  rover.home = false;
+  rover.touched = now;
+  rover.lostUntil = now + time * 1000;
+  const until = rover.lostUntil;
+  say(room, { k: "fall", id: rover.id, from, to, seconds: time, arc });
+  room.later(time * 1000, () => {
+    // (Unless something else has happened to it since: thrown again, say.)
+    if (rover.lostUntil !== until) return;
+    rover.lostUntil = 0;
+    rover.touched = Date.now();
+    say(room, { k: "rider", id: rover.id, by: null, pose: rover.pose });
+  });
 }
 
 /** Rovers left lying about go home after a while (looked at whenever anything happens). */
@@ -89,7 +118,7 @@ export function roversLetGo(room: Room, playerId: string): void {
 
 export function roversMessage(room: Room, playerId: string, data: unknown): void {
   if (typeof data !== "object" || data === null) return;
-  const msg = data as { k?: unknown; id?: unknown; pose?: unknown; v?: unknown };
+  const msg = data as { k?: unknown; id?: unknown; pose?: unknown };
   const m = mem(room);
   const now = Date.now();
   const mine = m.rovers.find((r) => r.rider === playerId);
@@ -129,15 +158,27 @@ export function roversMessage(room: Room, playerId: string, data: unknown): void
   if (msg.k === "eject") {
     // Thrown clear from wherever the server last believed the rover to be (or, if it is close, where the page says).
     const at = pose && Math.hypot(pose[0] - mine.pose[0], pose[1] - mine.pose[1], pose[2] - mine.pose[2]) < 60 ? pose : mine.pose;
-    const v = readVec(msg.v) ?? [0, 0, 0];
-    mine.pose = at;
-    mine.rider = null;
-    mine.lostUntil = now + ROVER.lostFor;
-    mine.touched = now;
-    say(room, { k: "lost", id: mine.id, pose: at, v });
     room.fly(playerId, rocketsBack(room.build, room.env, [at[0], at[1] + ROVER.seatUp + 0.5, at[2]]));
-    const rover = mine;
-    return room.later(ROVER.lostFor, () => sendHome(room, rover));
+    // The rover does not go on up: it sinks slowly back to the ground under it, for the next driver.
+    return comeDown(room, mine, at, at[0], at[2], 0);
+  }
+}
+
+/**
+ * A shot landed: any rover close by is thrown through the air, away from it,
+ * turning over, and comes down a little way off. (Whoever was driving has
+ * already been thrown into space by the shared rules.)
+ */
+export function roversStruck(room: Room, point: Vec): void {
+  for (const rover of mem(room).rovers) {
+    if (rover.lostUntil > 0) continue;
+    const dx = rover.pose[0] - point[0], dz = rover.pose[2] - point[2];
+    const flat = Math.hypot(dx, dz);
+    if (Math.hypot(flat, rover.pose[1] + ROVER.middleUp - point[1]) > ROVER.tossWithin) continue;
+    // Right on top of it: any way at all.
+    const a = flat > 0.3 ? Math.atan2(dx, dz) : Math.random() * Math.PI * 2;
+    if (rover.rider !== null) roversLetGo(room, rover.rider);
+    comeDown(room, rover, rover.pose, rover.pose[0] + Math.sin(a) * ROVER.tossOut, rover.pose[2] + Math.cos(a) * ROVER.tossOut, ROVER.tossUp, ROVER.tossFor);
   }
 }
 

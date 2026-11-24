@@ -264,29 +264,90 @@ describe("rovers", () => {
     expect(t.rovers()[1]!.rider).toBeNull();
   });
 
-  it("throw their driver clear when they leave the Moon: rockets back for the driver, home for the rover", () => {
+  it("throw their driver clear when they leave the Moon: rockets back for the driver, and the rover sinks back to the ground where it is", () => {
     const t = fakeRoom();
     const start = t.rovers()[4]!.pose;
     t.stand("a", start);
     t.say("a", { k: "board", id: 4 });
-    // Floating, and turned right over.
-    const up: RoverPose = [start[0] + 5, 3, start[2], 0, 2.5, -3];
+    // Floating 40 m up, and turned right over.
+    const up: RoverPose = [start[0] + 30, 40, start[2], 0.7, 2.5, -3];
+    t.say("a", { k: "drive", pose: [start[0] + 15, 20, start[2], 0.7, 1, -1] });
     t.say("a", { k: "drive", pose: up });
-    t.say("a", { k: "eject", pose: up, v: [20, 15, 0] });
+    t.say("a", { k: "eject", pose: up });
     expect(t.rovers()[4]!.rider).toBeNull();
-    expect(t.sent.at(-1)!.msg).toEqual({ k: "lost", id: 4, pose: up, v: [20, 15, 0] });
     expect(t.flown.length).toBe(1);
     expect(t.flown[0]!.id).toBe("a");
     expect(t.flown[0]!.fall.glideFrom).toBe(0);
-    expect(t.flown[0]!.fall.from[1]).toBeCloseTo(3 + ROVER.seatUp + 0.5, 6);
+    expect(t.flown[0]!.fall.from[1]).toBeCloseTo(40 + ROVER.seatUp + 0.5, 6);
     expect(t.flown[0]!.fall.land[1]).toBeCloseTo(0.9, 6);
-    // Nobody gets on a rover that is drifting away.
-    t.stand("b", up);
+    // The rover: straight down from where it was, slowly, to rest the right way up. Not up, not home.
+    const fall = t.sent.at(-1)!.msg as Extract<ToPage, { k: "fall" }>;
+    expect(fall).toMatchObject({ k: "fall", id: 4, from: up, arc: 0 });
+    expect(fall.to).toEqual([up[0], 0, up[2], 0.7, 0, 0]);
+    expect(fall.seconds).toBeGreaterThan(4);
+    expect(fall.seconds).toBeLessThanOrEqual(9);
+    // Nobody gets on while it is in the air.
+    t.at.set("b", [fall.to[0] + 2, 0.9, fall.to[2]]);
     t.say("b", { k: "board", id: 4 });
     expect(t.rovers()[4]!.rider).toBeNull();
+    // Down: it stays there, free for anyone.
     t.tick();
-    expect(t.rovers()[4]!).toMatchObject({ rider: null, pose: start, home: true });
-    expect(t.sent.at(-1)!.msg).toEqual({ k: "rider", id: 4, by: null, pose: start });
+    expect(t.rovers()[4]!).toMatchObject({ rider: null, pose: fall.to, home: false });
+    expect(t.sent.at(-1)!.msg).toEqual({ k: "rider", id: 4, by: null, pose: fall.to });
+    t.say("b", { k: "board", id: 4 });
+    expect(t.rovers()[4]!.rider).toBe("b");
+  });
+
+  it("come down onto whatever is built under them", () => {
+    const build = new BuildState();
+    expect(build.apply({ kind: "place", piece: { id: "w", type: "wall", x: 30, y: 0, z: 30, rot: 0, material: "wood", edit: 0 } })).not.toBeNull();
+    expect(build.apply({ kind: "place", piece: { id: "f", type: "floor", x: 30, y: 1, z: 30, rot: 0, material: "wood", edit: 0 } })).not.toBeNull();
+    const t = fakeRoom(build);
+    const start = t.rovers()[0]!.pose;
+    t.stand("a", start);
+    t.say("a", { k: "board", id: 0 });
+    // (Driven there in believable steps.)
+    for (let i = 1; i <= 32; i++) t.say("a", { k: "drive", pose: [start[0] + ((152.5 - start[0]) * i) / 32, i, start[2] + ((152.5 - start[2]) * i) / 32, 0, 0, 0] });
+    t.say("a", { k: "eject", pose: [152.5, 32, 152.5, 0, 1, 1] });
+    const fall = t.sent.at(-1)!.msg as Extract<ToPage, { k: "fall" }>;
+    expect(fall.to[1]).toBeCloseTo(LEVEL + 0.15, 2);
+  });
+
+  it("are thrown tumbling through the air by a shot landing beside them, and come down nearby, ready to drive", () => {
+    const t = fakeRoom();
+    const parked = t.rovers()[2]!.pose;
+    server.struck!(t.room, [parked[0] - 3, 0, parked[2]]);
+    const toss = t.sent.at(-1)!.msg as Extract<ToPage, { k: "fall" }>;
+    expect(toss).toMatchObject({ k: "fall", id: 2, from: parked, arc: ROVER.tossUp, seconds: ROVER.tossFor });
+    // Away from the shot, a little way off, on the ground, the right way up.
+    expect(toss.to[0]).toBeCloseTo(parked[0] + ROVER.tossOut, 1);
+    expect(toss.to.slice(1, 3)).toEqual([0, parked[2]]);
+    expect(toss.to.slice(4)).toEqual([0, 0]);
+    // The others, further off, are left alone; and one already in the air is not thrown again.
+    expect(t.sent.filter((m) => m.msg.k === "fall").length).toBe(1);
+    server.struck!(t.room, [parked[0] - 3, 0, parked[2]]);
+    expect(t.sent.filter((m) => m.msg.k === "fall").length).toBe(1);
+    t.tick();
+    expect(t.rovers()[2]!).toMatchObject({ rider: null, pose: toss.to, home: false });
+    t.at.set("a", [toss.to[0] + 2, 0.9, toss.to[2]]);
+    t.say("a", { k: "board", id: 2 });
+    expect(t.rovers()[2]!.rider).toBe("a");
+  });
+
+  it("with a driver in the seat, the shot throws both: the driver into space, the rover across the ground", () => {
+    const t = fakeRoom();
+    const start = t.rovers()[5]!.pose;
+    t.stand("a", start);
+    t.say("a", { k: "board", id: 5 });
+    const point: Vec = [start[0] - 2, 0, start[2]];
+    const from: Vec = [start[0], 0.9 + ROVER.seatUp, start[2]];
+    const v = throwVelocity(point, from, MOON, 0)!;
+    // As the shared rules do it: the builder is thrown first, then the world hears where the shot landed.
+    const flight = server.thrown!({ build: t.room.build, env: MOON, playerId: "a", from, v, fall: planFall(t.room.build, from, v, MOON) }, t.room);
+    server.struck!(t.room, point);
+    expect(flight?.glideFrom).toBe(SPACE_OUT);
+    expect(t.rovers()[5]!.rider).toBeNull();
+    expect(t.sent.at(-1)!.msg).toMatchObject({ k: "fall", id: 5, arc: ROVER.tossUp });
   });
 
   it("lose their driver to a stone, who goes into space like anyone else", () => {

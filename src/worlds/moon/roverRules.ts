@@ -12,8 +12,12 @@ import { EDGE } from "./space";
  * little pull the rover does not come back down: it floats away into space,
  * turning over slowly every which way, its driver still in the seat. About
  * five seconds later the seat throws them clear and their rocket pack sets
- * them gently down on the Moon; the empty rover drifts on and reappears on its
- * pad. Driving off the edge of the building area ends the same way.
+ * them gently down on the Moon. The empty rover does not shoot off into the
+ * sky: it sinks slowly back to the ground, righting itself, and stays where it
+ * lands for the next driver (user, 2026-11-23). Driving off the edge of the
+ * building area throws the driver clear too. A launcher's shot landing by a
+ * rover sends it tumbling through the air (and its driver into space); it
+ * comes down nearby, the right way up, ready to drive.
  */
 
 export const ROVER_COUNT = 6;
@@ -33,8 +37,13 @@ export const ROVER = {
   floatFor: 5,
   /** Past this far from the middle, the same: the edge of the Moon as far as building goes, m. */
   edge: EDGE + 8,
-  /** An empty rover drifts this long before it is back on its pad, ms. */
-  lostFor: 5000,
+  /** An empty rover sinking back to the ground comes down about this fast, m/s (never quicker than 2 s, never slower than 9). */
+  sinkSpeed: 9,
+  /** Hit by a shot landing within this far, m, a rover is thrown this high and this far, taking this long to come down, s. */
+  tossWithin: 7,
+  tossUp: 12,
+  tossOut: 11,
+  tossFor: 4.5,
   /** A rover left somewhere with nobody on it goes home after this long, ms. */
   idleFor: 180_000,
   /** Faster than this between two reports, m/s, and the server does not believe it. */
@@ -60,8 +69,13 @@ export type ToPage =
   | { k: "poses"; list: [number, RoverPose][] }
   /** Who drives rover `id` now (null: nobody), and where it stands. */
   | { k: "rider"; id: number; by: string | null; pose: RoverPose }
-  /** Rover `id` is drifting off into space from `pose`, moving at `v` m/s. */
-  | { k: "lost"; id: number; pose: RoverPose; v: [number, number, number] }
+  /**
+   * Rover `id`, empty, travels from `from` to rest at `to` over `seconds`,
+   * turning over on the way and coming down the right way up: sinking back
+   * from where its driver was thrown clear (`arc` 0), or thrown by a shot,
+   * rising `arc` metres above the straight line on the way.
+   */
+  | { k: "fall"; id: number; from: RoverPose; to: RoverPose; seconds: number; arc: number }
   /** Getting on was refused. */
   | { k: "no"; why: "taken" | "far" };
 
@@ -72,8 +86,8 @@ export type ToServer =
   | { k: "leave"; pose: RoverPose }
   /** Where the rover this builder drives is now. */
   | { k: "drive"; pose: RoverPose }
-  /** Left the Moon (too high, or over the edge) at `pose`, moving at `v`: thrown clear. */
-  | { k: "eject"; pose: RoverPose; v: [number, number, number] };
+  /** Left the Moon (floated away, or over the edge) at `pose`: thrown clear. */
+  | { k: "eject"; pose: RoverPose };
 
 /** Builders arrive about here (the same spot as everywhere). */
 const ARRIVAL: readonly [number, number] = [CELL / 2, -CELL * 1.5];
@@ -126,9 +140,4 @@ export function readPose(v: unknown): RoverPose | null {
   /** An angle as sent: between minus and plus half a turn, to a thousandth. */
   const turn = (a: number) => Math.round(Math.atan2(Math.sin(a), Math.cos(a)) * 1000) / 1000;
   return [r(x!), r(y!), r(z!), turn(yaw!), turn(pitch!), turn(roll!)];
-}
-
-export function readVec(v: unknown): [number, number, number] | null {
-  if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 200)) return null;
-  return [v[0] as number, v[1] as number, v[2] as number];
 }

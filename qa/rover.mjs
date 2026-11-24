@@ -30,7 +30,7 @@ async function open(label, key) {
   return page;
 }
 const sf = (page, fn, arg) => page.evaluate(fn, arg);
-const rovers = (page) => sf(page, () => [...window.snapfort.feature.rovers].map(([id, r]) => ({ id, pose: [...r.pose], rider: r.rider, lost: !!r.lost })));
+const rovers = (page) => sf(page, () => [...window.snapfort.feature.rovers].map(([id, r]) => ({ id, pose: [...r.pose], rider: r.rider, lost: !!r.falling })));
 const me = (page) => sf(page, () => { const s = window.snapfort; return { sitting: !!s.player.riding, tilt: s.feature.mine === null ? 0 : Math.abs(s.feature.rovers.get(s.feature.mine).pose[4]) + Math.abs(s.feature.rovers.get(s.feature.mine).pose[5]), x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, mine: s.feature.mine, speed: s.feature.speed, floating: s.feature.floating, gliding: s.player.gliding, down: s.player.knockedDown, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root) }; });
 /** Stands a builder beside rover `id`, looking the way `yaw`. */
 const standBy = async (page, id, yaw = 0) => { const r = (await rovers(page)).find((x) => x.id === id); await sf(page, ([x, y, z, yaw]) => { const s = window.snapfort; s.player.teleport(x - 2.5, y + 0.95, z); s.rig.yaw = yaw; s.rig.pitch = 0.15; }, [r.pose[0], r.pose[1], r.pose[2], yaw]); await wait(500); };
@@ -130,10 +130,15 @@ check("…after about 5 seconds the seat throws its driver clear", ejectedAt > 0
 check("…and their rocket pack flies them back down", glided && flames);
 const landed = await me(b);
 check("…gently onto their feet on the Moon, inside the building area", !landed.down && !landed.sitting && Math.abs(landed.y - 0.9) < 0.3 && Math.abs(landed.x) <= 240 && Math.abs(landed.z) <= 240, `at ${landed.x.toFixed(0)}, ${landed.z.toFixed(0)}`);
-check("…while everyone sees the empty rover drift off", lostSeen);
-await wait(5500);
-const home = (await rovers(a)).find((r) => r.id === 1);
-check("…and a little later it is back on its pad", !home.lost && home.rider === null && Math.hypot(home.pose[0] - start[1].pose[0], home.pose[2] - start[1].pose[2]) < 0.5 && JSON.stringify((await rovers(b)).find((r) => r.id === 1).pose.map((n) => Math.round(n))) === JSON.stringify(home.pose.map((n) => Math.round(n))));
+check("…while the empty rover is seen coming down too, not shooting off into the sky", lostSeen);
+// It sinks back slowly and stays where it lands.
+let down = null, highest = 0;
+for (let i = 0; i < 120; i++) { await wait(100); const r = (await rovers(a)).find((x) => x.id === 1); highest = Math.max(highest, r.pose[1]); if (!r.lost) { down = r; break; } }
+check("…it sinks slowly back to the ground and stands there the right way up, where it came down", !!down && down.rider === null && Math.abs(down.pose[1]) < 0.1 && Math.abs(down.pose[4]) < 0.01 && Math.abs(down.pose[5]) < 0.01 && Math.hypot(down.pose[0] - start[1].pose[0], down.pose[2] - start[1].pose[2]) > 30, `at ${down?.pose[0].toFixed(0)}, ${down?.pose[2].toFixed(0)}`);
+check("…the same for everyone", JSON.stringify((await rovers(b)).find((r) => r.id === 1).pose.map((n) => Math.round(n))) === JSON.stringify(down.pose.map((n) => Math.round(n))));
+await standBy(a, 1); await a.keyboard.press("KeyH"); await wait(700);
+check("…ready for the next driver", (await me(a)).mine === 1);
+await a.keyboard.press("KeyH"); await wait(600);
 
 // ── Past the edge of the building area ───────────────────────────────────
 await standBy(a, 2);
@@ -153,14 +158,46 @@ await a.keyboard.up("KeyW"); await a.keyboard.up("ShiftLeft");
 const edge = await me(a);
 check("driving off the edge of the building area throws the driver clear too", over && far < -240, `reached ${far.toFixed(0)} m`);
 check("…and the rockets set them down back inside it", back && !edge.down && Math.abs(edge.x) <= 240 && Math.abs(edge.y - 0.9) < 0.3, `at ${edge.x.toFixed(0)}, ${edge.z.toFixed(0)}`);
+await wait(2500);
+const atEdge = (await rovers(b)).find((r) => r.id === 2);
+check("…its rover left standing just inside the edge", !atEdge.lost && atEdge.rider === null && atEdge.pose[0] < -200 && atEdge.pose[0] >= -240 && Math.abs(atEdge.pose[1]) < 0.1, `at ${atEdge.pose[0].toFixed(0)}`);
+
+// ── A launcher's shot landing by a rover ─────────────────────────────────
+await sf(b, () => { const s = window.snapfort; s.history.do({ kind: "place", piece: { type: "trebuchet", x: -10, y: 0, z: 20, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); });
+await wait(600);
+await standBy(a, 4); await a.keyboard.press("KeyH"); await wait(700);
+const sat = (await rovers(b)).find((r) => r.id === 4);
+check("(a visitor sits in a rover; the builder gets on a launcher 100 m away)", (await me(a)).mine === 4);
+await sf(b, () => { const s = window.snapfort; s.player.teleport(-47.5, 1.4, 104); });
+await wait(500); await b.keyboard.press("KeyH"); await wait(700);
+for (let i = 0; i < 4; i++) { await sf(b, ([x, z]) => { const s = window.snapfort; const p = s.rig.pivot; s.rig.yaw = Math.atan2(x - p.x, z - p.z); s.rig.pitch = -Math.atan2(0 - p.y, Math.hypot(x - p.x, z - p.z)); }, [sat.pose[0] - 2.5, sat.pose[2]]); await wait(60); }
+await b.mouse.down(); await b.mouse.up();
+let riderThrown = false, roverUp = 0, roverTurned = 0, roverFell = false;
+for (let i = 0; i < 90; i++) {
+  await wait(100);
+  const p = await me(a);
+  riderThrown ||= p.down && p.mine === null;
+  const r = (await rovers(b)).find((x) => x.id === 4);
+  if (r.lost) { roverFell = true; roverUp = Math.max(roverUp, r.pose[1]); roverTurned = Math.max(roverTurned, Math.abs(r.pose[4]) + Math.abs(r.pose[5])); }
+  if (roverFell && !r.lost) break;
+}
+const tossed = (await rovers(a)).find((r) => r.id === 4);
+check("a shot landing by a rover throws its driver into space", riderThrown);
+check("…and the rover through the air, turning over", roverFell && roverUp > 6 && roverTurned > 1.5, `${roverUp.toFixed(0)} m up, turned ${roverTurned.toFixed(1)} rad`);
+check("…to land a little way off, the right way up, free for the next driver", !tossed.lost && tossed.rider === null && Math.abs(tossed.pose[1]) < 0.1 && Math.abs(tossed.pose[4]) + Math.abs(tossed.pose[5]) < 0.02 && Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]) > 6 && Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]) < 16, `${Math.hypot(tossed.pose[0] - sat.pose[0], tossed.pose[2] - sat.pose[2]).toFixed(0)} m away`);
+await b.keyboard.press("KeyH"); await wait(300);
+await standBy(b, 4); await b.keyboard.press("KeyH"); await wait(700);
+check("…who drives it away", (await me(b)).mine === 4);
+await b.keyboard.press("KeyH"); await wait(9000);
+
 
 // ── Still right after a reload ───────────────────────────────────────────
-await wait(5600);
+await wait(600);
 await b.reload(); await b.waitForSelector("body.ready"); await b.click("#play-free"); await wait(900);
 const again = await rovers(b);
 const truth = await rovers(a);
 check("a builder who arrives later sees every rover where it is", again.length === 6 && again.every((r, i) => Math.hypot(r.pose[0] - truth[i].pose[0], r.pose[2] - truth[i].pose[2]) < 0.5 && r.rider === truth[i].rider));
-check("…with the first one still where its driver left it, and the others at home", Math.hypot(again[0].pose[0] - left.pose[0], again[0].pose[2] - left.pose[2]) < 1 && [1, 2, 3, 4, 5].every((i) => Math.hypot(again[i].pose[0] - start[i].pose[0], again[i].pose[2] - start[i].pose[2]) < 0.5));
+check("…each where it was left: the first by its driver, one where it sank back to, one at the edge, and the ones nobody touched at home", Math.hypot(again[0].pose[0] - left.pose[0], again[0].pose[2] - left.pose[2]) < 1 && Math.hypot(again[1].pose[0] - down.pose[0], again[1].pose[2] - down.pose[2]) < 1 && again[2].pose[0] < -200 && [3, 5].every((i) => Math.hypot(again[i].pose[0] - start[i].pose[0], again[i].pose[2] - start[i].pose[2]) < 0.5));
 
 // ── On a phone: a button ─────────────────────────────────────────────────
 {

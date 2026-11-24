@@ -30,8 +30,8 @@ interface Shown {
   pose: RoverPose;
   target: RoverPose;
   rider: string | null;
-  /** Drifting off into space: how fast, and since when (performance.now()). */
-  lost: { v: [number, number, number]; since: number } | null;
+  /** In the air with nobody on it, on its way down to rest at `to`: from where, since when (performance.now()), for how many seconds, rising `arc` metres on the way. */
+  falling: { from: RoverPose; to: RoverPose; since: number; seconds: number; arc: number } | null;
   /** How fast it turns over while it floats or drifts: about the vertical, nose over tail, and rolling (radians a second). */
   spin: [number, number, number];
 }
@@ -122,7 +122,7 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       game.shadows.addShadowCaster(mesh);
       // Each rover turns over its own way.
       const sign = (n: number) => (((id + n) & 1) === 0 ? 1 : -1);
-      r = { mesh, pose: [...pose], target: [...pose], rider: null, lost: null, spin: [0.45 * sign(0), 0.95 * sign(1), 0.8 * sign(id >> 1)] };
+      r = { mesh, pose: [...pose], target: [...pose], rider: null, falling: null, spin: [0.45 * sign(0), 0.95 * sign(1), 0.8 * sign(id >> 1)] };
       rovers.set(id, r);
     }
     r.target = [...pose];
@@ -166,14 +166,13 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
     game.sound.tone("sine", 620, 620, 0.08, 0.1, 0.12);
   }
 
-  /** Left the Moon: thrown clear. The server flies the player back and takes the rover home. */
-  function eject(pose: RoverPose, v: Vector3): void {
-    send({ k: "eject", pose, v: [v.x, v.y, v.z] });
+  /** Left the Moon: thrown clear. The server flies the player back on their rockets, and lets the rover sink back to the ground. */
+  function eject(pose: RoverPose): void {
+    send({ k: "eject", pose });
     const r = rovers.get(mine!);
     if (r) {
       game.ride(game.myId(), null);
       r.rider = null;
-      r.lost = { v: [v.x, v.y, v.z], since: performance.now() };
     }
     letGo();
     game.sound.noise(0.5, 0.2, 1800);
@@ -203,25 +202,27 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
         for (const [id, pose, rider] of msg.list) {
           const r = show(id, pose, rider);
           r.pose = [...pose];
-          r.lost = null;
+          r.falling = null;
           place(r);
         }
       } else if (msg.k === "poses") {
         for (const [id, pose] of msg.list) if (id !== mine) show(id, pose, rovers.get(id)?.rider ?? null);
       } else if (msg.k === "rider") {
         const r = show(msg.id, msg.pose, msg.by);
-        // Back from space, or home: there at once, not sliding across the Moon.
-        if (r.lost || Math.hypot(r.pose[0] - msg.pose[0], r.pose[1] - msg.pose[1], r.pose[2] - msg.pose[2]) > 40) r.pose = [...msg.pose];
-        r.lost = null;
-        r.mesh.scaling.setAll(1);
+        // Landed, or sent home: there at once, not sliding across the Moon.
+        if (r.falling || Math.hypot(r.pose[0] - msg.pose[0], r.pose[1] - msg.pose[1], r.pose[2] - msg.pose[2]) > 40) r.pose = [...msg.pose];
+        r.falling = null;
         if (asked?.id === msg.id) asked = null;
         if (msg.by === game.myId() && mine !== msg.id) startDriving(msg.id);
         else if (msg.by !== game.myId() && mine === msg.id) letGo();
-      } else if (msg.k === "lost") {
-        const r = show(msg.id, msg.pose, null);
-        if (!r.lost) r.lost = { v: msg.v, since: performance.now() };
-        r.pose = [...msg.pose];
+      } else if (msg.k === "fall") {
+        // Empty and in the air: on its way down (from where this page last drew it, so it does not jump).
+        const r = show(msg.id, msg.to, null);
         if (mine === msg.id) letGo();
+        const from: RoverPose = Math.hypot(r.pose[0] - msg.from[0], r.pose[1] - msg.from[1], r.pose[2] - msg.from[2]) < 25 ? [...r.pose] : [...msg.from];
+        r.falling = { from, to: [...msg.to], since: performance.now(), seconds: msg.seconds, arc: msg.arc };
+        // Thrown by a shot, it turns over hard; sinking back, it just carries on as it was turning.
+        if (msg.arc > 0) r.spin = [1.1 * (msg.id % 2 ? 1 : -1), 2.4, 1.7 * (msg.id % 3 ? 1 : -1)];
       } else if (msg.k === "no") {
         asked = null;
         game.toast(msg.why === "taken" ? "Someone else is driving that rover" : "Get closer to the rover");
@@ -316,7 +317,7 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       const now = performance.now();
       // Thrown clear: after floating a while, or (on the ground or in a hop) past the edge of the building area.
       const gone = floating ? floatedFor >= ROVER.floatFor : Math.abs(p.x) > ROVER.edge || Math.abs(p.z) > ROVER.edge || p.y < -30;
-      if (gone) eject(r.pose, after);
+      if (gone) eject(r.pose);
       else if (now - reportedAt >= REPORT_MS) {
         reportedAt = now;
         send({ k: "drive", pose: r.pose });
@@ -331,15 +332,29 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       const now = performance.now();
       const k = 1 - Math.exp(-dt * 10);
       for (const [id, r] of rovers) {
-        if (r.lost) {
-          // Drifting off: on the way it was going, still turning over, getting small with distance.
-          const t = (now - r.lost.since) / 1000;
+        if (r.falling) {
+          // Coming down with nobody on it: across and down (over a rise, when it was thrown),
+          // still turning over at first, righting itself as it nears the ground.
+          const f = r.falling;
+          const t = (now - f.since) / 1000;
+          const k = Math.min(1, t / f.seconds);
+          const ease = k * k * (3 - 2 * k);
+          r.pose[0] = f.from[0] + (f.to[0] - f.from[0]) * ease;
+          r.pose[2] = f.from[2] + (f.to[2] - f.from[2]) * ease;
+          r.pose[1] = f.from[1] + (f.to[1] - f.from[1]) * (f.arc > 0 ? k : ease) + f.arc * 4 * k * (1 - k);
           for (let i = 0; i < 3; i++) {
-            r.pose[i]! += r.lost.v[i]! * dt;
-            r.pose[3 + i]! += r.spin[i]! * dt;
+            const turning = f.from[3 + i]! + r.spin[i]! * Math.min(t, f.seconds);
+            r.pose[3 + i] = turning + wrap(f.to[3 + i]! - turning) * ease * ease;
+          }
+          if (k >= 1) {
+            r.pose = [...f.to];
+            r.target = [...f.to];
+            r.falling = null;
+            // Down: a soft thud, for anyone close.
+            const p = game.player.position;
+            if (Math.hypot(p.x - r.pose[0], p.y - r.pose[1], p.z - r.pose[2]) < 60) game.sound.tone("sine", 90, 40, 0.3, 0.3);
           }
           place(r);
-          r.mesh.scaling.setAll(Math.max(0.05, 1 - t / (ROVER.lostFor / 1000)));
           continue;
         }
         if (id === mine) continue;
@@ -392,7 +407,7 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
     let best: { id: number; r: Shown } | null = null;
     let bestDist: number = ROVER.boardReach;
     for (const [id, r] of rovers) {
-      if (r.lost) continue;
+      if (r.falling) continue;
       const d = Math.hypot(r.pose[0] - p.x, r.pose[2] - p.z);
       if (d <= bestDist && Math.abs(p.y - 0.9 - r.pose[1]) < 3.5) {
         best = { id, r };

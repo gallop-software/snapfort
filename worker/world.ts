@@ -54,6 +54,8 @@ interface Attachment extends WirePlayer {
   builder?: boolean;
   /** The Full Game key they have a seat on (in any world, free ones too): freed when they leave. Without one they play free. */
   key?: string;
+  /** A good key they hold with no seat (every seat of it was in use, or theirs was taken). */
+  spare?: string;
   /** The browser tab (the same across reloads): joining again from it replaces this connection. */
   tab?: string;
   /** The page's build; when it is not this server's, the page is "outdated": it can watch, not move or build. */
@@ -113,6 +115,17 @@ interface Access {
   key?: string;
   full?: boolean;
   seats?: number;
+  /** The good key that has no seat for them (`full`). */
+  spare?: string;
+}
+
+/** Who is in a world now and how big its build is, for the owner's admin panel. */
+export interface Roster {
+  env: string;
+  pieces: number;
+  /** How many times anyone has ever joined. */
+  joins: number;
+  players: { id: string; name: string; color: string; joined: number | null; builder: boolean; key: string | null; spare: string | null; outdated: boolean }[];
 }
 
 /**
@@ -270,6 +283,8 @@ export class World extends DurableObject<Env> {
         player.builder = access.builder;
         if (access.key) player.key = access.key;
         else delete player.key;
+        if (access.spare) player.spare = access.spare;
+        else delete player.spare;
         ws.serializeAttachment(player);
         if (!player.builder) this.release(player.id);
         return send(ws, { t: "access", builder: player.builder, ...(access.full ? { reason: "full" as const } : {}), ...(access.seats ? { seats: access.seats } : {}) });
@@ -356,6 +371,7 @@ export class World extends DurableObject<Env> {
     const outdated = !!build && olderBuild(build, BUILD_ID);
     const player: Attachment = { id, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
     if (access.key) player.key = access.key;
+    if (access.spare) player.spare = access.spare;
     ws.serializeAttachment(player);
     this.players.set(ws, player);
     const others = [...this.players.values()].filter((p) => p !== player);
@@ -534,11 +550,22 @@ export class World extends DurableObject<Env> {
     try {
       const live = stripeLive(this.env);
       const seats = await this.ledger().claim(key, live, this.name, playerId, tab ?? null, take);
-      if (seats === "full") return { builder: free, full: true, seats: await this.ledger().seatsOf(key, live) };
+      if (seats === "full") return { builder: free, full: true, spare: key, seats: await this.ledger().seatsOf(key, live) };
       return seats > 0 ? { builder: true, key, seats } : { builder: free };
     } catch {
       return { builder: free };
     }
+  }
+
+  /** The owner's admin panel asks who is here. Short: nothing is searched or loaded for it. */
+  roster(): Roster {
+    const joins = this.ctx.storage.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'players'").toArray()[0]?.value ?? 0;
+    return {
+      env: this.environment.id,
+      pieces: this.build.size,
+      joins,
+      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, joined: p.joined ?? null, builder: p.builder === true, key: p.key ?? null, spare: p.spare ?? null, outdated: p.outdated === true })),
+    };
   }
 
   /** The key ledger asks: is this player still here, on a seat of this key? (A seat nobody sits on is freed.) */
@@ -557,6 +584,8 @@ export class World extends DurableObject<Env> {
     for (const [ws, player] of this.players) {
       if (player.id !== playerId) continue;
       player.builder = !this.environment.paid;
+      // (Still theirs, without a seat. If the key was replaced instead, their page asks again in a moment and this is put right.)
+      if (player.key) player.spare = player.key;
       delete player.key;
       ws.serializeAttachment(player);
       if (!player.builder) this.release(player.id);

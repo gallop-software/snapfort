@@ -102,6 +102,30 @@ export class Ledger extends DurableObject<LedgerEnv> {
     return rooms.map((room) => counts.get(room) ?? 0);
   }
 
+  /** For the owner's admin panel: the rooms with anyone in them now. */
+  rooms(): string[] {
+    return this.ctx.storage.sql.exec<{ room: string }>("SELECT room FROM present ORDER BY room").toArray().map((r) => r.room);
+  }
+
+  /** For the owner's admin panel: the buyer's email and the seats of each of these keys. */
+  owners(keys: readonly string[]): Record<string, { email: string | null; seats: number }> {
+    const found: Record<string, { email: string | null; seats: number }> = {};
+    for (const key of keys.slice(0, 500)) {
+      const row = this.get(key);
+      if (row) found[key] = { email: row.email, seats: row.seats };
+    }
+    return found;
+  }
+
+  /** For the owner's admin panel: paid keys and their seats in this mode (test or live), and the newest paid keys. */
+  summary(live: boolean, recent: number): { keys: number; seats: number; recent: KeyRecord[] } {
+    const sql = this.ctx.storage.sql;
+    const mode = live ? 1 : 0;
+    const sold = sql.exec<{ keys: number; seats: number | null }>("SELECT COUNT(*) AS keys, SUM(seats) AS seats FROM keys WHERE status = 'paid' AND live = ?", mode).one();
+    const latest = sql.exec<Row>("SELECT * FROM keys WHERE status = 'paid' AND live = ? ORDER BY created DESC LIMIT ?", mode, Math.min(200, Math.max(0, recent))).toArray().map(toRecord);
+    return { keys: sold.keys, seats: sold.seats ?? 0, recent: latest };
+  }
+
   /** A new key with so many seats, not yet paid for. */
   create(live: boolean, seats = 1): string {
     const key = newKey();

@@ -2,12 +2,14 @@ import type { Environment } from "../src/game/environments";
 import { DEFAULT_WORLD, worldAtPath, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
+import { overview } from "./admin";
 import type { Paid } from "./ledger";
 import { cleanSeats, MOST_SEATS } from "./seats";
 import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail, sendSeatsEmail } from "./mail";
 import { stripe, stripeLive, stripeReady, verifyWebhook, type CheckoutSession } from "./stripe";
 import type { Env } from "./world";
 
+export { AdminApi } from "./admin";
 export { Ledger } from "./ledger";
 export { World } from "./world";
 
@@ -16,7 +18,9 @@ export { World } from "./world";
  * joins a shared world (?env=<world id>; the first world when none is named), each its own
  * World Durable Object; /api/* sells and checks the Full Game (Stripe Checkout
  * and the Ledger of keys); /admin/* lets the owner reset or roll back a world
- * and look up keys, with the ADMIN_SECRET.
+ * and look up keys, with the ADMIN_SECRET. The owner's admin panel (a project
+ * of its own, admin.snapfort.io) calls AdminApi instead, through a service
+ * binding: see worker/admin.ts.
  */
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -35,6 +39,8 @@ export default {
     }
     if (url.pathname.startsWith("/admin/")) {
       if (!(await isAdmin(request, env))) return new Response("Forbidden", { status: 403 });
+      // Who is in each world now, who is paid, and the totals (what the admin panel shows).
+      if (url.pathname === "/admin/overview") return Response.json(await overview(env), { headers: { "Cache-Control": "no-store" } });
       if (url.pathname === "/admin/keys") {
         const email = url.searchParams.get("email") ?? "";
         return Response.json(await ledger(env).findByEmail(email));

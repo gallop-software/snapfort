@@ -72,6 +72,8 @@ A world that needs something the shared code does not offer gets a new optional 
 npm run deploy          # build, then wrangler deploy (snapfort.io and workers.dev)
 ```
 
-The admin endpoints (`/admin/stats`, `/admin/reset`, `/admin/rollback?minutes=N`, each with `&env=moon` for the Moon, `/admin/keys?email=` to find a lost key, and `POST /admin/grant?email=` to give someone a key without a purchase, `&send=1` to email it to them) need the `ADMIN_SECRET` Worker secret in an `x-admin-secret` header.
+The owner's admin panel is a project of its own (admin.snapfort.io). It reaches the game only through `AdminApi` (`worker/admin.ts`), a Worker entrypoint with no address: a service binding to `snapfort` with `entrypoint: "AdminApi"`. `/admin/overview` answers the same as its `overview()`.
+
+The admin endpoints (`/admin/overview`, `/admin/stats`, `/admin/reset`, `/admin/rollback?minutes=N`, each with `&env=moon` for the Moon, `/admin/keys?email=` to find a lost key, and `POST /admin/grant?email=` to give someone a key without a purchase, `&send=1` to email it to them) need the `ADMIN_SECRET` Worker secret in an `x-admin-secret` header.
 
 Buying needs the Worker secrets `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (and `STRIPE_PRICE_ID` in `wrangler.jsonc`, the live price). Locally all three go in `.dev.vars` (never committed), with Stripe's sandbox key, webhook secret and price, so development never touches real money; with a test key the Unlock button only shows with `?testpay`.

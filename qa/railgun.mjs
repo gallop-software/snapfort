@@ -99,7 +99,16 @@ for (const n of [2, 22, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 check("the breech, the capsule, both capacitor banks and the rails on the ground go on one by one", on === 18 && (await guns(b))[0].parts.length === 19, `${on} of 18`);
 check("…and everyone sees every part", (await guns(v))[0].drawn === 19);
 const high = await aimAt(b, g, 19);
-check("the rising rails need holding up: a floor under them first", high?.part === 19 && !high.ok && /needs a floor under it/.test(await panel(b)), await panel(b));
+const mark = await sf(b, () => { const m = window.snapfort.scene.meshes.find((x) => x.name === "gun-need" && x.isEnabled()); return m ? [m.position.x, m.position.y, m.position.z] : null; });
+check("the rising rails need holding up: it says a floor is needed one storey up, and marks where", high?.part === 19 && !high.ok && /needs a floor one storey up at the yellow mark/.test(await panel(b)) && !!mark && Math.abs(mark[1] - 3.75) < 0.01 && Math.hypot(mark[0] - (spot(g, 19)[0] - 2.5), mark[2] - spot(g, 19)[2]) < 0.1, `${await panel(b)} | mark ${JSON.stringify(mark)}`);
+// A floor on the ground under it is not enough (it stands a storey up).
+await putAway(b);
+await sf(b, ([x, z]) => { const s = window.snapfort; window.__low = s.nextId(); s.history.do({ kind: "place", piece: { type: "floor", x: Math.floor(x / 5), y: 0, z: Math.floor(z / 5), rot: 0, id: window.__low, material: "wood", edit: 0 } }); }, [spot(g, 19)[0] - 2.5, spot(g, 19)[2]]);
+await wait(600); await pick(b);
+const still = await aimAt(b, g, 19);
+check("…a floor laid on the ground there does not count: it still asks for one a storey up", still?.part === 19 && !still.ok && /one storey up/.test(await panel(b)), await panel(b));
+await sf(b, () => window.snapfort.history.do({ kind: "remove", id: window.__low }));
+await wait(500);
 await putAway(b);
 await sf(b, (g) => { const s = window.snapfort; const A = [[0, 1], [1, 0], [0, -1], [-1, 0]][g.dir]; const put = (type, x, y, z) => s.history.do({ kind: "place", piece: { type, x, y, z, rot: 0, id: s.nextId(), material: "metal", edit: 0 } }); for (const [along, level] of [[30, 1], [32, 2], [34, 3]]) { const x = g.x + A[0] * along, z = g.z + A[1] * along; for (let y = 0; y < level; y++) put("wall", x, y, z); put("floor", x, level, z); } }, g);
 await wait(900);

@@ -31,6 +31,7 @@ import {
   railLine,
   RAILGUN,
   seatOf,
+  standingFeet,
   type Gun,
   type GunToPage,
   type GunToServer,
@@ -197,6 +198,36 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     return m;
   };
   const ghosts = { plan: ghostMaterial("plan", 0.35, 0.65, 1, 0.16), ok: ghostMaterial("ok", 0.25, 0.95, 0.55, 0.5), bad: ghostMaterial("bad", 1, 0.3, 0.25, 0.5) };
+  /**
+   * "Build a floor here": a bright slab where a part needs a floor that is not
+   * there yet (one or more storeys up, for the rising end), on a thin post from
+   * the ground so it is plain how high that is.
+   */
+  const need = ghostMaterial("need", 1, 0.8, 0.2, 0.6);
+  const needSlabs: { slab: Mesh; post: Mesh }[] = [];
+  function showNeeds(feet: readonly { x: number; y: number; z: number }[]): void {
+    feet.forEach((f, i) => {
+      let m = needSlabs[i];
+      if (!m) {
+        const slab = CreateBox("gun-need", { width: CELL - 0.3, height: 0.3, depth: CELL - 0.3 }, scene);
+        const post = CreateBox("gun-need-post", { width: 0.25, height: 1, depth: 0.25 }, scene);
+        for (const mesh of [slab, post]) {
+          mesh.material = need;
+          mesh.isPickable = false;
+        }
+        needSlabs[i] = m = { slab, post };
+      }
+      m.slab.setEnabled(true);
+      m.post.setEnabled(true);
+      m.slab.position.set((f.x + 0.5) * CELL, f.y * LEVEL, (f.z + 0.5) * CELL);
+      m.post.scaling.y = Math.max(0.01, f.y * LEVEL);
+      m.post.position.set((f.x + 0.5) * CELL, (f.y * LEVEL) / 2, (f.z + 0.5) * CELL);
+    });
+    for (let i = feet.length; i < needSlabs.length; i++) {
+      needSlabs[i]!.slab.setEnabled(false);
+      needSlabs[i]!.post.setEnabled(false);
+    }
+  }
 
   const guns = new Map<number, Shown>();
   /** The server's clock is this far ahead of this page's (ms), to read `readyAt` by. */
@@ -456,7 +487,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const why: Record<string, string> = {
           have: "That part is already on",
           join: "That part has nothing to join to yet",
-          under: "It needs the ground or a floor under it",
+          under: "It needs a floor under it, at its own height: build up to it first",
           crowded: "Something is built in the way",
           room: "No room: the whole gun must fit inside the building area",
           far: "Get closer",
@@ -546,6 +577,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
       // The plan and the panel show only while the Railgun tool is being aimed, or beside a capsule.
       if (!aimed) {
         for (const m of planMeshes) m.setEnabled(false);
+        showNeeds([]);
         preview = null;
         const s = seated !== null ? guns.get(seated) : nearCapsule();
         game.panel(s && rideAt === 0 ? statusOf(s.gun) + (seated !== null && operational(game.build, s.gun) && charging(s.gun) === 0 ? `<small>${game.touch ? "Tap Place" : "Click"} to launch</small>` : "") : null);
@@ -632,10 +664,16 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         for (const n of missing) if (n !== pick) draw(s.gun, n, ghosts.plan);
         draw(s.gun, pick, why ? ghosts.bad : ghosts.ok);
         preview = { gun: s.gun.id, part: pick, ok: why === null };
-        const reason = { have: "", join: "nothing to join to yet", under: "needs a floor under it", crowded: "something is built in the way", room: "" }[why ?? "have"];
+        // Nothing under it: say how high the floor has to be, and mark the spot (the rising end stands a storey or more up).
+        const lacking = why === "under" ? standingFeet(s.gun, pick).filter((f) => !footed(game.build, f)) : [];
+        showNeeds(lacking);
+        const up = (lacking[0]?.y ?? 0) - 0;
+        const high = up <= 0 ? "" : up === 1 ? "one storey up" : up === 2 ? "two storeys up" : up === 3 ? "three storeys up" : `${up} storeys up`;
+        const reason = { have: "", join: "nothing to join to yet", under: `needs a floor ${high} at the yellow mark: build walls up to it, and a floor on top`, crowded: "something is built in the way", room: "" }[why ?? "have"];
         game.panel(`${statusOf(s.gun)}<small>${why ? `<span class="bad">${pick} · ${nameOf(pick)}: ${reason}</span>` : `<span class="ok">${pick} · ${nameOf(pick)}</span> · ${game.touch ? "tap Place" : "click"} to put it on`}</small>`);
       } else if (s) {
         preview = null;
+        showNeeds([]);
         game.panel(statusOf(s.gun) + `<small>Finished. Aim at open ground to start another</small>`);
       } else {
         // A new gun: its base here, pointing the way the player faces; the whole of it shown, to see that it fits.
@@ -643,6 +681,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const base = { x: Math.floor(spot[0] / CELL), y: Math.max(0, Math.round((spot[1] - 0.15) / LEVEL)), z: Math.floor(spot[2] / CELL), dir };
         const foot = feetOf(base, 1)[0]!;
         const clash = [...guns.values()].some((g) => overlap(g.gun, base));
+        showNeeds([]);
         const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : null;
         for (let n = 2; n <= PARTS; n++) draw(base, n, ghosts.plan);
         draw(base, 1, problem ? ghosts.bad : ghosts.ok);

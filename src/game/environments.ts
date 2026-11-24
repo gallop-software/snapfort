@@ -48,6 +48,12 @@ export interface SiegeRules {
   boardReach: number;
   /** Hits the engine itself takes before it breaks. */
   hits: number;
+  /**
+   * Every shot takes this many seconds, however far: a fast, nearly straight
+   * shot that hits the first thing in its line. Left out, shots are thrown in
+   * a high arc, as a trebuchet's are.
+   */
+  shotSeconds?: number;
 }
 
 /** The shapes a roof can have: all on the same square base, so they attach, stand and fall alike. New ones go on the end. */

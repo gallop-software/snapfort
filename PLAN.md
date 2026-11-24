@@ -202,6 +202,16 @@ The first world built on the worlds structure. Everything here is in `src/worlds
 - **The doors added for this** (generic; nothing in shared code mentions rovers or rockets): server hooks `open`, `thrown`, `joined`, `left`, `message`, `removed` and the `Room` they are handed (`src/worlds/serverDoors.ts`); the page hook `start` returning a world's own feature (`drive`, `update`, `board`, `prompt`, `busy`, `message`) and the `PageGame` it is handed (`src/worlds/pageDoors.ts`); one general message each way (`{ t: "w", d }`) that the shared code only carries. The planned shared "objects layer" was not needed: the Moon keeps its own rovers over that message, so the next world's vehicles (if any) can be entirely different.
 - QA: `npm run qa:moon` (look, visitors, low gravity, the launcher, thrown into space and back), `npm run qa:rover` (pads, boarding, one driver, driving, lift-off, eject at height and at the edge, rockets back, the rover home, late joiners, the phone button), unit tests beside the world (`src/worlds/moon/world.test.ts`).
 
+## The rover and launcher, second pass (user, 2026-11-23: "twice as fast"; "shoot in under a second large chunks of moon rocks"; "some high tech launcher that elon musk and spacex would engineer"; "float away into space rotating semi slowly in crazy directions"; "after about 5 seconds, the person should be ejected"; "the rover should have a seat")
+
+All in `src/worlds/moon/` again; the Meadow's reference pictures still match to the pixel.
+
+- **Rover speed**: 36 m/s cruising, 60 flat out (were 18 and 30).
+- **A seat**: the rover has a seat with a tall back and a steering wheel, and its driver sits in it (everyone sees them sitting). New door for this: `PageGame.ride(playerId, seat)` draws any builder sitting on a seat turned any way (`Avatar.sit`).
+- **Off a ramp**: the rover floats away at a steady 13 m/s the way it was going, turning over about all three axes (a new random spin each lift-off, 0.3 to 1.2 radians a second), its driver still in the seat, brushing past anything in the way. After 5 s the seat throws the driver clear and their rockets set them down on the ground under where they were (inside the building area). This replaces the 110 m rule. Driving off the edge of the building area still throws the driver clear at once.
+- **Launcher shots**: every shot takes 0.8 s however far, nearly straight (`siege.shotSeconds`, a new optional number any world may set; without it shots are a trebuchet's high arc). My reading of "shoot in under a second" is the time the rock takes to arrive; the reload is still 6 s. A straight shot hits the first thing in its line, so on the Moon nothing can be lobbed over a wall. The rock is a big rough chunk (about 2 m across; it touches things within 0.7 m of its path, was 0.4).
+- **Launcher look**: a long stainless and white barrel with black bands, grid fins behind the muzzle and three engine bells at the breech, held between two white towers on a black six-sided pad with landing legs and a pressure tank. It does not swing over: it sits aimed, kicks up as it fires and settles while it reloads.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

@@ -2,8 +2,8 @@ import type { Environment } from "../../game/environments";
 
 /**
  * The Moon: a third of the pull. A jump goes about 1.6 times as high as in the
- * meadow (nearly two storeys) and floats down, slugs fly slow, high lobs and
- * reach much further, and anyone hit is thrown into space and flown back by
+ * meadow (nearly two storeys) and floats down, the launcher fires chunks of
+ * moon rock fast and straight and reaches much further, and anyone hit is thrown into space and flown back by
  * the rockets on their suit (space.ts). There are rovers to drive (rovers.ts).
  * (A sixth of the pull, like the real Moon, made building fiddly.)
  *
@@ -48,7 +48,10 @@ export const world: Environment = {
     rangePerMetre: 1,
     reload: 6,
     launchHeight: 7,
-    stoneRadius: 0.4,
+    // Big chunks of moon rock, there in under a second, nearly straight (user, 2026-11-23): it hits
+    // the first thing in its line, so it cannot be lobbed over a wall as a trebuchet's stone can.
+    shotSeconds: 0.8,
+    stoneRadius: 0.7,
     blastRadius: 2.2,
     throwRadius: 7,
     throwOut: 26,

@@ -1,28 +1,26 @@
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
 import { BUILDER_GROUP } from "../../../render/physicsGroups";
 import { paintMesh } from "../../../render/paint";
-import type { DriveInput, PageGame, WorldFeature } from "../../pageDoors";
+import type { DriveInput, PageGame, Ride, WorldFeature } from "../../pageDoors";
 import { ROVER, type RoverPose, type ToPage, type ToServer } from "../roverRules";
 
 /**
  * The page's side of the Moon's rovers (see roverRules.ts for what they are):
- * draws all six, and drives the one this player is on. Driving goes where the
- * player looks: forward heads that way, back brakes and reverses, the run key
- * goes flat out.
+ * draws all six with whoever sits in them, and drives the one this player is
+ * on. Driving goes where the player looks: forward heads that way, back brakes
+ * and reverses, the run key goes flat out.
  */
 
 const DOWN = Vector3.Down();
 /** How quickly it picks up speed and turns. */
 const PICKUP = 1.6;
 const TURN = 2.6;
-/** Lifted off: the Moon no longer holds it, and it gathers speed along its way, m/s² (so the trip to space is quick). */
-const FLOAT_PUSH = 3;
 /** Where it is goes to the server this often, ms. */
 const REPORT_MS = 100;
 
@@ -34,9 +32,18 @@ interface Shown {
   rider: string | null;
   /** Drifting off into space: how fast, and since when (performance.now()). */
   lost: { v: [number, number, number]; since: number } | null;
+  /** How fast it turns over while it floats or drifts: about the vertical, nose over tail, and rolling (radians a second). */
+  spin: [number, number, number];
 }
 
-/** A six-wheeled buggy with a deck to stand on and a rail to hold: one merged mesh, coloured by vertex, its origin on the ground under its middle, nose toward +z. */
+/** The seat of a rover standing (or floating) at `pose`: where its surface is and how it is turned. */
+function seatOf(pose: RoverPose): Ride {
+  const turned = Matrix.RotationYawPitchRoll(pose[3], -pose[4], pose[5]);
+  const at = Vector3.TransformCoordinates(new Vector3(0, ROVER.seatUp, -ROVER.seatBack), turned);
+  return { x: pose[0] + at.x, y: pose[1] + at.y, z: pose[2] + at.z, yaw: pose[3], pitch: -pose[4], roll: pose[5] };
+}
+
+/** A six-wheeled buggy with a seat and a steering wheel: one merged mesh, coloured by vertex, its origin on the ground under its middle, nose toward +z. */
 function roverModel(game: PageGame): Mesh {
   const { scene } = game;
   const white: [number, number, number] = [0.9, 0.91, 0.93];
@@ -57,17 +64,23 @@ function roverModel(game: PageGame): Mesh {
       parts.push(part(CreateCylinder("r-hub", { diameter: 0.36, height: 0.38, tessellation: 8 }, scene), grey, side * 0.95, 0.42, z, Math.PI / 2));
     }
     parts.push(part(CreateBox("r-rocker", { width: 0.1, height: 0.12, depth: 2.3 }, scene), grey, side * 0.72, 0.5, 0));
-    // The rail the driver holds, a post each side, in front of where they stand.
-    parts.push(part(CreateBox("r-post", { width: 0.07, height: 0.95, depth: 0.07 }, scene), white, side * 0.6, 1.25, 0.05));
+    // A low rail each side of the seat.
+    parts.push(part(CreateBox("r-side", { width: 0.06, height: 0.3, depth: 0.9 }, scene), white, side * 0.5, 1.02, -0.55));
   }
   parts.push(part(CreateBox("r-chassis", { width: 1.5, height: 0.26, depth: 2.8 }, scene), white, 0, 0.65, 0));
-  parts.push(part(CreateBox("r-rail", { width: 1.27, height: 0.07, depth: 0.07 }, scene), white, 0, 1.7, 0.05));
+  // The driver's seat: a cushion and a tall back, and in front of it a steering wheel on its column.
+  parts.push(part(CreateBox("r-seat", { width: 0.78, height: 0.2, depth: 0.74 }, scene), dark, 0, ROVER.seatUp - 0.1, -ROVER.seatBack));
+  parts.push(part(CreateBox("r-seat-back", { width: 0.78, height: 1.05, depth: 0.16 }, scene), dark, 0, ROVER.seatUp + 0.45, -ROVER.seatBack - 0.42, 0, -0.12));
+  parts.push(part(CreateBox("r-headrest", { width: 0.4, height: 0.24, depth: 0.14 }, scene), grey, 0, ROVER.seatUp + 1.08, -ROVER.seatBack - 0.5));
+  parts.push(part(CreateCylinder("r-column", { diameter: 0.07, height: 0.75, tessellation: 6 }, scene), grey, 0, 1.2, 0.18, 0, -0.55));
+  parts.push(part(CreateCylinder("r-wheel-rim", { diameter: 0.46, height: 0.06, tessellation: 12 }, scene), dark, 0, 1.52, -0.02, 0, 1.0));
   // Up front: the equipment box in gold foil, a dish, a lamp bar, and a red stripe along the nose.
   parts.push(part(CreateBox("r-box", { width: 1.2, height: 0.5, depth: 0.95 }, scene), gold, 0, 1.03, 0.8));
   parts.push(part(CreateBox("r-stripe", { width: 1.52, height: 0.08, depth: 0.2 }, scene), red, 0, 0.72, 1.32));
   parts.push(part(CreateBox("r-lamps", { width: 0.9, height: 0.12, depth: 0.1 }, scene), dark, 0, 0.95, 1.3));
-  parts.push(part(CreateCylinder("r-mast", { diameter: 0.07, height: 0.9, tessellation: 6 }, scene), grey, 0.42, 1.7, 0.75));
-  parts.push(part(CreateCylinder("r-dish", { diameterTop: 0.8, diameterBottom: 0.1, height: 0.22, tessellation: 12 }, scene), white, 0.42, 2.2, 0.75, 0, -0.5));
+  // The dish, on a mast at the back corner, out of the driver's view.
+  parts.push(part(CreateCylinder("r-mast", { diameter: 0.07, height: 1.5, tessellation: 6 }, scene), grey, 0.62, 1.5, -1.25));
+  parts.push(part(CreateCylinder("r-dish", { diameterTop: 0.6, diameterBottom: 0.1, height: 0.18, tessellation: 12 }, scene), white, 0.62, 2.3, -1.25, 0, -0.5));
   const mesh = Mesh.MergeMeshes(parts, true, true)!;
   mesh.name = "rover";
   const material = new StandardMaterial("rover", scene);
@@ -90,9 +103,10 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
   let speed = 0;
   let yaw = 0;
   let grounded = true;
-  /** Left the ground too fast to come back: climbing away, from this height. */
+  /** Left the ground too fast to come back: floating away, for this long so far. */
   let floating = false;
-  let leftGroundAt = 0;
+  let floatedFor = 0;
+  const floatWay = new Vector3();
   let stuckFor = 0;
   let reportedAt = 0;
   /** Asked the server to get on this rover; no answer yet. */
@@ -106,21 +120,26 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       const mesh = template.clone(`rover-${id}`);
       mesh.setEnabled(true);
       game.shadows.addShadowCaster(mesh);
-      r = { mesh, pose: [...pose], target: [...pose], rider, lost: null };
+      // Each rover turns over its own way.
+      const sign = (n: number) => (((id + n) & 1) === 0 ? 1 : -1);
+      r = { mesh, pose: [...pose], target: [...pose], rider: null, lost: null, spin: [0.45 * sign(0), 0.95 * sign(1), 0.8 * sign(id >> 1)] };
       rovers.set(id, r);
     }
     r.target = [...pose];
+    // Whoever was in the seat and no longer is, is on their feet again.
+    if (r.rider !== null && r.rider !== rider) game.ride(r.rider, null);
     r.rider = rider;
     return r;
   }
 
   function place(r: Shown): void {
     r.mesh.position.set(r.pose[0], r.pose[1], r.pose[2]);
-    r.mesh.rotation.set(-r.pose[4], r.pose[3], 0);
+    r.mesh.rotation.set(-r.pose[4], r.pose[3], r.pose[5]);
   }
 
   /** Stops driving (the rover stays where it is). */
   function letGo(): void {
+    game.ride(game.myId(), null);
     body = null;
     mine = null;
     speed = 0;
@@ -136,10 +155,11 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
     grounded = true;
     floating = false;
     stuckFor = 0;
+    floatedFor = 0;
     body = new PhysicsCharacterController(new Vector3(r.pose[0], r.pose[1] + ROVER.radius + 0.05, r.pose[2]), { capsuleHeight: ROVER.radius * 2, capsuleRadius: ROVER.radius }, game.scene);
     body.maxStepHeight = 0.5;
     body.shape.filterMembershipMask = BUILDER_GROUP;
-    body.maxCharacterSpeedForSolver = 60;
+    body.maxCharacterSpeedForSolver = 110;
     body.maxAcceleration = 400;
     body.acceleration = 1;
     game.sound.tone("sine", 300, 620, 0.12, 0.14);
@@ -150,7 +170,11 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
   function eject(pose: RoverPose, v: Vector3): void {
     send({ k: "eject", pose, v: [v.x, v.y, v.z] });
     const r = rovers.get(mine!);
-    if (r) r.lost = { v: [v.x, v.y, v.z], since: performance.now() };
+    if (r) {
+      game.ride(game.myId(), null);
+      r.rider = null;
+      r.lost = { v: [v.x, v.y, v.z], since: performance.now() };
+    }
     letGo();
     game.sound.noise(0.5, 0.2, 1800);
     game.sound.tone("sine", 500, 1300, 0.4, 0.16);
@@ -196,6 +220,7 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       } else if (msg.k === "lost") {
         const r = show(msg.id, msg.pose, null);
         if (!r.lost) r.lost = { v: msg.v, since: performance.now() };
+        r.pose = [...msg.pose];
         if (mine === msg.id) letGo();
       } else if (msg.k === "no") {
         asked = null;
@@ -207,7 +232,8 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       const r = mine === null ? undefined : rovers.get(mine);
       if (!r || !body) return false;
       const support = body.checkSupport(dt, DOWN);
-      const onGround = support.supportedState === CharacterSupportedState.SUPPORTED;
+      // Once it floats it is off the Moon for good: brushing something on the way up does not land it.
+      const onGround = support.supportedState === CharacterSupportedState.SUPPORTED && !floating;
       const before = body.getVelocity();
 
       // Steer toward where the player looks (and pushes); back is the brake, then reverse.
@@ -221,10 +247,12 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       const nose = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
       let out: Vector3;
       let pitch = r.pose[4];
+      let roll = r.pose[5];
       if (onGround) {
         if (!grounded) {
-          // Down again: carry on at whatever speed it kept along its nose.
+          // Down again: carry on at whatever speed it kept along its nose, right way up.
           floating = false;
+          roll = 0;
           speed = before.x * nose.x + before.z * nose.z;
         }
         speed += (wanted - speed) * (1 - Math.exp(-dt * PICKUP));
@@ -234,21 +262,33 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
         out = along.scale(speed);
         pitch += (Math.asin(Math.max(-1, Math.min(1, along.y))) - pitch) * Math.min(1, dt * 10);
       } else {
-        if (grounded) {
-          // Just left the ground. Rising fast enough (off a ramp), it will not come back down.
-          leftGroundAt = body.getPosition().y;
-          if (before.y > ROVER.liftOff) {
-            floating = true;
-            stuckFor = 0;
-            game.toast("Lift-off! Too fast for the Moon to hold you", 2600);
-            game.sound.tone("sine", 220, 880, 0.5, 0.14);
-          }
+        if (grounded && before.y > ROVER.liftOff) {
+          // Just left the ground, rising fast (off a ramp): it will not come back down. It floats
+          // away the way it was going, and starts to turn over, each time its own way.
+          floating = true;
+          stuckFor = 0;
+          floatedFor = 0;
+          const way = before.normalizeToNew();
+          way.y = Math.max(way.y, 0.45);
+          floatWay.copyFrom(way.normalize().scale(ROVER.floatSpeed));
+          const any = (low: number, high: number) => (low + Math.random() * (high - low)) * (Math.random() < 0.5 ? -1 : 1);
+          r.spin = [any(0.3, 0.7), any(0.7, 1.2), any(0.6, 1.1)];
+          game.toast("Lift-off! The Moon cannot hold you", 2600);
+          game.sound.tone("sine", 220, 880, 0.5, 0.14);
         }
         out = before.clone();
-        if (floating) out.addInPlace(before.normalizeToNew().scale(FLOAT_PUSH * dt));
-        else out.y -= game.env.gravity * dt;
-        const flat = Math.hypot(out.x, out.z);
-        pitch += (Math.atan2(out.y, Math.max(flat, 0.5)) * 0.6 - pitch) * Math.min(1, dt * 3);
+        if (floating) {
+          // The same steady drift, whatever it brushed against.
+          out = floatWay.clone();
+          floatedFor += dt;
+          yaw += r.spin[0] * dt;
+          pitch += r.spin[1] * dt;
+          roll += r.spin[2] * dt;
+        } else {
+          out.y -= game.env.gravity * dt;
+          const flat = Math.hypot(out.x, out.z);
+          pitch += (Math.atan2(out.y, Math.max(flat, 0.5)) * 0.6 - pitch) * Math.min(1, dt * 3);
+        }
       }
       grounded = onGround;
       body.setVelocity(out);
@@ -263,14 +303,19 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
         stuckFor = after.length() < 3 ? stuckFor + dt : 0;
         if (stuckFor > 1.2) floating = false;
       }
-      r.pose = [p.x, p.y - ROVER.radius, p.z, wrap(yaw), pitch];
+      // The point under its middle: straight below on the ground, wherever "below" has got to when it is turning over.
+      const below = Vector3.TransformCoordinates(new Vector3(0, ROVER.middleUp, 0), Matrix.RotationYawPitchRoll(yaw, -pitch, roll));
+      r.pose = [p.x - below.x, p.y - ROVER.radius + ROVER.middleUp - below.y, p.z - below.z, wrap(yaw), wrap(pitch), wrap(roll)];
       r.target = [...r.pose];
       place(r);
-      // The driver stands on the deck, at the rail.
-      game.player.seat(p.x - nose.x * ROVER.seatBack, r.pose[1] + ROVER.seatUp, p.z - nose.z * ROVER.seatBack);
+      // The driver sits in the seat, and the view follows them.
+      const seat = seatOf(r.pose);
+      game.ride(game.myId(), seat);
+      game.player.seat(seat.x, seat.y + 0.6, seat.z);
 
       const now = performance.now();
-      const gone = (floating && p.y - leftGroundAt > ROVER.spaceRise) || Math.abs(p.x) > ROVER.edge || Math.abs(p.z) > ROVER.edge || p.y < -30;
+      // Thrown clear: after floating a while, or (on the ground or in a hop) past the edge of the building area.
+      const gone = floating ? floatedFor >= ROVER.floatFor : Math.abs(p.x) > ROVER.edge || Math.abs(p.z) > ROVER.edge || p.y < -30;
       if (gone) eject(r.pose, after);
       else if (now - reportedAt >= REPORT_MS) {
         reportedAt = now;
@@ -287,22 +332,24 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       const k = 1 - Math.exp(-dt * 10);
       for (const [id, r] of rovers) {
         if (r.lost) {
-          // Drifting off: on the way it was going, turning over slowly, getting small with distance.
+          // Drifting off: on the way it was going, still turning over, getting small with distance.
           const t = (now - r.lost.since) / 1000;
-          r.pose[0] += r.lost.v[0] * dt;
-          r.pose[1] += (r.lost.v[1] + 4) * dt;
-          r.pose[2] += r.lost.v[2] * dt;
-          r.pose[4] += dt * 0.5;
+          for (let i = 0; i < 3; i++) {
+            r.pose[i]! += r.lost.v[i]! * dt;
+            r.pose[3 + i]! += r.spin[i]! * dt;
+          }
           place(r);
-          r.mesh.rotation.z = t * 0.7;
           r.mesh.scaling.setAll(Math.max(0.05, 1 - t / (ROVER.lostFor / 1000)));
           continue;
         }
         if (id === mine) continue;
-        for (let i = 0; i < 3; i++) r.pose[i]! += (r.target[i]! - r.pose[i]!) * k;
-        r.pose[3] += wrap(r.target[3] - r.pose[3]) * k;
-        r.pose[4] += (r.target[4] - r.pose[4]) * k;
+        for (let i = 0; i < 3; i++) {
+          r.pose[i]! += (r.target[i]! - r.pose[i]!) * k;
+          r.pose[3 + i]! += wrap(r.target[3 + i]! - r.pose[3 + i]!) * k;
+        }
         place(r);
+        // Someone else at the wheel: in the seat, wherever it has got to.
+        if (r.rider !== null && r.rider !== game.myId()) game.ride(r.rider, seatOf(r.pose));
       }
     },
 
@@ -312,8 +359,8 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
         const r = rovers.get(mine)!;
         send({ k: "leave", pose: r.pose });
         const side = new Vector3(Math.cos(r.pose[3]), 0, -Math.sin(r.pose[3]));
-        game.player.seat(r.pose[0] + side.x * 1.9, r.pose[1] + 1.1, r.pose[2] + side.z * 1.9);
         letGo();
+        game.player.seat(r.pose[0] + side.x * 1.9, r.pose[1] + 1.1, r.pose[2] + side.z * 1.9);
         return true;
       }
       const near = nearest();

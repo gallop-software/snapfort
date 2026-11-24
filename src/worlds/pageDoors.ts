@@ -50,6 +50,12 @@ export interface PageGame {
     /** Puts the player's body centre here and holds them still this frame (riding something). */
     seat(x: number, y: number, z: number): void;
   };
+  /**
+   * Draws a builder (this player or anyone else, by id) sitting on a seat,
+   * turned whichever way the seat is, until called again with null. For this
+   * player, also call `player.seat` each frame (that is where the camera looks).
+   */
+  ride(playerId: string, seat: Ride | null): void;
   /** Which way the player looks, radians about the vertical. */
   viewYaw(): number;
   /** This player's id in the shared world ("" until joined). */
@@ -82,6 +88,16 @@ export interface WorldFeature {
   prompt?(): { text: string; button: string } | null;
   /** True while the player's hands are busy with something of this world's (no building). */
   busy?(): boolean;
+}
+
+/** A seat a builder sits on: where its surface is, and how it is turned (radians: about the vertical, nose down, and rolled). */
+export interface Ride {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
 }
 
 /** What the player is pressing, as for walking. */

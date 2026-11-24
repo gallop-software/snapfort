@@ -1524,6 +1524,10 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       env,
       build: state,
       player,
+      ride: (id, seat) => {
+        if (id === myId) player.riding = seat;
+        else remotes.ride(id, seat);
+      },
       viewYaw: () => rig.yaw,
       myId: () => myId,
       send: (data) => {

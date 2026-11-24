@@ -116,6 +116,22 @@ describe("damage", () => {
   });
 });
 
+describe("an engine that shoots fast and flat", () => {
+  const FLAT = { ...PLAIN, siege: { ...PLAIN.siege, shotSeconds: 0.5 } };
+  it("takes the same short time however far, and still passes exactly through the target", () => {
+    for (const d of [30, 150, 290]) {
+      const f = planFlight([0, 7, 0], [d, 2, 0], FLAT);
+      expect(f.time).toBe(0.5);
+      const at = positionAt(f, f.time);
+      expect(at[0]).toBeCloseTo(d, 6);
+      expect(at[1]).toBeCloseTo(2, 6);
+    }
+  });
+  it("leaves every other engine throwing its high arc", () => {
+    expect(planFlight([0, 0, 0], [300, 0, 0], PLAIN).time).toBeCloseTo(7.8, 1);
+  });
+});
+
 describe("builders near an impact", () => {
   it("are thrown away from it and high up, harder the closer they stood", () => {
     const near = throwVelocity([0, 0, 0], [1, 0.9, 0], PLAIN)!;

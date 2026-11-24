@@ -4,7 +4,7 @@ import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL, WORLD_HALF_CELLS } from "../game/constants";
 import type { Environment } from "../game/environments";
-import type { OutfitBuilder } from "../worlds/pageDoors";
+import type { OutfitBuilder, Ride } from "../worlds/pageDoors";
 import { fallEnd, fallPhase, fallPosition, type Fall } from "../game/fall";
 import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
 import { BUILDER_GROUP } from "./physicsGroups";
@@ -215,8 +215,13 @@ export class Player {
     this.fall = null;
   }
 
+  /** Sitting on something of a world's own (see PageGame.ride), or null. */
+  riding: Ride | null = null;
+
   /** Moves the avatar to the character and animates it. Call before rendering. */
   animate(dt: number, facingYaw: number): void {
+    // Thrown or falling comes first: whatever they sat on, they are off it.
+    if (this.riding && !this.fall) return this.avatar.sit(this.riding.x, this.riding.y, this.riding.z, this.riding.yaw, this.riding.pitch, this.riding.roll);
     this.avatar.root.position.set(this.position.x, this.position.y - HEIGHT / 2, this.position.z);
     const v = this.controller.getVelocity();
     this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down, this.gliding);

@@ -12,13 +12,13 @@ export const sounds: SoundTable = {
     k.tone("sine", 1100, 640, 0.7, 0.16, 0.45);
     k.noise(0.25, 0.06, 2600);
   },
-  /** The launcher fires: a charge whining up, then a dull kick through the ground. */
+  /** The launcher fires: a hard electric crack, and the kick through the ground. */
   launch(k) {
-    k.tone("sawtooth", 180, 760, 0.28, 0.1);
-    k.tone("sine", 80, 34, 0.4, 0.5, 0.26);
-    k.noise(0.18, 0.14, 420);
+    k.tone("sawtooth", 1400, 160, 0.12, 0.16);
+    k.noise(0.1, 0.3, 3200);
+    k.tone("sine", 95, 30, 0.45, 0.6, 0.02);
   },
-  /** A slug lands: felt more than heard. Quieter further away. */
+  /** A chunk of rock lands: felt more than heard. Quieter further away. */
   boom(k, near) {
     const v = 0.25 + 0.75 * near;
     k.tone("sine", 82, 26, 0.9, 1.0 * v);

@@ -31,7 +31,7 @@ async function open(label, key) {
 }
 const sf = (page, fn, arg) => page.evaluate(fn, arg);
 const rovers = (page) => sf(page, () => [...window.snapfort.feature.rovers].map(([id, r]) => ({ id, pose: [...r.pose], rider: r.rider, lost: !!r.lost })));
-const me = (page) => sf(page, () => { const s = window.snapfort; return { x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, mine: s.feature.mine, speed: s.feature.speed, floating: s.feature.floating, gliding: s.player.gliding, down: s.player.knockedDown, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root) }; });
+const me = (page) => sf(page, () => { const s = window.snapfort; return { sitting: !!s.player.riding, tilt: s.feature.mine === null ? 0 : Math.abs(s.feature.rovers.get(s.feature.mine).pose[4]) + Math.abs(s.feature.rovers.get(s.feature.mine).pose[5]), x: s.player.position.x, y: s.player.position.y, z: s.player.position.z, mine: s.feature.mine, speed: s.feature.speed, floating: s.feature.floating, gliding: s.player.gliding, down: s.player.knockedDown, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root) }; });
 /** Stands a builder beside rover `id`, looking the way `yaw`. */
 const standBy = async (page, id, yaw = 0) => { const r = (await rovers(page)).find((x) => x.id === id); await sf(page, ([x, y, z, yaw]) => { const s = window.snapfort; s.player.teleport(x - 2.5, y + 0.95, z); s.rig.yaw = yaw; s.rig.pitch = 0.15; }, [r.pose[0], r.pose[1], r.pose[2], yaw]); await wait(500); };
 
@@ -50,7 +50,8 @@ check("…and a builder who is not near one is not offered a ride", !/rover/.tes
 await standBy(a, 0);
 check("next to a rover: H drives it", /H\s*drive the rover/.test(await a.textContent("#hint")), await a.textContent("#hint"));
 await a.keyboard.press("KeyH"); await wait(700);
-check("a visitor gets on and stands on its deck", (await me(a)).mine === 0 && Math.abs((await me(a)).y - (start[0].pose[1] + 1.68)) < 0.1, JSON.stringify(await me(a)));
+check("a visitor gets on and sits in its seat", (await me(a)).mine === 0 && (await me(a)).sitting && Math.abs((await me(a)).y - (start[0].pose[1] + 1.62)) < 0.1, JSON.stringify(await me(a)));
+check("…everyone else sees them sitting in it too", await sf(b, (id) => { const r = window.snapfort.scene.transformNodes.filter((n) => n.name === "builder").find((n) => Math.abs(n.rotation.x) < 0.01 && n.getChildTransformNodes(false).some((c) => c.name === "hip" && c.rotation.x < -1.2)); return !!r && !!window.snapfort.remotes.positionOf(id); }, aId));
 check("…everyone sees who is driving", (await rovers(b)).find((r) => r.id === 0).rider === aId);
 await standBy(b, 0);
 check("…and nobody else is offered a rover that has a driver", !/drive the rover/.test(await b.textContent("#hint")));
@@ -63,14 +64,14 @@ check("on a rover a click builds nothing and offers nothing to buy", !(await a.i
 await sf(a, () => { window.snapfort.rig.yaw = Math.PI / 2; });
 await a.keyboard.down("KeyW"); await wait(3000);
 const cruising = await me(a);
-check("forward drives where you look, up to about 18 m/s", cruising.speed > 15 && cruising.speed < 19 && cruising.x > start[0].pose[0] + 20, `${cruising.speed.toFixed(1)} m/s`);
+check("forward drives where you look, up to about 36 m/s", cruising.speed > 30 && cruising.speed < 37 && cruising.x > start[0].pose[0] + 40, `${cruising.speed.toFixed(1)} m/s`);
 const seen = (await rovers(b)).find((r) => r.id === 0);
 const driverSeen = await sf(b, (id) => window.snapfort.remotes.positionOf(id), aId);
-check("…everyone else sees the rover move, its driver on it", Math.hypot(seen.pose[0] - cruising.x, seen.pose[2] - cruising.z) < 12 && !!driverSeen && Math.hypot(driverSeen[0] - seen.pose[0], driverSeen[2] - seen.pose[2]) < 8, `rover ${seen.pose[0].toFixed(0)}, driver ${driverSeen?.[0].toFixed(0)}`);
-await a.keyboard.down("ShiftLeft"); await wait(2500);
-check("the run key goes flat out, about 30 m/s", (await me(a)).speed > 25, `${(await me(a)).speed.toFixed(1)} m/s`);
+check("…everyone else sees the rover move, its driver on it", Math.hypot(seen.pose[0] - cruising.x, seen.pose[2] - cruising.z) < 22 && !!driverSeen && Math.hypot(driverSeen[0] - seen.pose[0], driverSeen[2] - seen.pose[2]) < 8, `rover ${seen.pose[0].toFixed(0)}, driver ${driverSeen?.[0].toFixed(0)}`);
+await a.keyboard.down("ShiftLeft"); await wait(2000);
+check("the run key goes flat out, about 60 m/s", (await me(a)).speed > 50 && (await me(a)).speed < 61, `${(await me(a)).speed.toFixed(1)} m/s`);
 await a.keyboard.up("ShiftLeft"); await a.keyboard.up("KeyW");
-await a.keyboard.down("KeyS"); await wait(2500); await a.keyboard.up("KeyS");
+await a.keyboard.down("KeyS"); await wait(3200); await a.keyboard.up("KeyS");
 check("back brakes, then reverses", (await me(a)).speed < 0, `${(await me(a)).speed.toFixed(1)} m/s`);
 await wait(2500);
 check("let go, it rolls to a stop", Math.abs((await me(a)).speed) < 1.5, `${(await me(a)).speed.toFixed(1)} m/s`);
@@ -80,7 +81,7 @@ const before = await me(a);
 await a.keyboard.press("KeyH"); await wait(800);
 const off = await me(a);
 const left = (await rovers(b)).find((r) => r.id === 0);
-check("H gets off beside it; the rover stays where it was left, free for anyone", off.mine === null && Math.hypot(off.x - before.x, off.z - before.z) < 4 && left.rider === null && Math.hypot(left.pose[0] - before.x, left.pose[2] - before.z) < 2.5);
+check("H gets off beside it, standing; the rover stays where it was left, free for anyone", off.mine === null && !off.sitting && Math.hypot(off.x - before.x, off.z - before.z) < 4 && left.rider === null && Math.hypot(left.pose[0] - before.x, left.pose[2] - before.z) < 2.5);
 await a.keyboard.down("KeyW"); await wait(500); await a.keyboard.up("KeyW");
 check("…and the driver walks away", Math.hypot((await me(a)).x - off.x, (await me(a)).z - off.z) > 1.5);
 
@@ -104,26 +105,31 @@ for (let i = 0; i < 150; i++) {
 await b.keyboard.up("KeyW"); await wait(2500);
 await steer(b, 12);
 await b.keyboard.down("KeyW"); await b.keyboard.down("ShiftLeft");
-let floated = false, top = 0, tookOffAt = null, ejected = false, glided = false, flames = false, lostSeen = false;
+let floated = false, floatedAt = 0, ejectedAt = 0, tilt = 0, satFloating = false, climbed = 0, tookOffAt = null, glided = false, flames = false, lostSeen = false, seenTilt = 0;
 for (let i = 0; i < 260; i++) {
   await wait(100);
   // Keep pointing along the ramps until it is off them.
   const p = await me(b);
   if (p.mine !== null && !p.floating) await steer(b, 12);
-  if (process.env.TRACE && i < 60) console.log(i, p.x.toFixed(1), p.y.toFixed(2), p.z.toFixed(1), p.speed.toFixed(1), p.floating);
-  if (p.floating && tookOffAt === null) tookOffAt = p.y;
-  floated ||= p.floating; top = Math.max(top, p.y);
-  if (floated && p.mine === null) ejected = true;
+  if (p.floating && !floated) { floated = true; floatedAt = Date.now(); tookOffAt = p.y; }
+  if (p.floating) { tilt = Math.max(tilt, p.tilt); satFloating ||= p.sitting; climbed = Math.max(climbed, p.y - tookOffAt); }
+  if (floated && p.mine === null && !ejectedAt) ejectedAt = Date.now();
   glided ||= p.gliding; flames ||= p.gliding && p.flames;
-  lostSeen ||= (await rovers(a)).find((r) => r.id === 1).lost;
-  if (ejected && glided && !p.down) break;
+  const other = (await rovers(a)).find((r) => r.id === 1);
+  lostSeen ||= other.lost;
+  if (floated && !ejectedAt) seenTilt = Math.max(seenTilt, Math.abs(other.pose[4]) + Math.abs(other.pose[5]));
+  if (ejectedAt && glided && !p.down) break;
 }
 await b.keyboard.up("KeyW"); await b.keyboard.up("ShiftLeft");
-check("flat out up a ramp, the rover lifts off and keeps climbing", floated && tookOffAt !== null && tookOffAt > 3, `left the ramp at ${tookOffAt?.toFixed(1)} m`);
-check("…about 110 m up its driver is thrown clear", ejected && top - (tookOffAt ?? 0) > 95 && top - (tookOffAt ?? 0) < 135, `${(top - (tookOffAt ?? 0)).toFixed(0)} m above the ramp`);
+const floatedFor = (ejectedAt - floatedAt) / 1000;
+check("flat out up a ramp, the rover lifts off and floats away", floated && climbed > 15, `left the ramp at ${tookOffAt?.toFixed(1)} m, floated ${climbed.toFixed(0)} m higher`);
+check("…turning over slowly every which way, its driver still in the seat", tilt > 2 && satFloating, `turned ${tilt.toFixed(1)} rad`);
+check("…and everyone else sees it turning over too", seenTilt > 1.5, `${seenTilt.toFixed(1)} rad`);
+// (Five seconds of the game's time: a little longer by the clock when this computer is busy with three pages.)
+check("…after about 5 seconds the seat throws its driver clear", ejectedAt > 0 && floatedFor > 4.3 && floatedFor < 7.5, `${floatedFor.toFixed(1)} s`);
 check("…and their rocket pack flies them back down", glided && flames);
 const landed = await me(b);
-check("…onto their feet on the Moon, inside the building area", !landed.down && Math.abs(landed.y - 0.9) < 0.3 && Math.abs(landed.x) <= 240 && Math.abs(landed.z) <= 240, `at ${landed.x.toFixed(0)}, ${landed.z.toFixed(0)}`);
+check("…gently onto their feet on the Moon, inside the building area", !landed.down && !landed.sitting && Math.abs(landed.y - 0.9) < 0.3 && Math.abs(landed.x) <= 240 && Math.abs(landed.z) <= 240, `at ${landed.x.toFixed(0)}, ${landed.z.toFixed(0)}`);
 check("…while everyone sees the empty rover drift off", lostSeen);
 await wait(5500);
 const home = (await rovers(a)).find((r) => r.id === 1);

@@ -9,9 +9,11 @@ import { EDGE } from "./space";
  * too). The driver's page works out how it moves against what is built, as it
  * does for the builder on foot; the server passes that on to everyone and
  * refuses anything impossible. Leave the ground fast (off a ramp) and with so
- * little pull the rover keeps climbing: past a certain height, or past the
- * edge of the building area, the driver is thrown clear and their rocket pack
- * flies them back, and the empty rover drifts off and reappears on its pad.
+ * little pull the rover does not come back down: it floats away into space,
+ * turning over slowly every which way, its driver still in the seat. About
+ * five seconds later the seat throws them clear and their rocket pack sets
+ * them gently down on the Moon; the empty rover drifts on and reappears on its
+ * pad. Driving off the edge of the building area ends the same way.
  */
 
 export const ROVER_COUNT = 6;
@@ -21,13 +23,14 @@ export const ROVER = {
   radius: 1,
   /** How near a builder must be to get on, m. */
   boardReach: 6,
-  /** Top speed, m/s, cruising and flat out (the run key). */
-  cruise: 18,
-  sprint: 30,
+  /** Top speed, m/s, cruising and flat out (the run key). Twice what they first were (user, 2026-11-23). */
+  cruise: 36,
+  sprint: 60,
   /** Leaving the ground rising faster than this, m/s, the rover does not come back down. */
   liftOff: 6,
-  /** How far above where it left the ground a rover climbs before its driver is thrown clear, m. */
-  spaceRise: 110,
+  /** How fast it floats away once it has left the ground for good, m/s, and for how long before the seat throws its driver clear, s (user, 2026-11-23: "after about 5 seconds"). */
+  floatSpeed: 13,
+  floatFor: 5,
   /** Past this far from the middle, the same: the edge of the Moon as far as building goes, m. */
   edge: EDGE + 8,
   /** An empty rover drifts this long before it is back on its pad, ms. */
@@ -35,14 +38,16 @@ export const ROVER = {
   /** A rover left somewhere with nobody on it goes home after this long, ms. */
   idleFor: 180_000,
   /** Faster than this between two reports, m/s, and the server does not believe it. */
-  believable: 90,
-  /** The driver stands on the deck: their body's centre is this far above the ground under the rover, and this far behind its middle. */
-  seatUp: 0.78 + 0.9,
-  seatBack: 0.6,
+  believable: 170,
+  /** The driver's seat: its surface is this far above the ground under the rover, and this far behind its middle. */
+  seatUp: 1.02,
+  seatBack: 0.5,
+  /** The rover turns over about a point this far above the ground under it (its middle), when it floats. */
+  middleUp: 0.75,
 } as const;
 
-/** Where a rover is: x, y (the ground under it), z, which way it points (radians about the vertical), and how far its nose is up. */
-export type RoverPose = [number, number, number, number, number];
+/** Where a rover is: x, y, z of the point under its middle (on the ground, when it is), which way it points (radians about the vertical), how far its nose is up, and how far it is rolled over. */
+export type RoverPose = [number, number, number, number, number, number];
 
 /** A rover as the server sends it: id, where, who is driving (or null). */
 export type WireRover = [number, RoverPose, string | null];
@@ -107,18 +112,20 @@ export function homes(build: BuildState): RoverPose[] {
       }
     }
     taken.add(`${cell[0]},${cell[1]}`);
-    list.push([(cell[0] + 0.5) * CELL, 0, (cell[1] + 0.5) * CELL, a, 0]);
+    list.push([(cell[0] + 0.5) * CELL, 0, (cell[1] + 0.5) * CELL, Math.round(a * 1000) / 1000, 0, 0]);
   }
   return list;
 }
 
 /** A pose from a message, or null when it is not one (or is far outside the world). */
 export function readPose(v: unknown): RoverPose | null {
-  if (!Array.isArray(v) || v.length !== 5 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
-  const [x, y, z, yaw, pitch] = v as number[];
-  if (Math.abs(x!) > 700 || Math.abs(z!) > 700 || y! < -60 || y! > 800 || Math.abs(pitch!) > 2) return null;
+  if (!Array.isArray(v) || v.length !== 6 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+  const [x, y, z, yaw, pitch, roll] = v as number[];
+  if (Math.abs(x!) > 700 || Math.abs(z!) > 700 || y! < -60 || y! > 800) return null;
   const r = (n: number) => Math.round(n * 100) / 100;
-  return [r(x!), r(y!), r(z!), Math.round((yaw! % (Math.PI * 2)) * 1000) / 1000, Math.round(pitch! * 1000) / 1000];
+  /** An angle as sent: between minus and plus half a turn, to a thousandth. */
+  const turn = (a: number) => Math.round(Math.atan2(Math.sin(a), Math.cos(a)) * 1000) / 1000;
+  return [r(x!), r(y!), r(z!), turn(yaw!), turn(pitch!), turn(roll!)];
 }
 
 export function readVec(v: unknown): [number, number, number] | null {

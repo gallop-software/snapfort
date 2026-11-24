@@ -4,7 +4,7 @@ import { LEVEL } from "../../game/constants";
 import type { Environment } from "../../game/environments";
 import { planFall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
-import { checkRange, maxRange, planFlight, positionAt, throwVelocity, type Vec } from "../../game/trebuchet";
+import { checkRange, findImpact, launchPoint, maxRange, planFlight, positionAt, throwVelocity, type Vec } from "../../game/trebuchet";
 import { fallPhase, fallPosition } from "../../game/fall";
 import { rocketsBack, SPACE_BACK, SPACE_OUT, SPACE_RISE, spaceFlight } from "./space";
 import type { Fall } from "../../game/fall";
@@ -14,28 +14,37 @@ import { server } from "./server";
 import { world as MOON } from "./world";
 
 /** The same world under an ordinary pull (the numbers the game was first tuned with), to compare against. */
-const EARTHLY: Environment = { ...MOON, gravity: 26, stoneGravity: 9.81, flightTime: 1, range: 1, throwPower: 1, knockdownDrop: 2, rubbleGravity: 9.81 };
+const EARTHLY: Environment = { ...MOON, gravity: 26, stoneGravity: 9.81, flightTime: 1, range: 1, throwPower: 1, knockdownDrop: 2, rubbleGravity: 9.81, siege: { ...MOON.siege, shotSeconds: undefined } };
 
 const treb: Piece = { id: "t", type: "trebuchet", x: 0, y: 0, z: 0, rot: 0, material: "wood", edit: 0 };
 
 describe("the Moon", () => {
-  it("throws stones that still pass exactly through the target, slower, along an arc of the same shape", () => {
-    const from: Vec = [0, 7, 0], to: Vec = [40, 0, 90];
-    const moon = planFlight(from, to, MOON), earthly = planFlight(from, to, EARTHLY);
-    const at = positionAt(moon, moon.time);
-    for (let i = 0; i < 3; i++) expect(at[i]).toBeCloseTo(to[i]!, 6);
-    expect(moon.time).toBeCloseTo(earthly.time * Math.sqrt(3), 6);
-    // Halfway along, both are at the same height: the same arc, flown slower.
-    expect(positionAt(moon, moon.time / 2)[1]).toBeCloseTo(positionAt(earthly, earthly.time / 2)[1], 6);
+  it("fires chunks of rock fast and nearly straight: there in under a second, however far", () => {
+    for (const to of [[40, 0, 90], [470, 30, 0], [30, 0, 0]] as Vec[]) {
+      const from: Vec = [0, 7, 0];
+      const shot = planFlight(from, to, MOON);
+      expect(shot.time).toBeLessThan(1);
+      const at = positionAt(shot, shot.time);
+      for (let i = 0; i < 3; i++) expect(at[i]).toBeCloseTo(to[i]!, 6);
+      // Halfway there it is within a metre of the straight line.
+      const mid = positionAt(shot, shot.time / 2);
+      expect(Math.abs(mid[1] - (from[1] + to[1]!) / 2)).toBeLessThan(1);
+    }
   });
 
-  it("keeps the nearest shots slow lobs too", () => {
-    const moon = planFlight([0, 7, 0], [30, 0, 0], MOON), earthly = planFlight([0, 7, 0], [30, 0, 0], EARTHLY);
-    expect(earthly.time).toBeCloseTo(Math.max(1.5, Math.sqrt(60 / 9.81)), 6);
-    expect(moon.time).toBeCloseTo(earthly.time * Math.sqrt(3), 6);
+  it("so a shot stops at the first thing in its line: no lobbing over a wall", () => {
+    const state = new BuildState();
+    for (let y = 0; y < 3; y++) state.apply({ kind: "place", piece: { id: `w${y}`, type: "wall", x: 10, y, z: 0, rot: 1, material: "metal", edit: 0 } });
+    const from = launchPoint(treb, MOON);
+    const beyond: Vec = [100, 1, 2.5];
+    const moon = findImpact(state, planFlight(from, beyond, MOON), "t", MOON);
+    expect(moon.pieceId).toMatch(/^w/);
+    // An arc with the same numbers clears it.
+    const lobbed = findImpact(state, planFlight(from, beyond, EARTHLY), "t", EARTHLY);
+    expect(lobbed.pieceId).toBeUndefined();
   });
 
-  it("lets trebuchets reach 1.6 times as far", () => {
+  it("lets launchers reach 1.6 times as far", () => {
     expect(maxRange(treb, MOON)).toBeCloseTo(maxRange(treb, EARTHLY) * 1.6);
     const far: Vec = [2.5 + 400, 0, 2.5];
     expect(checkRange(treb, far, EARTHLY)).toBe("far");
@@ -218,18 +227,19 @@ describe("rovers", () => {
     t.stand("a", start);
     t.say("a", { k: "board", id: 0 });
     t.sent.length = 0;
-    const next: RoverPose = [start[0] + 2, 0, start[2] + 1, 0.5, 0.1];
+    const next: RoverPose = [start[0] + 2, 0, start[2] + 1, 0.5, 0.1, 0];
     t.say("a", { k: "drive", pose: next });
     expect(t.rovers()[0]!.pose).toEqual(next);
     t.tick();
     expect(t.sent).toEqual([{ to: "all but a", msg: { k: "poses", list: [[0, next]] } }]);
     // Half the Moon away in one step: not believed.
-    t.say("a", { k: "drive", pose: [start[0] + 200, 0, start[2], 0, 0] });
+    t.say("a", { k: "drive", pose: [start[0] + 400, 0, start[2], 0, 0, 0] });
     expect(t.rovers()[0]!.pose).toEqual(next);
     // Nonsense, and someone who is not driving: ignored.
-    t.say("a", { k: "drive", pose: [NaN, 0, 0, 0, 0] });
+    t.say("a", { k: "drive", pose: [NaN, 0, 0, 0, 0, 0] });
+    t.say("a", { k: "drive", pose: [0, 0, 0, 0, 0] });
     t.say("a", { k: "drive", pose: "there" });
-    t.say("b", { k: "drive", pose: [0, 0, 0, 0, 0] });
+    t.say("b", { k: "drive", pose: [0, 0, 0, 0, 0, 0] });
     t.say("a", null);
     expect(t.rovers()[0]!.pose).toEqual(next);
   });
@@ -239,7 +249,7 @@ describe("rovers", () => {
     const start = t.rovers()[1]!.pose;
     t.stand("a", start);
     t.say("a", { k: "board", id: 1 });
-    const left: RoverPose = [start[0] + 3, 0, start[2], 1, 0];
+    const left: RoverPose = [start[0] + 3, 0, start[2], 1, 0, 0];
     t.say("a", { k: "leave", pose: left });
     expect(t.rovers()[1]!).toMatchObject({ rider: null, pose: left, home: false });
     expect(t.sent.at(-1)!.msg).toEqual({ k: "rider", id: 1, by: null, pose: left });
@@ -255,7 +265,8 @@ describe("rovers", () => {
     const start = t.rovers()[4]!.pose;
     t.stand("a", start);
     t.say("a", { k: "board", id: 4 });
-    const up: RoverPose = [start[0] + 5, 3, start[2], 0, 0.5];
+    // Floating, and turned right over.
+    const up: RoverPose = [start[0] + 5, 3, start[2], 0, 2.5, -3];
     t.say("a", { k: "drive", pose: up });
     t.say("a", { k: "eject", pose: up, v: [20, 15, 0] });
     expect(t.rovers()[4]!.rider).toBeNull();
@@ -263,7 +274,7 @@ describe("rovers", () => {
     expect(t.flown.length).toBe(1);
     expect(t.flown[0]!.id).toBe("a");
     expect(t.flown[0]!.fall.glideFrom).toBe(0);
-    expect(t.flown[0]!.fall.from[1]).toBeCloseTo(3 + ROVER.seatUp, 6);
+    expect(t.flown[0]!.fall.from[1]).toBeCloseTo(3 + ROVER.seatUp + 0.5, 6);
     expect(t.flown[0]!.fall.land[1]).toBeCloseTo(0.9, 6);
     // Nobody gets on a rover that is drifting away.
     t.stand("b", up);
@@ -293,7 +304,7 @@ describe("rovers", () => {
     const floor: Piece = { id: "f", type: "floor", x: 20, y: 1, z: 20, rot: 0, material: "wood", edit: 0 };
     put(floor);
     const t = fakeRoom(build);
-    const parked: RoverPose = [102.5, LEVEL + 0.15, 102.5, 0, 0];
+    const parked: RoverPose = [102.5, LEVEL + 0.15, 102.5, 0, 0, 0];
     t.rovers()[0]!.pose = parked;
     build.apply({ kind: "remove", id: "f" });
     t.sent.length = 0;

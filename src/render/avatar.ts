@@ -68,6 +68,8 @@ export class Avatar {
   /** Whether the "glide" extra is showing, and whether a glide left the limbs turned sideways. */
   private glideShown = false;
   private glided = false;
+  /** Was sitting (see `sit`): the next `animate` stands them up straight. */
+  private sat = false;
   /** Left then right: hip, knee, shoulder and elbow joints. */
   private readonly hips: TransformNode[] = [];
   private readonly knees: TransformNode[] = [];
@@ -107,6 +109,13 @@ export class Avatar {
    * horizontal velocity in m/s. Place `root` at their feet first.
    */
   animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean, tumbling = false, down = 0, gliding = false): void {
+    if (this.sat) {
+      // Up from a seat: upright again, limbs straight (they ease into the next pose from there).
+      this.sat = false;
+      this.root.rotation.x = 0;
+      this.root.rotation.z = 0;
+      for (const joint of [...this.shoulders, ...this.hips]) joint.rotation.z = 0;
+    }
     // The outfit's "glide" extra (a world's rockets, say) shows for as long as they glide.
     if (gliding !== this.glideShown) this.setExtra("glide", (this.glideShown = gliding));
     if (tumbling) return this.tumble(dt);
@@ -232,6 +241,34 @@ export class Avatar {
     this.body.position.y = 0;
     this.legYaw = 0;
     this.holdLegs();
+  }
+
+  /**
+   * Sitting on a seat whose surface is at (x, y, z), turned as the seat is
+   * (yaw about the vertical, then pitch, then roll): thighs forward, shins
+   * down, hands out in front on the controls. Used in place of `animate` for a
+   * builder riding something.
+   */
+  sit(x: number, y: number, z: number, yaw: number, pitch: number, roll: number): void {
+    if (this.glideShown) this.setExtra("glide", (this.glideShown = false));
+    this.tumbleTime = 0;
+    this.sat = true;
+    this.root.rotation.set(pitch, yaw, roll);
+    // The hips are 0.9 m above the feet; less the thickness of the thigh, that is how far the seat is above where the feet would be.
+    const up = Vector3.TransformCoordinates(new Vector3(0, 0.78, 0), Matrix.RotationYawPitchRoll(yaw, pitch, roll));
+    this.root.position.set(x - up.x, y - up.y, z - up.z);
+    for (let side = 0; side < 2; side++) {
+      const s = side === 0 ? -1 : 1;
+      this.hips[side]!.rotation.set(-1.45, 0, s * 0.1);
+      this.knees[side]!.rotation.set(1.4, 0, 0);
+      this.shoulders[side]!.rotation.set(-1.15, 0, s * -0.12);
+      this.elbows[side]!.rotation.set(-0.35, 0, 0);
+    }
+    this.body.rotation.set(0.04, 0, 0);
+    this.body.position.y = 0;
+    this.legYaw = 0;
+    this.legsUpright.rotation.set(0, 0, 0);
+    this.legsTurn.rotation.y = 0;
   }
 
   /**

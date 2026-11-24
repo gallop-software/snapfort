@@ -9,7 +9,7 @@ import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { WireMove, WirePlayer } from "../net/protocol";
 import { fallEnd, fallPhase, fallPosition, type Fall } from "../game/fall";
-import type { OutfitBuilder } from "../worlds/pageDoors";
+import type { OutfitBuilder, Ride } from "../worlds/pageDoors";
 import { Avatar, downness } from "./avatar";
 import { StandIns } from "./standIns";
 
@@ -64,6 +64,8 @@ interface Remote {
   down: number;
   /** Flying down under control at the end of a flight. */
   gliding: boolean;
+  /** Sitting on something of a world's own (see PageGame.ride). */
+  ride: Ride | null;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -102,7 +104,7 @@ export class RemotePlayers {
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);
     if (!remote) {
-      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, gliding: false, avatar: null, tag: null, full: false, stride: 0, fall: null, down: 0 });
+      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, gliding: false, ride: null, avatar: null, tag: null, full: false, stride: 0, fall: null, down: 0 });
       return;
     }
     const renamed = remote.player.name !== player.name || remote.player.color !== player.color;
@@ -123,6 +125,12 @@ export class RemotePlayers {
 
   clear(): void {
     for (const id of [...this.remotes.keys()]) this.leave(id);
+  }
+
+  /** Builder `id` sits on something of a world's own (null: no longer). */
+  ride(id: string, seat: Ride | null): void {
+    const remote = this.remotes.get(id);
+    if (remote) remote.ride = seat;
   }
 
   /** Builder `id` is thrown or falls: play the server's flight, then lying down and getting up. */
@@ -159,11 +167,18 @@ export class RemotePlayers {
     for (const remote of this.remotes.values()) {
       if (remote.fall) this.followFall(remote, now);
       else this.blend(remote, at);
-      if (remote.samples.length === 0 && !remote.fall) continue;
+      // Riding: drawn on their seat, in full, wherever the last word of them was.
+      const ride = remote.fall ? null : remote.ride;
+      if (ride) {
+        remote.x = ride.x;
+        remote.y = ride.y + 0.4;
+        remote.z = ride.z;
+      }
+      if (remote.samples.length === 0 && !remote.fall && !ride) continue;
       const dist = Math.max(0.1, Math.hypot(remote.x - viewer.x, remote.y - viewer.y, remote.z - viewer.z));
       const size = BODY / (dist * halfView);
       // Someone thrown always gets the full body: the flailing is the point.
-      remote.full = remote.fall !== null || size >= FULL_SIZE || (remote.full && size >= STAND_IN_SIZE);
+      remote.full = remote.fall !== null || ride !== null || size >= FULL_SIZE || (remote.full && size >= STAND_IN_SIZE);
       if (!remote.full) {
         this.release(remote);
         if (remote.tag) remote.tag.setEnabled(false);
@@ -171,9 +186,12 @@ export class RemotePlayers {
         continue;
       }
       const avatar = (remote.avatar ??= this.claim(remote.player.color));
-      avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
-      avatar.root.rotation.y = remote.yaw;
-      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down, remote.gliding);
+      if (ride) avatar.sit(ride.x, ride.y, ride.z, ride.yaw, ride.pitch, ride.roll);
+      else {
+        avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
+        avatar.root.rotation.y = remote.yaw;
+        avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down, remote.gliding);
+      }
       const showTag = size >= TAG_SIZE;
       if (showTag && !remote.tag) remote.tag = this.makeTag(remote.player);
       if (remote.tag) {

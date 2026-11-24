@@ -135,7 +135,7 @@ export function roversMessage(room: Room, playerId: string, data: unknown): void
     mine.lostUntil = now + ROVER.lostFor;
     mine.touched = now;
     say(room, { k: "lost", id: mine.id, pose: at, v });
-    room.fly(playerId, rocketsBack(room.build, room.env, [at[0], at[1] + ROVER.seatUp, at[2]]));
+    room.fly(playerId, rocketsBack(room.build, room.env, [at[0], at[1] + ROVER.seatUp + 0.5, at[2]]));
     const rover = mine;
     return room.later(ROVER.lostFor, () => sendHome(room, rover));
   }
@@ -154,7 +154,7 @@ export function roversDrop(room: Room, pieces: readonly Piece[]): void {
     if (!under) continue;
     const land = planFall(room.build, [x, y + 0.9, z], [0, 0, 0], room.env).land;
     if (y - (land[1] - 0.9) < 0.05) continue;
-    rover.pose = [land[0], Math.round((land[1] - 0.9) * 100) / 100, land[2], rover.pose[3], 0];
+    rover.pose = [land[0], Math.round((land[1] - 0.9) * 100) / 100, land[2], rover.pose[3], 0, 0];
     rover.touched = Date.now();
     m.moved.add(rover.id);
     tellMoved(room);

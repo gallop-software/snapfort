@@ -146,7 +146,7 @@ for (let i = 0; i < 220 && !hitAt; i++) {
   if ((await sf(b, () => [...window.snapfort.damage.values()].length)) > 0 || (await sf(v, () => window.snapfort.player.tumbling))) hitAt = Date.now();
 }
 const flight = (hitAt - fired) / 1000;
-check("the stone flies a slow, floaty lob: about 14.5 s to 350 m (about 8.5 s in the meadow)", hitAt > 0 && flight > 13 && flight < 16.5, `${flight.toFixed(1)} s`);
+check("the launcher's chunk of rock is there in about a second (a trebuchet's stone takes about 8.5 s over that distance)", hitAt > 0 && flight < 1.8, `${flight.toFixed(1)} s`);
 // Thrown into space: up and out, tumbling, then the suit's rockets fly them back down.
 let top = 0, tumbled = false, glided = false, flames = false, seenHigh = 0, seenFlames = false;
 const vId = await sf(v, () => window.snapfort.myId);

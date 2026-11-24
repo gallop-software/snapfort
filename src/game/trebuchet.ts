@@ -65,7 +65,8 @@ export function planFlight(from: Vec, to: Vec, env: Environment): Flight {
   // 8 s and 75 m, under the real pull of 9.81). Never under 1.5 s (longer where the world
   // says so), so the nearest shots are lobs too. With a weaker pull the flight is
   // slower by the square root, so the arc keeps its shape.
-  const time = Math.max(1.5 * env.flightTime, Math.sqrt((2 * d) / env.stoneGravity));
+  // (A world's engine may instead shoot fast and flat: every shot the same short time.)
+  const time = env.siege.shotSeconds ?? Math.max(1.5 * env.flightTime, Math.sqrt((2 * d) / env.stoneGravity));
   const g = env.stoneGravity;
   return {
     from,

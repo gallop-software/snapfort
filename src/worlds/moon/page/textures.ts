@@ -5,104 +5,143 @@ import { canvas, line, rng, toTexture } from "../../../render/paint";
 import type { PieceSkin } from "../../pageDoors";
 
 /**
- * The Moon's art: the pieces, grey cratered dust, a black sky full of stars and the Earth.
+ * The Moon's art: lattice, regolith and titanium, grey cratered dust, a black sky full of stars and the Earth.
  * Piece textures are near-white line work; the material colour is multiplied
  * in per piece. The texture spans the whole face of a piece, so its border
  * outlines each piece and edit tiles line up with the pattern.
  */
 const S = 256;
-const LINE = "rgba(40, 30, 20, 0.26)";
+const LINE = "rgba(20, 24, 34, 0.30)";
 
-function wood(g: CanvasRenderingContext2D, r: () => number): void {
-  // Planks across the piece, with grain streaks, butt joints and nails.
-  const planks = 6;
-  const h = S / planks;
-  for (let i = 0; i < planks; i++) {
-    const y = i * h;
-    g.fillStyle = `rgba(90, 55, 25, ${0.03 + r() * 0.06})`;
-    g.fillRect(0, y, S, h);
-    g.strokeStyle = "rgba(90, 55, 25, 0.10)";
-    g.lineWidth = 1.5;
-    for (let k = 0; k < 3; k++) {
-      const gy = y + 6 + r() * (h - 12);
+/** Lattice (the light slot): a thin skin over a truss. Crossed braces in each bay, gussets at the joints. */
+function lattice(g: CanvasRenderingContext2D, r: () => number): void {
+  const bays = 2;
+  const w = S / bays;
+  // Foil skin: faint crinkles.
+  for (let i = 0; i < 90; i++) {
+    g.strokeStyle = `rgba(255, 255, 255, ${0.05 + r() * 0.1})`;
+    g.lineWidth = 1;
+    const x = r() * S, y = r() * S, len = 10 + r() * 34, a = r() * Math.PI;
+    line(g, x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
+  }
+  for (let bx = 0; bx < bays; bx++) {
+    for (let by = 0; by < bays; by++) {
+      const x = bx * w, y = by * w;
+      // The braces, a dark strut with a light edge.
+      for (const [x0, y0, x1, y1] of [[x, y, x + w, y + w], [x + w, y, x, y + w]] as const) {
+        g.strokeStyle = "rgba(20, 24, 34, 0.26)";
+        g.lineWidth = 9;
+        line(g, x0, y0, x1, y1);
+        g.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        g.lineWidth = 1.5;
+        line(g, x0 + 3, y0, x1 + 3, y1);
+      }
+      // Hub where they cross.
+      g.fillStyle = "rgba(20, 24, 34, 0.42)";
       g.beginPath();
-      g.moveTo(0, gy);
-      g.bezierCurveTo(S * 0.3, gy + (r() - 0.5) * 6, S * 0.6, gy + (r() - 0.5) * 6, S, gy);
-      g.stroke();
-    }
-    g.strokeStyle = LINE;
-    g.lineWidth = 3;
-    if (i > 0) line(g, 0, y, S, y);
-    const joint = 40 + r() * (S - 80);
-    line(g, joint, y, joint, y + h);
-    g.fillStyle = "rgba(40, 30, 20, 0.35)";
-    for (const nx of [joint - 7, joint + 7]) {
-      g.fillRect(nx - 1.5, y + h * 0.3 - 1.5, 3, 3);
-      g.fillRect(nx - 1.5, y + h * 0.7 - 1.5, 3, 3);
+      g.arc(x + w / 2, y + w / 2, 9, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "rgba(255, 255, 255, 0.55)";
+      g.beginPath();
+      g.arc(x + w / 2 - 2, y + w / 2 - 2, 3, 0, Math.PI * 2);
+      g.fill();
     }
   }
+  // The frame between the bays.
+  g.strokeStyle = LINE;
+  g.lineWidth = 7;
+  line(g, S / 2, 0, S / 2, S);
+  line(g, 0, S / 2, S, S / 2);
 }
 
-function brick(g: CanvasRenderingContext2D, r: () => number): void {
-  // Staggered courses with uneven brick shades and mortar lines.
-  const rows = 8;
+/** Regolith (the middle slot): big blocks baked from moon dust, pitted and speckled. */
+function regolith(g: CanvasRenderingContext2D, r: () => number): void {
+  const rows = 4;
   const h = S / rows;
-  const w = S / 4;
+  const w = S / 2;
   for (let row = 0; row < rows; row++) {
     const offset = row % 2 === 0 ? 0 : w / 2;
     for (let x = -offset; x < S; x += w) {
-      g.fillStyle = r() > 0.5 ? `rgba(120, 40, 20, ${r() * 0.1})` : `rgba(255, 240, 220, ${r() * 0.12})`;
+      g.fillStyle = r() > 0.5 ? `rgba(20, 20, 30, ${r() * 0.1})` : `rgba(255, 255, 255, ${r() * 0.1})`;
       g.fillRect(x + 2, row * h + 2, w - 4, h - 4);
     }
   }
-  g.strokeStyle = "rgba(255, 250, 240, 0.55)";
-  g.lineWidth = 3;
+  // Grit, and the small pits left by trapped gas.
+  for (let i = 0; i < 520; i++) {
+    g.fillStyle = r() > 0.5 ? `rgba(255, 255, 255, ${0.06 + r() * 0.12})` : `rgba(20, 20, 30, ${0.06 + r() * 0.12})`;
+    g.fillRect(r() * S, r() * S, 1 + r() * 2, 1 + r() * 2);
+  }
+  for (let i = 0; i < 26; i++) {
+    const x = r() * S, y = r() * S, rad = 2 + r() * 5;
+    g.fillStyle = "rgba(20, 20, 30, 0.22)";
+    g.beginPath();
+    g.arc(x, y, rad, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.arc(x, y, rad, Math.PI * 0.2, Math.PI * 1.1);
+    g.stroke();
+  }
+  // Joints: dark seams.
+  g.strokeStyle = "rgba(20, 20, 30, 0.42)";
+  g.lineWidth = 4;
   for (let row = 0; row <= rows; row++) line(g, 0, row * h, S, row * h);
   for (let row = 0; row < rows; row++) {
     const offset = row % 2 === 0 ? 0 : w / 2;
     for (let x = offset; x < S; x += w) if (x > 0) line(g, x, row * h, x, row * h + h);
   }
-  g.strokeStyle = "rgba(60, 25, 15, 0.18)";
-  g.lineWidth = 1;
-  for (let row = 0; row <= rows; row++) line(g, 0, row * h + 2, S, row * h + 2);
 }
 
-function metal(g: CanvasRenderingContext2D, r: () => number): void {
-  // Four plates with brushed streaks, a cross brace and rivets.
-  for (let i = 0; i < 160; i++) {
-    g.fillStyle = `rgba(255, 255, 255, ${r() * 0.08})`;
-    g.fillRect(r() * S, r() * S, 30 + r() * 60, 1);
+/** Titanium (the heavy slot): hull plates, three across, with a stiffening rib and rows of bolts. */
+function titanium(g: CanvasRenderingContext2D, r: () => number): void {
+  // Brushed sheen, up and down.
+  for (let i = 0; i < 200; i++) {
+    g.fillStyle = `rgba(255, 255, 255, ${r() * 0.09})`;
+    g.fillRect(r() * S, r() * S, 1, 26 + r() * 70);
   }
-  g.strokeStyle = "rgba(30, 40, 55, 0.30)";
-  g.lineWidth = 4;
-  line(g, S / 2, 0, S / 2, S);
-  line(g, 0, S / 2, S, S / 2);
-  g.strokeStyle = "rgba(255, 255, 255, 0.35)";
-  g.lineWidth = 1.5;
-  line(g, S / 2 + 3, 0, S / 2 + 3, S);
-  line(g, 0, S / 2 + 3, S, S / 2 + 3);
-  for (const [ox, oy] of [[0, 0], [S / 2, 0], [0, S / 2], [S / 2, S / 2]] as const) {
-    g.strokeStyle = "rgba(30, 40, 55, 0.12)";
-    g.lineWidth = 8;
-    line(g, ox + 22, oy + 22, ox + S / 2 - 22, oy + S / 2 - 22);
-    for (const [rx, ry] of [[14, 14], [S / 2 - 14, 14], [14, S / 2 - 14], [S / 2 - 14, S / 2 - 14]] as const) {
-      g.fillStyle = "rgba(30, 40, 55, 0.4)";
-      g.beginPath();
-      g.arc(ox + rx, oy + ry, 4, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = "rgba(255, 255, 255, 0.6)";
-      g.beginPath();
-      g.arc(ox + rx - 1, oy + ry - 1, 1.6, 0, Math.PI * 2);
-      g.fill();
+  const cols = 3;
+  const w = S / cols;
+  for (let c = 0; c < cols; c++) {
+    const x = c * w;
+    if (c > 0) {
+      g.strokeStyle = "rgba(20, 30, 50, 0.34)";
+      g.lineWidth = 4;
+      line(g, x, 0, x, S);
+      g.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      g.lineWidth = 1.5;
+      line(g, x + 3, 0, x + 3, S);
+    }
+    // Bolts down both edges of the plate.
+    for (let k = 0; k < 6; k++) {
+      const y = 22 + (k * (S - 44)) / 5;
+      for (const bx of [x + 13, x + w - 13]) {
+        g.fillStyle = "rgba(20, 30, 50, 0.42)";
+        g.beginPath();
+        g.arc(bx, y, 3.4, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = "rgba(255, 255, 255, 0.65)";
+        g.beginPath();
+        g.arc(bx - 1, y - 1, 1.3, 0, Math.PI * 2);
+        g.fill();
+      }
     }
   }
+  // A rib across the middle.
+  g.fillStyle = "rgba(20, 30, 50, 0.16)";
+  g.fillRect(0, S / 2 - 9, S, 18);
+  g.fillStyle = "rgba(255, 255, 255, 0.4)";
+  g.fillRect(0, S / 2 - 9, S, 2);
+  g.fillStyle = "rgba(20, 30, 50, 0.3)";
+  g.fillRect(0, S / 2 + 8, S, 2);
 }
 
-const PATTERNS: Record<MaterialId, (g: CanvasRenderingContext2D, r: () => number) => void> = { wood, brick, metal };
+/** By slot: what the light, middle and heavy materials look like here. */
+const PATTERNS: Record<MaterialId, (g: CanvasRenderingContext2D, r: () => number) => void> = { wood: lattice, brick: regolith, metal: titanium };
 
-/** The look of one kind of piece in one material. Only metal shines. */
+/** The look of one kind of piece in one material. Titanium shines; the foil on the lattice a little. */
 export function pieceSkin(type: PieceType, material: MaterialId, scene: Scene): PieceSkin {
-  return { texture: pieceTexture(type, material, scene), specular: material === "metal" ? 0.25 : 0 };
+  return { texture: pieceTexture(type, material, scene), specular: material === "metal" ? 0.35 : material === "wood" ? 0.12 : 0 };
 }
 
 function pieceTexture(type: PieceType, material: MaterialId, scene: Scene): Texture {
@@ -116,7 +155,7 @@ function pieceTexture(type: PieceType, material: MaterialId, scene: Scene): Text
     // Treads across the slope so a ramp reads as stairs.
     for (let i = 1; i < 8; i++) {
       const y = (i * S) / 8;
-      g.fillStyle = "rgba(40, 30, 20, 0.16)";
+      g.fillStyle = "rgba(20, 24, 34, 0.18)";
       g.fillRect(0, y - 5, S, 5);
       g.fillStyle = "rgba(255, 255, 255, 0.35)";
       g.fillRect(0, y, S, 2);
@@ -124,7 +163,7 @@ function pieceTexture(type: PieceType, material: MaterialId, scene: Scene): Text
   }
 
   // Border: a dark edge so each piece reads on its own, with a light bevel inside.
-  g.strokeStyle = "rgba(40, 30, 20, 0.38)";
+  g.strokeStyle = "rgba(20, 24, 34, 0.42)";
   g.lineWidth = 10;
   g.strokeRect(0, 0, S, S);
   g.strokeStyle = "rgba(255, 255, 255, 0.45)";

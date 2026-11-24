@@ -14,7 +14,7 @@ import "@babylonjs/core/Rendering/edgesRenderer";
 import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import { CELL, LEVEL, THICK } from "../game/constants";
-import type { Environment } from "../game/environments";
+import type { Environment, RoofShape } from "../game/environments";
 import { MATERIALS, PIECE_TYPES, pieceTransform, type MaterialId, type Piece, type PieceSpec, type PieceType } from "../game/pieces";
 import type { WorldPage } from "../worlds/pageDoors";
 import { editedGeometry, pieceGeometry, TREBUCHET_BASE } from "./geometry";
@@ -203,7 +203,7 @@ export class PieceView {
         mat.specularColor = look.specular > 0 ? new Color3(look.specular, look.specular, look.specular) : Color3.Black();
         mat.specularPower = 24;
         this.materials.set(key, mat);
-        const mesh = makeMesh(pieceGeometry(type), scene, `pieces-${key}`);
+        const mesh = makeMesh(pieceGeometry(type, env.roof), scene, `pieces-${key}`);
         mesh.material = mat;
         mesh.receiveShadows = true;
         // Instances are spread over the whole world, so skip per-mesh culling.
@@ -222,7 +222,7 @@ export class PieceView {
     this.frameShape.filterMembershipMask = FRAME_GROUP;
     this.frameShape.filterCollideMask = ~BUILDER_GROUP;
     for (const type of ["ramp", "roof"] as const) {
-      const hull = makeMesh(pieceGeometry(type), scene, `hull-${type}`);
+      const hull = makeMesh(pieceGeometry(type, env.roof), scene, `hull-${type}`);
       this.shapes[type] = new PhysicsShapeConvexHull(hull, scene);
       hull.dispose();
     }
@@ -243,7 +243,7 @@ export class PieceView {
    * (see debris.ts). The caller owns it.
    */
   debrisMesh(piece: Piece): Mesh {
-    const data = piece.edit === 0 ? pieceGeometry(piece.type) : editedGeometry(piece.type, piece.edit);
+    const data = piece.edit === 0 ? pieceGeometry(piece.type, this.env.roof) : editedGeometry(piece.type, piece.edit);
     const mesh = makeMesh(data, this.scene, `debris-${piece.id}`);
     mesh.material = this.materials.get(poolKey(piece.type, piece.material))!;
     paintMesh(mesh, pieceColor(piece, this.env, 0.15));
@@ -390,7 +390,7 @@ export class Ghost {
   private readonly materials: Record<GhostLook, StandardMaterial>;
   private readonly scale = new Vector3(1.015, 1.015, 1.015);
 
-  constructor(private readonly scene: Scene) {
+  constructor(private readonly scene: Scene, roof: RoofShape) {
     const make = (name: GhostLook, alpha: number) => {
       const m = new StandardMaterial(`ghost-${name}`, scene);
       m.disableLighting = true;
@@ -404,7 +404,7 @@ export class Ghost {
     };
     this.materials = { ok: make("ok", 0.38), bad: make("bad", 0.38), remove: make("remove", 0.55) };
     for (const type of PIECE_TYPES) {
-      const mesh = makeMesh(pieceGeometry(type), scene, `ghost-${type}`);
+      const mesh = makeMesh(pieceGeometry(type, roof), scene, `ghost-${type}`);
       mesh.setEnabled(false);
       mesh.rotationQuaternion = Quaternion.Identity();
       // Outline, so the preview reads clearly against pieces of any colour.
@@ -456,7 +456,7 @@ export class PlaceFlash {
   private readonly templates = {} as Record<PieceType, Mesh>;
   private readonly active: { mesh: Mesh; t: number }[] = [];
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, roof: RoofShape) {
     const mat = new StandardMaterial("flash", scene);
     mat.disableLighting = true;
     mat.emissiveColor = new Color3(1, 1, 0.92);
@@ -465,7 +465,7 @@ export class PlaceFlash {
     mat.fogEnabled = false;
     mat.zOffset = -3;
     for (const type of PIECE_TYPES) {
-      const mesh = makeMesh(pieceGeometry(type), scene, `flash-${type}`);
+      const mesh = makeMesh(pieceGeometry(type, roof), scene, `flash-${type}`);
       mesh.material = mat;
       mesh.rotationQuaternion = Quaternion.Identity();
       mesh.setEnabled(false);

@@ -122,8 +122,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const rig = new CameraRig(scene);
   const world = page.scenery(scene, rig.camera);
   const view = new PieceView(scene, state, world.shadows, env, page.pieceSkin);
-  const ghost = new Ghost(scene);
-  const flash = new PlaceFlash(scene);
+  const ghost = new Ghost(scene, env.roof);
+  const flash = new PlaceFlash(scene, env.roof);
   const overlay = new EditOverlay(scene);
   const player = new Player(scene, world.shadows, env, page.outfit);
   const input = new Input(canvas);

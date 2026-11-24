@@ -253,6 +253,8 @@ export class Avatar {
     const jacket: Mesh[] = [];
     const rest: Mesh[] = [];
     for (const mesh of this.meshes) {
+      // Extras that are not showing (a world's rocket flames, say) are not part of the picture.
+      if (!mesh.isEnabled(false)) continue;
       mesh.computeWorldMatrix(true);
       if (mesh.material === this.jacket) jacket.push(mesh);
       else rest.push(mesh);

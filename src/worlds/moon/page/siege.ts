@@ -9,61 +9,72 @@ import { paintMesh } from "../../../render/paint";
 import type { SiegeModel } from "../../pageDoors";
 
 /** Height of the arm's pivot above the turntable. */
-const PIVOT = 3.4;
+const PIVOT = 3.2;
 
 /**
- * A wooden trebuchet: an A-frame each side holding the axle, on two rails, and
- * an arm with a long beam and sling above the pivot and an iron counterweight
- * below. It throws grey stones.
+ * The Moon's launcher: a white tubular tower on four splayed legs with gold
+ * foil round its base, and a long boom on a pivot: a throwing cup on the long
+ * end, a tank of ballast on the short one, a red band to see it swing by. It
+ * throws slugs of baked moon dust.
  */
 export function siegeModel(scene: Scene): SiegeModel {
-  const wood: [number, number, number] = [0.6, 0.4, 0.24];
-  const dark: [number, number, number] = [0.36, 0.24, 0.15];
-  const iron: [number, number, number] = [0.42, 0.45, 0.5];
-  const part = (mesh: Mesh, color: [number, number, number], x: number, y: number, z: number, rx = 0) => {
+  const white: [number, number, number] = [0.9, 0.91, 0.93];
+  const grey: [number, number, number] = [0.42, 0.44, 0.5];
+  const gold: [number, number, number] = [0.9, 0.68, 0.24];
+  const red: [number, number, number] = [0.82, 0.22, 0.18];
+  const dark: [number, number, number] = [0.17, 0.18, 0.22];
+  const part = (mesh: Mesh, color: [number, number, number], x: number, y: number, z: number, rx = 0, rz = 0) => {
     mesh.position.set(x, y, z);
     mesh.rotation.x = rx;
+    mesh.rotation.z = rz;
     return paintMesh(mesh, ...color);
   };
+  const tube = (name: string, diameter: number, height: number) => CreateCylinder(name, { diameter, height, tessellation: 10 }, scene);
 
-  // Frame. Throws toward +z.
-  const legLength = Math.hypot(1.6, PIVOT);
-  const legTilt = Math.atan2(1.6, PIVOT);
+  // Frame: four legs meeting two cheek plates that hold the axle, pads on the feet. Throws toward +z.
   const frameParts: Mesh[] = [];
+  const spread = 1.45, cheek = 0.62;
+  const legLength = Math.hypot(spread, PIVOT - 0.1);
+  const legTilt = Math.atan2(spread, PIVOT - 0.1);
   for (const side of [-1, 1]) {
-    const x = side * 0.95;
-    frameParts.push(part(CreateBox("t-rail", { width: 0.3, height: 0.3, depth: 3.8 }, scene), dark, x, 0.15, 0));
-    frameParts.push(part(CreateBox("t-leg", { width: 0.24, height: legLength, depth: 0.24 }, scene), wood, x, PIVOT / 2, 0.8, legTilt));
-    frameParts.push(part(CreateBox("t-leg", { width: 0.24, height: legLength, depth: 0.24 }, scene), wood, x, PIVOT / 2, -0.8, -legTilt));
+    for (const end of [-1, 1]) {
+      frameParts.push(part(tube("l-leg", 0.17, legLength), white, side * cheek, PIVOT / 2, end * spread * 0.5, end * legTilt));
+      frameParts.push(part(CreateCylinder("l-pad", { diameter: 0.6, height: 0.1, tessellation: 12 }, scene), grey, side * cheek, 0.05, end * spread));
+    }
+    frameParts.push(part(CreateBox("l-cheek", { width: 0.1, height: 0.7, depth: 0.55 }, scene), grey, side * cheek, PIVOT, 0));
+    frameParts.push(part(tube("l-tie", 0.1, spread * 2), white, side * cheek, 0.55, 0, Math.PI / 2));
   }
-  frameParts.push(part(CreateBox("t-brace", { width: 2.2, height: 0.22, depth: 0.22 }, scene), dark, 0, 0.3, 1.5));
-  frameParts.push(part(CreateBox("t-brace", { width: 2.2, height: 0.22, depth: 0.22 }, scene), dark, 0, 0.3, -1.5));
-  const axle = CreateCylinder("t-axle", { diameter: 0.22, height: 2.3, tessellation: 8 }, scene);
-  axle.rotation.z = Math.PI / 2;
-  frameParts.push(part(axle, iron, 0, PIVOT, 0));
+  frameParts.push(part(tube("l-cross", 0.1, cheek * 2), white, 0, 0.55, spread * 0.82, 0, Math.PI / 2));
+  frameParts.push(part(tube("l-cross", 0.1, cheek * 2), white, 0, 0.55, -spread * 0.82, 0, Math.PI / 2));
+  // The power pack between the legs, wrapped in gold foil, with a dish on top.
+  frameParts.push(part(CreateBox("l-pack", { width: 0.95, height: 0.7, depth: 1.1 }, scene), gold, 0, 0.5, -0.1));
+  frameParts.push(part(CreateCylinder("l-dish", { diameterTop: 0.7, diameterBottom: 0.12, height: 0.22, tessellation: 12 }, scene), white, 0, 1.0, -0.35));
+  frameParts.push(part(tube("l-axle", 0.2, cheek * 2 + 0.3), dark, 0, PIVOT, 0, 0, Math.PI / 2));
 
-  // Arm, drawn upright from the pivot: the long beam and sling up, the counterweight below.
+  // Arm, drawn upright from the pivot: the boom and cup up, the ballast tank below.
   const armParts: Mesh[] = [
-    part(CreateBox("t-beam", { width: 0.22, height: 6, depth: 0.22 }, scene), wood, 0, 1.6, 0),
-    part(CreateBox("t-weight", { width: 1.1, height: 1, depth: 1 }, scene), iron, 0, -1.5, 0),
-    part(CreateBox("t-hanger", { width: 0.12, height: 0.6, depth: 0.12 }, scene), dark, 0, -0.9, 0),
-    part(CreateBox("t-sling", { width: 0.05, height: 0.05, depth: 1.2 }, scene), dark, 0, 4.6, -0.55),
+    part(tube("l-boom", 0.2, 5.9), white, 0, 1.75, 0),
+    part(tube("l-band", 0.26, 0.5), red, 0, 3.6, 0),
+    part(CreateCylinder("l-cup", { diameterTop: 0.95, diameterBottom: 0.45, height: 0.5, tessellation: 12 }, scene), grey, 0, 4.85, 0),
+    part(tube("l-tank", 0.95, 1.1), gold, 0, -1.25, 0),
+    part(CreateSphere("l-tank-end", { diameter: 0.95, segments: 10 }, scene), gold, 0, -1.8, 0),
+    part(tube("l-stub", 0.2, 0.9), white, 0, -0.45, 0),
   ];
 
-  const stoneMaterial = new StandardMaterial("stone", scene);
-  stoneMaterial.diffuseColor = new Color3(0.38, 0.37, 0.36);
-  stoneMaterial.specularColor = Color3.Black();
+  const slugMaterial = new StandardMaterial("slug", scene);
+  slugMaterial.diffuseColor = new Color3(0.62, 0.61, 0.6);
+  slugMaterial.specularColor = Color3.Black();
 
   return {
     frame: Mesh.MergeMeshes(frameParts, true, true)!,
     arm: Mesh.MergeMeshes(armParts, true, true)!,
     pivot: PIVOT,
-    cocked: -2.3,
-    thrown: 0.95,
-    swing: 0.45,
+    cocked: -2.2,
+    thrown: 0.9,
+    swing: 0.4,
     stone(radius) {
-      const mesh = CreateSphere("stone", { diameter: radius * 2.4, segments: 8 }, scene);
-      mesh.material = stoneMaterial;
+      const mesh = CreateSphere("slug", { diameter: radius * 2.4, segments: 8 }, scene);
+      mesh.material = slugMaterial;
       return mesh;
     },
   };

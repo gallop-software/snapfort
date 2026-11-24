@@ -1,6 +1,8 @@
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { CELL, LEVEL, THICK } from "../game/constants";
+import type { RoofShape } from "../game/environments";
 import { editGrid, type PieceType } from "../game/pieces";
+import { domeRings } from "../game/roofs";
 import { TREBUCHET_BASE } from "../game/trebuchet";
 
 type V3 = readonly [number, number, number];
@@ -99,9 +101,9 @@ const T = THICK / 2;
 /**
  * Geometry of each piece, with its origin at the bottom centre of its slot.
  * Floors and ramps are lifted so a ramp's ends meet the top of the floors
- * below and above it.
+ * below and above it. `roof` is the world's roof shape (see game/roofs.ts).
  */
-export function pieceGeometry(type: PieceType): VertexData {
+export function pieceGeometry(type: PieceType, roof: RoofShape = "pyramid"): VertexData {
   switch (type) {
     case "wall":
       return buildConvex(box([-H, 0, -T], [H, LEVEL, T], "z"));
@@ -122,6 +124,7 @@ export function pieceGeometry(type: PieceType): VertexData {
       ]);
     }
     case "roof": {
+      if (roof === "dome") return domeGeometry();
       const tip: V3 = [0, LEVEL, 0];
       const p: V3[] = [[-H, 0, -H], [H, 0, -H], [H, 0, H], [-H, 0, H]];
       return buildConvex([
@@ -138,6 +141,37 @@ export function pieceGeometry(type: PieceType): VertexData {
   }
 }
 
+/**
+ * A dome on the roof's square base: square rings stepping in and up along a
+ * quarter circle to a small flat top (the same outline the rules use for
+ * where a builder lands on it). Each side shows the piece texture once, from
+ * its base to the top.
+ */
+function domeGeometry(): VertexData {
+  const rings = domeRings();
+  const faces: Face[] = [];
+  /** Corner `k` (0..3, going round) of the ring at `inset` and `height`, both as parts of the cell. */
+  const corner = (k: number, inset: number, height: number): V3 => {
+    const r = (0.5 - inset) * CELL;
+    const sx = k === 0 || k === 3 ? -1 : 1, sz = k < 2 ? -1 : 1;
+    return [sx * r, height * LEVEL, sz * r];
+  };
+  for (let i = 1; i < rings.length; i++) {
+    const lo = rings[i - 1]!, hi = rings[i]!;
+    for (let k = 0; k < 4; k++) {
+      const a = corner(k, lo.inset, lo.height), b = corner((k + 1) % 4, lo.inset, lo.height);
+      const c = corner((k + 1) % 4, hi.inset, hi.height), d = corner(k, hi.inset, hi.height);
+      // Along the side, and up by height: the texture's border frames the whole side.
+      const uvs = [[lo.inset, lo.height], [1 - lo.inset, lo.height], [1 - hi.inset, hi.height], [hi.inset, hi.height]] as const;
+      faces.push({ pts: [a, b, c, d], textured: true, uvs });
+    }
+  }
+  const top = rings[rings.length - 1]!;
+  faces.push({ pts: [0, 1, 2, 3].map((k) => corner(k, top.inset, top.height)) });
+  faces.push({ pts: [3, 2, 1, 0].map((k) => corner(k, 0, 0)) });
+  return buildConvex(faces);
+}
+
 export { TREBUCHET_BASE } from "../game/trebuchet";
 
 /**
@@ -148,9 +182,9 @@ const wallProj: Projection = (p, face) => [face === 0 ? (p[0] + H) / CELL : (H -
 const floorProj: Projection = (p, face) => [(p[0] + H) / CELL, face === 4 ? (p[2] + H) / CELL : (H - p[2]) / CELL];
 
 /** Geometry of a wall or floor with some tiles cut out (see editGrid). */
-export function editedGeometry(type: PieceType, edit: number): VertexData {
+export function editedGeometry(type: PieceType, edit: number, roof: RoofShape = "pyramid"): VertexData {
   const grid = editGrid(type);
-  if (!grid || edit === 0) return pieceGeometry(type);
+  if (!grid || edit === 0) return pieceGeometry(type, roof);
   let merged: VertexData | null = null;
   for (let i = 0; i < grid.cols * grid.rows; i++) {
     if ((edit >> i) & 1) continue;
@@ -167,5 +201,5 @@ export function editedGeometry(type: PieceType, edit: number): VertexData {
     if (merged) merged.merge(tile);
     else merged = tile;
   }
-  return merged ?? pieceGeometry(type);
+  return merged ?? pieceGeometry(type, roof);
 }

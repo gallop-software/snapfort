@@ -12,5 +12,6 @@ export const page: WorldPage = {
   outfit,
   siegeModel,
   sounds,
-  dust: [0.86, 0.8, 0.7],
+  // Grey moon dust.
+  dust: [0.74, 0.74, 0.78],
 };

@@ -765,6 +765,12 @@ export class World extends DurableObject<Env> {
       this.moves.set(player.id, move);
       this.quietTicks = 0;
       this.tickTimer ??= setInterval(() => this.tick(), TICK_MS);
+      // The flight was planned when it began. If what they were to land on has gone since (shot
+      // away while they were in the air), they are not left standing on nothing: on down they
+      // go, to whatever is under them now, the same way they were coming down.
+      if (![...this.players.values()].includes(player)) return;
+      const on = planFall(this.build, fall.land, [0, 0, 0], this.environment);
+      if (fall.land[1] - on.land[1] > 0.3) this.fly(player, fall.glideFrom === undefined ? on : { ...on, glideFrom: 0 });
     }, fall.time * 1000);
   }
 

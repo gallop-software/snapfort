@@ -212,6 +212,11 @@ All in `src/worlds/moon/` again; the Meadow's reference pictures still match to 
 - **Launcher shots**: every shot takes 0.8 s however far, nearly straight (`siege.shotSeconds`, a new optional number any world may set; without it shots are a trebuchet's high arc). My reading of "shoot in under a second" is the time the rock takes to arrive; the reload was left at 6 s, then set to 3 s (user, 2026-11-23: "shoot every 3 seconds"). A straight shot hits the first thing in its line, so on the Moon nothing can be lobbed over a wall. The rock is a big rough chunk (about 2 m across; it touches things within 0.7 m of its path, was 0.4).
 - **Launcher look**: a long stainless and white barrel with black bands, grid fins behind the muzzle and three engine bells at the breech, held between two white towers on a black six-sided pad with landing legs and a pressure tank. It does not swing over: it sits aimed, kicks up as it fires and settles while it reloads.
 
+## Left standing on nothing (user report, 2026-11-23: a builder hanging in the air beside a platform that had been shot)
+
+- A flight (thrown, falling, flown back on rockets) is planned by the server when it begins, landing spot included. With the Moon's launcher firing every 3 s and flights lasting about 10 s, what a builder was to land on can be shot away while they are in the air; they were then flown to where it used to be and left there (a page that is awake dropped them with its own physics a moment later; a tab in the background hung in the air for everyone).
+- Fix (shared server code, `fly` in `worker/world.ts`, so it covers every world): when a flight ends, the server looks under the landing spot again; if what was there has gone, the builder goes on down to whatever is there now, the same way they were coming (on the rockets, where the flight ended in a glide). `npm run qa:landing` reproduces it.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

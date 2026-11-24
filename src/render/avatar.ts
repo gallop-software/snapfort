@@ -119,6 +119,7 @@ export class Avatar {
       this.root.rotation.x = 0;
       this.root.rotation.z = 0;
       for (const joint of [...this.shoulders, ...this.hips]) joint.rotation.z = 0;
+      for (const shoulder of this.shoulders) shoulder.rotation.y = 0;
     }
     // Turn toward the view direction along the shortest arc.
     let diff = (facingYaw - this.root.rotation.y) % (Math.PI * 2);
@@ -196,8 +197,9 @@ export class Avatar {
 
   /**
    * Thrown through the air: head-over-heels flips, a slow sideways roll, and
-   * arms and legs flailing out of time with each other. Spins around the
-   * middle of the body, not the feet.
+   * arms and legs flailing out of time with each other: the arms flung wide
+   * and nearly straight, not tucked in by the sides. Spins around the middle
+   * of the body, not the feet.
    */
   private tumble(dt: number): void {
     const t = (this.tumbleTime += dt);
@@ -210,10 +212,14 @@ export class Avatar {
     const turned = Vector3.TransformCoordinates(middle, Matrix.RotationYawPitchRoll(this.root.rotation.y, this.root.rotation.x, this.root.rotation.z));
     this.root.position.set(feet.x + middle.x - turned.x, feet.y + middle.y - turned.y, feet.z + middle.z - turned.z);
     for (let side = 0; side < 2; side++) {
-      const s = side === 0 ? 1 : -1;
-      this.shoulders[side]!.rotation.x = -1.6 + Math.sin(t * 15 + side * 2.3) * 1.5;
-      this.shoulders[side]!.rotation.z = s * (0.9 + Math.sin(t * 11 + side) * 0.6);
-      this.elbows[side]!.rotation.x = -0.5 - Math.abs(Math.sin(t * 13 + side)) * 1.2;
+      // Away from the body: the first of each pair is on the -x side, where a negative turn about z goes outward.
+      const s = side === 0 ? -1 : 1;
+      // Out from the body (z: from well out to above the shoulder), sweeping
+      // forward and back (y) and windmilling (x), the elbows barely bent.
+      this.shoulders[side]!.rotation.x = -0.3 + Math.sin(t * 10 + side * 2.3) * 1.1;
+      this.shoulders[side]!.rotation.y = Math.sin(t * 8 + side * 2.6) * 0.7;
+      this.shoulders[side]!.rotation.z = s * (1.55 + Math.sin(t * 6 + side * 1.9) * 0.55);
+      this.elbows[side]!.rotation.x = -0.15 - Math.abs(Math.sin(t * 9 + side)) * 0.45;
       this.hips[side]!.rotation.x = Math.sin(t * 12 + side * 2.8) * 1.3;
       this.hips[side]!.rotation.z = s * Math.abs(Math.sin(t * 9 + side)) * 0.5;
       this.knees[side]!.rotation.x = 0.3 + Math.abs(Math.sin(t * 14 + side * 1.7)) * 1.4;
@@ -271,8 +277,10 @@ export class Avatar {
     this.root.rotation.x = (-Math.PI / 2) * down;
     this.root.rotation.z = 0;
     for (let side = 0; side < 2; side++) {
-      const s = side === 0 ? 1 : -1;
+      // Away from the body: the first of each pair is on the -x side, where a negative turn about z goes outward.
+      const s = side === 0 ? -1 : 1;
       this.shoulders[side]!.rotation.x = -0.3 * down;
+      this.shoulders[side]!.rotation.y = 0;
       this.shoulders[side]!.rotation.z = s * 1.25 * down;
       this.elbows[side]!.rotation.x = -0.35 * down;
       this.hips[side]!.rotation.x = -0.1 * down;

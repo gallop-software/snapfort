@@ -90,6 +90,11 @@ export class Sfx {
     this.table.caught(this.kit);
   }
 
+  /** A builder's way back from a throw starts, lasting `seconds` (worlds that have one). */
+  glide(seconds: number): void {
+    this.table.glide?.(this.kit, seconds);
+  }
+
   /** A stone lands. Quieter further away (`near` 0..1). */
   boom(near = 1): void {
     this.table.boom(this.kit, near);

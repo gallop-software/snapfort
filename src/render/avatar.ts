@@ -64,6 +64,10 @@ export class Avatar {
   private legYaw = 0;
   /** Seconds into a tumble (0 when not tumbling). */
   private tumbleTime = 0;
+  private glideTime = 0;
+  /** Whether the "glide" extra is showing, and whether a glide left the limbs turned sideways. */
+  private glideShown = false;
+  private glided = false;
   /** Left then right: hip, knee, shoulder and elbow joints. */
   private readonly hips: TransformNode[] = [];
   private readonly knees: TransformNode[] = [];
@@ -102,7 +106,9 @@ export class Avatar {
    * Animates the builder. `facingYaw` is where they look, (vx, vz) their
    * horizontal velocity in m/s. Place `root` at their feet first.
    */
-  animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean, tumbling = false, down = 0): void {
+  animate(dt: number, facingYaw: number, vx: number, vz: number, onGround: boolean, tumbling = false, down = 0, gliding = false): void {
+    // The outfit's "glide" extra (a world's rockets, say) shows for as long as they glide.
+    if (gliding !== this.glideShown) this.setExtra("glide", (this.glideShown = gliding));
     if (tumbling) return this.tumble(dt);
     if (down > 0) return this.lie(down);
     if (this.tumbleTime > 0) {
@@ -112,6 +118,12 @@ export class Avatar {
       this.root.rotation.z = 0;
       for (const joint of [...this.shoulders, ...this.hips]) joint.rotation.z = 0;
       for (const shoulder of this.shoulders) shoulder.rotation.y = 0;
+    }
+    if (gliding) return this.glide(dt, facingYaw);
+    if (this.glided) {
+      this.glided = false;
+      this.glideTime = 0;
+      for (const joint of [...this.shoulders, ...this.hips]) joint.rotation.z = 0;
     }
     // Turn toward the view direction along the shortest arc.
     let diff = (facingYaw - this.root.rotation.y) % (Math.PI * 2);
@@ -220,6 +232,39 @@ export class Avatar {
     this.body.position.y = 0;
     this.legYaw = 0;
     this.holdLegs();
+  }
+
+  /**
+   * Flying down under control: upright, leaning a little into it, arms held
+   * out for balance and legs together, swaying gently.
+   */
+  private glide(dt: number, facingYaw: number): void {
+    this.glideTime += dt;
+    const t = this.glideTime;
+    const ease = Math.min(1, dt * 8);
+    // Out of the tumble's spin, round to the way they look, along the shortest arc.
+    let diff = (facingYaw - this.root.rotation.y) % (Math.PI * 2);
+    if (diff > Math.PI) diff -= Math.PI * 2;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    this.root.rotation.y += diff * Math.min(1, dt * 5);
+    const to = (node: TransformNode, axis: "x" | "y" | "z", target: number) => (node.rotation[axis] += (target - node.rotation[axis]) * ease);
+    for (let side = 0; side < 2; side++) {
+      const s = side === 0 ? -1 : 1;
+      to(this.shoulders[side]!, "x", -0.25);
+      to(this.shoulders[side]!, "z", s * (0.75 + Math.sin(t * 2.2 + side) * 0.08));
+      to(this.elbows[side]!, "x", -0.35);
+      to(this.hips[side]!, "x", 0.12 + Math.sin(t * 1.7 + side * 2) * 0.05);
+      to(this.hips[side]!, "z", s * 0.06);
+      to(this.knees[side]!, "x", 0.3);
+    }
+    to(this.body, "x", 0.14);
+    to(this.body, "z", Math.sin(t * 1.3) * 0.05);
+    this.body.rotation.y += (0 - this.body.rotation.y) * ease;
+    this.body.position.y += (0 - this.body.position.y) * ease;
+    this.legYaw = 0;
+    this.holdLegs();
+    // Leaving the glide (landing), the limbs ease back on their own; the sideways turns are undone here.
+    this.glided = true;
   }
 
   /**

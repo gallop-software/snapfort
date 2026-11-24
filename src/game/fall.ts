@@ -31,6 +31,26 @@ export interface Fall {
   land: Vec;
   /** Points along the way at every tenth of a second (for drawing the flight). */
   path: Vec[];
+  /**
+   * From this many seconds in, the builder is no longer tumbling but flying
+   * down under control (a world's own way back: rockets, say), and lands on
+   * their feet. Left out for an ordinary fall, which ends flat on the ground.
+   */
+  glideFrom?: number;
+}
+
+/** What a builder on a planned flight is doing `t` seconds in. */
+export type FallPhase = "tumble" | "glide" | "down" | "done";
+
+export function fallPhase(f: Fall, t: number): FallPhase {
+  if (t < (f.glideFrom ?? f.time)) return "tumble";
+  if (t < f.time) return "glide";
+  return t < fallEnd(f) ? "down" : "done";
+}
+
+/** Seconds until a builder on this flight is back on their feet. */
+export function fallEnd(f: Fall): number {
+  return f.glideFrom === undefined ? f.time + DOWN_TIME + RISE_TIME : f.time;
 }
 
 /**

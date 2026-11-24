@@ -3,11 +3,11 @@ import { BuildState, type BuildOp } from "../src/game/buildState";
 import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { measureTowers } from "../src/game/towers";
-import { DOWN_TIME, planFall, RISE_TIME } from "../src/game/fall";
+import { fallEnd, planFall } from "../src/game/fall";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import type { Environment } from "../src/game/environments";
-import { DEFAULT_WORLD, worldOf } from "../src/worlds";
+import { DEFAULT_WORLD, serverOf, worldOf } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import type { Ledger } from "./ledger";
 import { stripeLive, type StripeEnv } from "./stripe";
@@ -737,10 +737,12 @@ export class World extends DurableObject<Env> {
       // A small drop (a step, a trebuchet's base) is left to the builder's own physics:
       // only a real fall knocks them down.
       if (!v && centre[1] - fall.land[1] < this.environment.knockdownDrop) continue;
+      // Thrown: the world may have a flight of its own for that (out into space and back, say).
+      if (v) fall = serverOf(this.environment).thrown?.({ build: this.build, env: this.environment, from: centre, v, fall }) ?? fall;
       fall = { ...fall, path: fall.path.map(round), land: round(fall.land) };
       this.release(player.id);
-      this.downUntil.set(player.id, now + (fall.time + DOWN_TIME + RISE_TIME) * 1000);
-      this.broadcast({ t: "thrown", id: player.id, path: fall.path, time: Math.round(fall.time * 1000) / 1000, land: fall.land });
+      this.downUntil.set(player.id, now + fallEnd(fall) * 1000);
+      this.broadcast({ t: "thrown", id: player.id, path: fall.path, time: Math.round(fall.time * 1000) / 1000, land: fall.land, ...(fall.glideFrom === undefined ? {} : { glide: fall.glideFrom }) });
       // Where they come to rest is where they are (for anyone joining, and if their tab is asleep).
       setTimeout(() => {
         const move: WireMove = [player.id, Math.round(fall.land[0] * 100), Math.round(fall.land[1] * 100), Math.round(fall.land[2] * 100), m[4], 1];

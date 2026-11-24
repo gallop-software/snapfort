@@ -88,4 +88,10 @@ export const sounds: SoundTable = {
     k.tone("sine", 415, 415, 0.2, 0.26, 0.22);
     k.tone("sine", 262, 240, 0.6, 0.26, 0.44);
   },
+  /** The rocket pack: a hiss that runs the whole way down, and a rumble under it. */
+  glide(k, seconds) {
+    k.noise(seconds, 0.16, 1500);
+    k.tone("sawtooth", 62, 48, seconds, 0.07);
+    k.tone("sine", 900, 1400, 0.12, 0.08);
+  },
 };

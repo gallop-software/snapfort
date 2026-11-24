@@ -147,10 +147,26 @@ for (let i = 0; i < 220 && !hitAt; i++) {
 }
 const flight = (hitAt - fired) / 1000;
 check("the stone flies a slow, floaty lob: about 14.5 s to 350 m (about 8.5 s in the meadow)", hitAt > 0 && flight > 13 && flight < 16.5, `${flight.toFixed(1)} s`);
-await wait(9000);
-const vEnd = await sf(v, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z, down: window.snapfort.player.knockedDown }));
+// Thrown into space: up and out, tumbling, then the suit's rockets fly them back down.
+let top = 0, tumbled = false, glided = false, flames = false, seenHigh = 0, seenFlames = false;
+const vId = await sf(v, () => window.snapfort.myId);
+for (let i = 0; i < 130; i++) {
+  await wait(100);
+  const now = await sf(v, () => { const s = window.snapfort; return { y: s.player.position.y, tumbling: s.player.tumbling, gliding: s.player.gliding, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent === s.player.avatar.root), down: s.player.knockedDown }; });
+  top = Math.max(top, now.y); tumbled ||= now.tumbling; glided ||= now.gliding; flames ||= now.gliding && now.flames;
+  const seen = await sf(b, (id) => { const s = window.snapfort; const p = s.remotes.positionOf(id); return { y: p ? p[1] : 0, flames: s.scene.meshes.some((m) => m.name === "flame" && m.isEnabled() && m.parent?.parent !== s.player.avatar.root) }; }, vId);
+  seenHigh = Math.max(seenHigh, seen.y); seenFlames ||= seen.flames;
+  if (i > 20 && !now.down) break;
+}
+check("a builder by the impact is thrown into space: tumbling up to about 170 m (visitors too)", tumbled && top > 150 && top < 200, `${top.toFixed(0)} m up`);
+check("…then the rocket pack lights and flies them back down under control", glided && flames);
+const vEnd = await sf(v, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z, feet: window.snapfort.player.feetY, down: window.snapfort.player.knockedDown, flames: window.snapfort.scene.meshes.some((m) => m.name === "flame" && m.isEnabled()) }));
 const thrown = Math.hypot(vEnd.x - vStart.x, vEnd.z - vStart.z);
-check("a builder by the impact is thrown far (visitors too)", thrown > 60, `${thrown.toFixed(0)} m`);
+check("…setting them down on their feet near where they were hit, rockets off", !vEnd.down && !vEnd.flames && thrown > 3 && thrown < 20 && Math.abs(vEnd.feet) < 0.3, `${thrown.toFixed(0)} m away, feet at ${vEnd.feet.toFixed(2)} m`);
+check("…and everyone else sees it: high above, rockets burning", seenHigh > 150 && seenFlames, `${seenHigh.toFixed(0)} m`);
+await v.keyboard.down("KeyW"); await wait(600); await v.keyboard.up("KeyW");
+const walked = await sf(v, () => ({ x: window.snapfort.player.position.x, z: window.snapfort.player.position.z }));
+check("…and they walk away from it", Math.hypot(walked.x - vEnd.x, walked.z - vEnd.z) > 2);
 await b.keyboard.press("KeyH");
 
 check("no errors", errors.length === 0, errors.slice(0, 4).join(" | "));

@@ -1112,6 +1112,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         placing = false;
         player.startFall(fall);
         if (fall.time > 0.6) sfx.yelp();
+        // A way back of the world's own (rockets, say): its sound when it starts.
+        const glide = fall.glideFrom;
+        if (glide !== undefined) setTimeout(() => player.gliding && sfx.glide(fall.time - glide), glide * 1000 + 50);
       } else remotes.throw(id, fall, performance.now());
     },
     denied(reason) {

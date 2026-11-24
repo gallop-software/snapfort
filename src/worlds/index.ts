@@ -1,6 +1,9 @@
 import type { Environment } from "../game/environments";
+import { server as meadowServer } from "./meadow/server";
 import { world as meadow } from "./meadow/world";
+import { server as moonServer } from "./moon/server";
 import { world as moon } from "./moon/world";
+import type { WorldServer } from "./serverDoors";
 
 /**
  * The list of worlds. This is the one shared file that names them: everything
@@ -12,6 +15,14 @@ import { world as moon } from "./moon/world";
  * the build if one does).
  */
 export const WORLDS: readonly Environment[] = [meadow, moon];
+
+/** Each world's own rules on the server, by world id. */
+const SERVERS: Readonly<Record<string, WorldServer>> = { [meadow.id]: meadowServer, [moon.id]: moonServer };
+
+/** The server half of a world (nothing of its own, for a world without one). */
+export function serverOf(env: Environment): WorldServer {
+  return SERVERS[env.id] ?? {};
+}
 
 /** Where anything unknown ends up: the first world, at the site's front door. */
 export const DEFAULT_WORLD: Environment = WORLDS[0]!;

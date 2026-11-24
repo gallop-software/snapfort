@@ -5,7 +5,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { CELL, WORLD_HALF_CELLS } from "../game/constants";
 import type { Environment } from "../game/environments";
 import type { OutfitBuilder } from "../worlds/pageDoors";
-import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
+import { fallEnd, fallPhase, fallPosition, type Fall } from "../game/fall";
 import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
 import { BUILDER_GROUP } from "./physicsGroups";
 
@@ -80,7 +80,7 @@ export class Player {
       this.position.set(p[0], p[1], p[2]);
       this.onGround = t >= this.fall.fall.time;
       this.state = this.onGround ? "ground" : "air";
-      if (t >= this.fall.fall.time + DOWN_TIME + RISE_TIME) this.fall = null;
+      if (t >= fallEnd(this.fall.fall)) this.fall = null;
       return;
     }
 
@@ -139,9 +139,14 @@ export class Player {
     return this.fall ? (performance.now() - this.fall.start) / 1000 : 0;
   }
 
-  /** In the air after a throw or fall. */
+  /** Tumbling through the air after a throw or fall. */
   get tumbling(): boolean {
-    return this.fall !== null && this.fallTime < this.fall.fall.time;
+    return this.fall !== null && fallPhase(this.fall.fall, this.fallTime) === "tumble";
+  }
+
+  /** Flying back down under control (a world's own way back from a throw). */
+  get gliding(): boolean {
+    return this.fall !== null && fallPhase(this.fall.fall, this.fallTime) === "glide";
   }
 
   /** From being thrown until back on their feet: no building, no moving. */
@@ -151,7 +156,7 @@ export class Player {
 
   /** 1 lying flat after coming down, easing to 0 while getting up. */
   get down(): number {
-    if (!this.fall) return 0;
+    if (!this.fall || this.fall.fall.glideFrom !== undefined) return 0;
     return downness(this.fallTime - this.fall.fall.time);
   }
 
@@ -202,6 +207,6 @@ export class Player {
   animate(dt: number, facingYaw: number): void {
     this.avatar.root.position.set(this.position.x, this.position.y - HEIGHT / 2, this.position.z);
     const v = this.controller.getVelocity();
-    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down);
+    this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down, this.gliding);
   }
 }

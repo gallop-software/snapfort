@@ -134,7 +134,7 @@ export type ServerMessage =
    * second), comes down at `land` after `time` seconds, lies there a moment and
    * gets up. Every page plays it, so it happens even with their tab hidden.
    */
-  | { t: "thrown"; id: string; path: WireVec[]; time: number; land: WireVec }
+  | { t: "thrown"; id: string; path: WireVec[]; time: number; land: WireVec; /** Flying down under control from this many seconds in (see Fall.glideFrom). */ glide?: number }
   /** The tallest standing structures, tallest first. */
   | { t: "towers"; list: WireTower[] }
   /** A board or fire request was turned down ("locked": building here needs the Full Game). */

@@ -71,7 +71,11 @@ export interface OutfitRig {
 export interface Outfit {
   /** The material that takes the player's colour. */
   tint: StandardMaterial;
-  /** Parts that can be shown and hidden by name (all hidden to start with). */
+  /**
+   * Parts that can be shown and hidden by name (all hidden to start with).
+   * "glide" is shown while the builder flies down under control at the end of
+   * a throw (see Fall.glideFrom).
+   */
   extras?: Record<string, Mesh[]>;
 }
 
@@ -120,4 +124,6 @@ export interface SoundTable {
   crumble(kit: SoundKit): void;
   horn(kit: SoundKit): void;
   caught(kit: SoundKit): void;
+  /** A builder's way back from a throw starts (see Fall.glideFrom), for `seconds`. Optional. */
+  glide?(kit: SoundKit, seconds: number): void;
 }

@@ -250,7 +250,7 @@ export class NetClient {
       case "towers":
         return h.towers(msg.list);
       case "thrown":
-        return h.thrown(msg.id, { from: msg.path[0] ?? msg.land, v: [0, 0, 0], time: msg.time, land: msg.land, path: msg.path });
+        return h.thrown(msg.id, { from: msg.path[0] ?? msg.land, v: [0, 0, 0], time: msg.time, land: msg.land, path: msg.path, ...(typeof msg.glide === "number" ? { glideFrom: msg.glide } : {}) });
       case "denied":
         return h.denied(msg.reason);
       case "said": {

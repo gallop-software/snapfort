@@ -8,7 +8,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { WireMove, WirePlayer } from "../net/protocol";
-import { DOWN_TIME, fallPosition, RISE_TIME, type Fall } from "../game/fall";
+import { fallEnd, fallPhase, fallPosition, type Fall } from "../game/fall";
 import type { OutfitBuilder } from "../worlds/pageDoors";
 import { Avatar, downness } from "./avatar";
 import { StandIns } from "./standIns";
@@ -62,6 +62,8 @@ interface Remote {
   /** A flight from the server (thrown or falling), played here whatever their own page does. */
   fall: { fall: Fall; start: number } | null;
   down: number;
+  /** Flying down under control at the end of a flight. */
+  gliding: boolean;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -100,7 +102,7 @@ export class RemotePlayers {
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);
     if (!remote) {
-      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, avatar: null, tag: null, full: false, stride: 0, fall: null, down: 0 });
+      this.remotes.set(player.id, { player, samples: [], x: 0, y: -100, z: 0, yaw: 0, vx: 0, vz: 0, ground: true, tumbling: false, gliding: false, avatar: null, tag: null, full: false, stride: 0, fall: null, down: 0 });
       return;
     }
     const renamed = remote.player.name !== player.name || remote.player.color !== player.color;
@@ -171,7 +173,7 @@ export class RemotePlayers {
       const avatar = (remote.avatar ??= this.claim(remote.player.color));
       avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
       avatar.root.rotation.y = remote.yaw;
-      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down);
+      avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down, remote.gliding);
       const showTag = size >= TAG_SIZE;
       if (showTag && !remote.tag) remote.tag = this.makeTag(remote.player);
       if (remote.tag) {
@@ -191,10 +193,13 @@ export class RemotePlayers {
     remote.y = y;
     remote.z = z;
     remote.vx = remote.vz = 0;
-    remote.tumbling = t < fall.time;
-    remote.ground = !remote.tumbling;
-    remote.down = downness(t - fall.time);
-    if (t >= fall.time + DOWN_TIME + RISE_TIME) {
+    const phase = fallPhase(fall, t);
+    remote.tumbling = phase === "tumble";
+    remote.gliding = phase === "glide";
+    remote.ground = t >= fall.time;
+    remote.down = fall.glideFrom === undefined ? downness(t - fall.time) : 0;
+    if (t >= fallEnd(fall)) {
+      remote.gliding = false;
       remote.fall = null;
       remote.down = 0;
       // Hold the landing spot until their own page says otherwise (it may be asleep).

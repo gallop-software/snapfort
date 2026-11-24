@@ -51,8 +51,8 @@ export function outfit(rig: OutfitRig, color: string): Outfit {
   core.disableLighting = true;
   for (const side of [-1, 1]) {
     add(CreateCylinder("nozzle", { diameterTop: 0.1, diameterBottom: 0.16, height: 0.14, tessellation: 10 }, scene), dark, body, side * 0.13, 0.95, -0.33);
-    flames.push(add(CreateCylinder("flame", { diameterTop: 0.15, diameterBottom: 0, height: 0.75, tessellation: 8 }, scene), fire, body, side * 0.13, 0.5, -0.33));
-    flames.push(add(CreateCylinder("flame-core", { diameterTop: 0.08, diameterBottom: 0, height: 0.4, tessellation: 6 }, scene), core, body, side * 0.13, 0.68, -0.33));
+    flames.push(add(CreateCylinder("flame", { diameterTop: 0.2, diameterBottom: 0, height: 1.1, tessellation: 8 }, scene), fire, body, side * 0.13, 0.33, -0.33));
+    flames.push(add(CreateCylinder("flame-core", { diameterTop: 0.1, diameterBottom: 0, height: 0.55, tessellation: 6 }, scene), core, body, side * 0.13, 0.6, -0.33));
   }
   // Arms: a band of the player's colour above the elbow, grey gloves.
   for (let side = 0; side < 2; side++) {

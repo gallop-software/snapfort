@@ -24,6 +24,8 @@ export class Store {
   onOwned: (key: string) => void = () => {};
   /** "Have a key?" from the menu or the unlock panel: the game opens the settings to type it in. */
   onHaveKey: () => void = () => {};
+  /** A short message for the player (shown by the game as a toast). */
+  onNotice: (text: string) => void = () => {};
 
   private readonly row = document.getElementById("full-game")!;
   private readonly message = document.getElementById("store-message")!;
@@ -42,6 +44,7 @@ export class Store {
     });
     document.getElementById("store-enter-cancel")!.addEventListener("click", () => this.showEnter(false));
     document.getElementById("store-lost-open")!.addEventListener("click", () => this.showLost(true));
+    document.getElementById("store-replace")!.addEventListener("click", () => void this.replace());
     document.getElementById("store-lost-cancel")!.addEventListener("click", () => this.showLost(false));
     document.getElementById("store-lost")!.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -67,17 +70,92 @@ export class Store {
     }
     const params = new URLSearchParams(location.search);
     const paid = params.get("paid");
+    // A link from an email opened in a tab already showing SnapFort only changes the part after
+    // the #, which does not reload the page: read it then too.
+    window.addEventListener("hashchange", () => void this.fromLink().then(() => this.render()));
     if (paid) {
       // Tidy the address, so a reload does not claim again.
       params.delete("paid");
       history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
       await this.claim(paid);
+    } else if (await this.fromLink()) {
+      // Unlocked (or replaced) from an email link.
     } else if (this.key) {
       this.owned = await this.check(this.key);
-      // A key from a test purchase stops working once real payments start: forget it quietly.
+      // A key replaced after a leak, or from a test purchase once real payments start: forget it.
       if (!this.owned) this.forget();
     }
+    // Nothing saved in this browser (Safari clears what sites store after 7 days unvisited, or
+    // the browser was cleaned): the device's year-long cookie may still remember the key.
+    if (!this.owned && !this.key) {
+      const remembered = await this.checkCookie();
+      if (remembered) this.own(remembered);
+    }
     this.render();
+  }
+
+  /**
+   * A link from an email: #key=… (the "Unlock SnapFort on this device" button)
+   * or #replace=… (confirming a new key). After the #, so it never reaches a
+   * server's logs; wiped from the address at once. True when there was one.
+   */
+  private async fromLink(): Promise<boolean> {
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const linkKey = hash.get("key");
+    const replace = hash.get("replace");
+    if (!linkKey && !replace) return false;
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    if (replace) {
+      await this.confirmReplace(replace);
+      return true;
+    }
+    const key = cleanKey(linkKey);
+    if (key && (await this.check(key))) {
+      this.own(key);
+      this.onNotice("Unlocked on this device: the Full Game is yours here");
+    } else this.onNotice("That link's key no longer works. Ask for a new link in Settings.");
+    return true;
+  }
+
+  /** "Replace my key": a link goes to the buyer's email; nothing changes until it is tapped. */
+  async replace(): Promise<void> {
+    if (!this.key) return;
+    this.say("Sending…");
+    try {
+      const response = await fetch("/api/replace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: this.key }) });
+      const data = (await response.json()) as { ok?: boolean; to?: string; error?: string };
+      if (!data.ok) return this.say(data.error ?? "Could not send the link. Try again in a moment.", true);
+      this.say(`We emailed a link to ${data.to}. Tap it to switch to a new key: the old one then stops working everywhere.`);
+    } catch {
+      this.say("Could not send the link. Check your connection and try again.", true);
+    }
+  }
+
+  private async confirmReplace(token: string): Promise<void> {
+    try {
+      const response = await fetch("/api/replace/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+      const data = (await response.json()) as { key?: string; error?: string };
+      if (!data.key) {
+        this.onNotice(data.error ?? "That link did not work.");
+        if (this.key) this.owned = await this.check(this.key);
+        return;
+      }
+      this.own(data.key);
+      this.onNotice("Done: you have a new key, and the old one no longer works");
+    } catch {
+      this.onNotice("Could not replace the key. Check your connection and try again.");
+    }
+  }
+
+  /** The key this device's cookie remembers, if it is still good. */
+  private async checkCookie(): Promise<string | null> {
+    try {
+      const response = await fetch("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = (await response.json()) as { valid?: boolean; key?: string | null };
+      return data.valid && data.key ? data.key : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Off to Stripe's checkout page. */
@@ -127,7 +205,7 @@ export class Store {
       const response = await fetch("/api/lost", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: address }) });
       if (!response.ok) return this.say(((await response.json()) as { error?: string }).error ?? "Could not send it. Try again in a moment.", true);
       this.showLost(false);
-      this.say("If that email bought the Full Game, your key is on its way. Check your inbox (and spam).");
+      this.say("If that email bought the Full Game, a link is on its way: open it on this device and tap the button. (Check spam too.)");
     } catch {
       this.say("Could not send it. Check your connection and try again.", true);
     }

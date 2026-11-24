@@ -46,6 +46,7 @@ npm run qa:moon         # the Moon: look, visitors, low gravity, long throws
 npm run qa:pay          # buying the Full Game in Stripe's test mode, keys, webhooks
 npm run qa:menu         # the menu, the Moon's unlock, first-game tips
 npm run qa:presence     # exact builder counts, no ghosts, new-version restart (3 min)
+npm run qa:keys         # email unlock links, remembered devices, one player per key, replacing a key
 ```
 
 ## Deploying

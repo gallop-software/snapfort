@@ -168,6 +168,14 @@ Decided with the user: one way to pay, a **one-time $7 "Full Game"** (no subscri
 - The chat line (user, 2026-11-23): Enter sends; Enter or Backspace on an empty line closes it, straight back to playing; Esc opens the menu, as everywhere in the game, and what was typed waits for next time. No Send or ✕ buttons on computers (the mouse is the game's while typing); phones keep them. After stepping away (another window), any key carries on, not only a click: browsers never let Esc itself take the mouse back, but any other key may.
 - `qa/presence.mjs` checks all of this (a silent connection is dropped in under two minutes). Protocol version 3.
 
+## Keys across devices (user, 2026-11-23)
+
+- **Unlock by email link**: every key email (after buying, "Email me a link", after replacing) has a button "Unlock SnapFort on this device": `snapfort.io/moon#key=…`. After the #, so no server logs it; the page reads it (also on a hash change, for a tab already open), unlocks, and wipes it from the address.
+- **A device remembers its key**: in the page's storage and in a year-long HttpOnly cookie (`snapfort_key`, set by `/api/key`, `/api/claim`, `/api/replace/confirm`), since Safari clears what sites store after 7 days unvisited. `/api/key` with no key reads the cookie; a key that no longer works clears it.
+- **One player at a time per key, newest device wins**: the Ledger keeps where each key is played (`active`: world and player); a World claims it when a key builds there (on joining, or a `key` message) and frees it when that player leaves. A takeover asks the old world to `demote` the old player: back to visiting, told "Your key is in use on another device" with **Use it here** (tap, or U) to take it back. Free worlds (the meadow) need no key and claim nothing. Worlds learn their name from the Worker (`x-snapfort-world`) so the Ledger can reach them.
+- **Replace my key** (Settings, on an unlocked device): a one-time link (an hour) goes to the buyer's email; tapping it retires the old key (whoever plays with it goes back to visiting; devices holding it forget it), makes a new paid key, unlocks that device and emails the new key. Knowing a key proves nothing; the buyer's inbox does.
+- Wording before buying and in the terms: "One player at a time, on any of your devices." `qa/keys.mjs` checks all of it, using the emails the dev server really sends.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

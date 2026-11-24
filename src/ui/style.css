@@ -787,7 +787,8 @@ body.touch #chat-box button { height: 38px; }
 
 .store { display: grid; gap: 6px; min-width: 0; }
 .store-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
-.store .tick { color: var(--teal); font-weight: 800; font-size: 14px; }
+.store .tick { color: var(--teal); font-weight: 800; font-size: 14px; white-space: nowrap; }
+.store code { white-space: nowrap; }
 .store code, #thanks code { font: 800 13px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.02em; padding: 3px 7px; border-radius: 7px; background: rgba(31, 42, 55, 0.07); user-select: all; -webkit-user-select: all; }
 .store .note { font-size: 13px; font-weight: 700; opacity: 0.65; }
 .store button.buy {
@@ -857,6 +858,11 @@ body.visiting #hotbar { opacity: 0.45; }
   body.touch .store button.buy { height: 30px; padding: 0 11px; font-size: 13px; }
   body.touch .store .note, body.touch .store button.link, body.touch .store a.link { font-size: 12px; white-space: nowrap; }
   body.touch #settings .setting { padding: 4px 0; }
+  /* Owned: "Copy · Replace my key" on one line (Copy has the key; the buttons say it is theirs). */
+  body.touch #store-owned { flex-wrap: nowrap; gap: 8px; }
+  body.touch #store-owned code, body.touch #store-owned .tick { display: none; }
+  body.touch #store-owned button.small { height: 28px; padding: 0 9px; font-size: 12px; }
+  body.touch #store-owned .link { font-size: 12px; white-space: nowrap; }
 }
 
 /* ───────────── The menu: world cards, one button, links ───────────── */

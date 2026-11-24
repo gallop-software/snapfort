@@ -50,6 +50,8 @@ interface Attachment extends WirePlayer {
   readyAt?: number;
   /** May build and work trebuchets here (in a paid world: owns the Full Game; else a visitor). */
   builder?: boolean;
+  /** The Full Game key they build with (in a paid world): freed when they leave. */
+  key?: string;
   /** The browser tab (the same across reloads): joining again from it replaces this connection. */
   tab?: string;
   /** The page's build; when it is not this server's, the page is "outdated": it can watch, not move or build. */
@@ -153,6 +155,8 @@ export class World extends DurableObject<Env> {
 
   /** Which world this is (the meadow, the Moon): set once, by the Worker, and saved. */
   private environment: Environment = MEADOW;
+  /** This world's name ("main", "moon", a test world's): set once, by the Worker, and saved. */
+  private name = "";
   /** When each socket last sent anything (heartbeats aside, which Cloudflare answers and times itself). */
   private readonly heard = new Map<WebSocket, number>();
   /** Sockets whose hello is being answered (their key is being checked). */
@@ -196,6 +200,7 @@ export class World extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname === "/ws") {
       this.learnEnvironment(request.headers.get("x-snapfort-env"));
+      this.learnName(request.headers.get("x-snapfort-world"));
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
       this.ctx.acceptWebSocket(server);
@@ -241,8 +246,12 @@ export class World extends DurableObject<Env> {
         if (!player.builder) return this.locked(ws, msg.seq, msg.ops);
         return this.act(ws, player, msg.seq, msg.ops);
       case "key": {
-        // A key bought or typed in while here: building opens without joining again.
-        player.builder = await this.mayBuild(msg.key);
+        // A key bought, typed in, or taken back ("Use it here") while here: building opens without
+        // joining again (and, one player at a time, moves here from wherever the key was).
+        const access = await this.mayBuild(msg.key, player.id);
+        player.builder = access !== null;
+        if (typeof access === "string") player.key = access;
+        else delete player.key;
         ws.serializeAttachment(player);
         return send(ws, { t: "access", builder: player.builder });
       }
@@ -290,17 +299,22 @@ export class World extends DurableObject<Env> {
     }
     if (this.players.has(ws) || this.greeting.has(ws)) return;
     this.greeting.add(ws);
-    let builder: boolean;
-    try {
-      builder = await this.mayBuild(msg.key);
-    } finally {
-      this.greeting.delete(ws);
-    }
-    if (this.players.has(ws) || ws.readyState !== WebSocket.OPEN) return;
     // A fresh id on every join, never used before, so piece ids made with it never clash.
     const n = this.ctx.storage.sql.exec<{ value: number }>(
       "INSERT INTO meta (key, value) VALUES ('players', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1 RETURNING value",
     ).one().value;
+    const id = `p${n.toString(36)}`;
+    let access: string | true | null;
+    try {
+      access = await this.mayBuild(msg.key, id);
+    } finally {
+      this.greeting.delete(ws);
+    }
+    const builder = access !== null;
+    if (this.players.has(ws) || ws.readyState !== WebSocket.OPEN) {
+      if (typeof access === "string") this.ledger().release(access, this.name, id).catch(() => {});
+      return;
+    }
     // The same tab joining again (a reload, a dropped connection, a world switch and back):
     // its old connection goes first, so nobody is ever seen twice.
     const tab = typeof msg.tab === "string" && /^[a-z0-9]{8,32}$/.test(msg.tab) ? msg.tab : undefined;
@@ -317,7 +331,8 @@ export class World extends DurableObject<Env> {
     }
     const build = typeof msg.build === "string" ? msg.build.slice(0, 40) : undefined;
     const outdated = !!build && olderBuild(build, BUILD_ID);
-    const player: Attachment = { id: `p${n.toString(36)}`, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
+    const player: Attachment = { id, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
+    if (typeof access === "string") player.key = access;
     ws.serializeAttachment(player);
     this.players.set(ws, player);
     const others = [...this.players.values()].filter((p) => p !== player);
@@ -349,6 +364,8 @@ export class World extends DurableObject<Env> {
     this.moves.delete(player.id);
     this.downUntil.delete(player.id);
     this.talk.delete(player.id);
+    // Their key is free for their other devices.
+    if (player.key) this.ledger().release(player.key, this.name, player.id).catch(() => {});
     this.release(player.id);
     this.broadcast({ t: "leave", id: player.id });
     if (this.players.size === 0) this.flush();
@@ -445,21 +462,56 @@ export class World extends DurableObject<Env> {
   // ── Which world, and who may build in it ──────────────────────────────
 
   /** Takes the environment the Worker says this world is, the first time, and saves it (it never changes). */
+  /** Takes this world's name (as the Worker knows it), the first time, and saves it. */
+  private learnName(name: string | null): void {
+    if (this.name || !name || !/^[a-z0-9-]{1,60}$/.test(name)) return;
+    this.name = name;
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('name', ?)", name);
+  }
+
   private learnEnvironment(id: string | null): void {
     if (this.environment !== MEADOW || !id || id === MEADOW.id) return;
     this.environment = environmentOf(id);
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('environment', ?)", this.environment.id);
   }
 
-  /** Anyone may build in a free world; in a paid one, only with a key that is paid for. */
-  private async mayBuild(rawKey: unknown): Promise<boolean> {
+  private ledger() {
+    return this.env.LEDGER.get(this.env.LEDGER.idFromName("keys"));
+  }
+
+  /**
+   * Anyone may build in a free world; in a paid one, only with a key that is
+   * paid for, and one player at a time: building here takes the key over from
+   * wherever it was being played. Returns the key when building, true in a free
+   * world, null when not.
+   */
+  private async mayBuild(rawKey: unknown, playerId: string): Promise<string | true | null> {
     if (!this.environment.paid) return true;
     const key = cleanKey(rawKey);
-    if (!key) return false;
+    if (!key) return null;
     try {
-      return await this.env.LEDGER.get(this.env.LEDGER.idFromName("keys")).check(key, stripeLive(this.env));
+      const book = this.ledger();
+      if (!(await book.check(key, stripeLive(this.env)))) return null;
+      await book.claim(key, this.name, playerId);
+      return key;
     } catch {
-      return false;
+      return null;
+    }
+  }
+
+  /**
+   * The key ledger sends a player back to visiting: their key is now played on
+   * another device (or was replaced). Their page shows why, with a way to take
+   * it back.
+   */
+  async demote(playerId: string): Promise<void> {
+    for (const [ws, player] of this.players) {
+      if (player.id !== playerId) continue;
+      player.builder = false;
+      delete player.key;
+      ws.serializeAttachment(player);
+      this.release(player.id);
+      send(ws, { t: "access", builder: false, reason: "elsewhere" });
     }
   }
 
@@ -750,6 +802,7 @@ export class World extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
     const env = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'environment'").toArray()[0];
     if (env) this.environment = environmentOf(env.value);
+    this.name = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'name'").toArray()[0]?.value ?? "";
     // Hits taken by pieces that have not broken yet.
     const saved = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'damage'").toArray()[0];
     if (saved) for (const [id, hits] of JSON.parse(saved.value) as [string, number][]) this.damage.set(id, hits);

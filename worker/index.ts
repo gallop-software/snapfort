@@ -1,7 +1,7 @@
 import { environmentOf } from "../src/game/environments";
 import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
-import { looksLikeEmail, sendKeyEmail } from "./mail";
+import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail } from "./mail";
 import { stripe, stripeLive, stripeReady, verifyWebhook, type CheckoutSession } from "./stripe";
 import type { Env } from "./world";
 
@@ -45,11 +45,13 @@ export default {
 const ledger = (env: Env) => env.LEDGER.get(env.LEDGER.idFromName("keys"));
 
 /** Passes a request on to a world, telling it which environment it is. */
-function forward(stub: DurableObjectStub, request: Request): Promise<Response> {
+function forward(target: { stub: DurableObjectStub; name: string }, request: Request): Promise<Response> {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);
   headers.set("x-snapfort-env", environmentOf(url.searchParams.get("env")).id);
-  return stub.fetch(new Request(request, { headers }));
+  // Its own name, so the key ledger can reach it (one player at a time per key).
+  headers.set("x-snapfort-world", target.name);
+  return target.stub.fetch(new Request(request, { headers }));
 }
 
 /**
@@ -64,7 +66,7 @@ function world(env: Env, request: Request) {
   const name = url.searchParams.get("world");
   const base = place === "meadow" ? "main" : place;
   const id = local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}${place === "meadow" ? "" : `-${place}`}` : base;
-  return env.WORLD.get(env.WORLD.idFromName(id));
+  return { stub: env.WORLD.get(env.WORLD.idFromName(id)), name: id };
 }
 
 /** Where links in emails go: the real site, or this dev server. */
@@ -120,15 +122,46 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
       if (!key) return Response.json({ error: "Unknown purchase." }, { status: 400 });
       if (session.payment_status === "unpaid") return Response.json({ status: "unpaid" });
       await markPaid(env, ctx, url, key, session);
-      return Response.json({ status: "paid", key, emailed: !!session.customer_details?.email });
+      return withKeyCookie(Response.json({ status: "paid", key, emailed: !!session.customer_details?.email }), key);
     }
 
-    // A key typed (or saved) on a page: is it good here?
+    // A key typed in, saved on the page, from an email link, or (none given) this device's cookie:
+    // is it good here? A good one is remembered on the device for a year (a cookie the page cannot
+    // lose to Safari's 7-day clean-up of what sites store); a bad one is forgotten.
     case "/api/key": {
       if (request.method !== "POST") return new Response("Use POST", { status: 405 });
       const body = (await request.json().catch(() => ({}))) as { key?: string };
+      const fromCookie = body.key === undefined;
+      const key = cleanKey(fromCookie ? cookieKey(request) : body.key);
+      const valid = !!key && (await ledger(env).check(key, live));
+      const response = Response.json({ key: valid ? key : null, valid });
+      if (valid) return withKeyCookie(response, key);
+      // No longer good (replaced after a leak, or a test key on the live site): this device forgets it.
+      return cookieKey(request) && (fromCookie || cleanKey(cookieKey(request)) === key) ? withKeyCookie(response, null) : response;
+    }
+
+    // "Replace my key" (a leaked key): a one-time link goes to the buyer's email; nothing changes
+    // until it is used. Whoever knows the key can ask, but only the buyer's inbox can confirm.
+    case "/api/replace": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      const body = (await request.json().catch(() => ({}))) as { key?: string };
       const key = cleanKey(body.key);
-      return Response.json({ key, valid: !!key && (await ledger(env).check(key, live)) });
+      const book = ledger(env);
+      const link = key ? await book.replaceToken(key, live) : null;
+      if (!link) return Response.json({ error: "That key cannot be replaced here." }, { status: 400 });
+      if (await book.mayMail(`replace:${link.email}`, 2 * 60_000, 5)) ctx.waitUntil(sendReplaceEmail(env.EMAIL, link.email, `${siteOf(url)}/#replace=${link.token}`, siteOf(url)));
+      return Response.json({ ok: true, to: maskEmail(link.email) });
+    }
+
+    // The link from that email: the old key is retired and the new one is this device's (and emailed).
+    case "/api/replace/confirm": {
+      if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+      const body = (await request.json().catch(() => ({}))) as { token?: string };
+      const token = typeof body.token === "string" && /^[0-9a-f]{48}$/.test(body.token) ? body.token : null;
+      const done = token ? await ledger(env).replace(token, live) : null;
+      if (!done) return Response.json({ error: "That link has already been used or has expired." }, { status: 400 });
+      ctx.waitUntil(sendKeyEmail(env.EMAIL, done.email, [done.key], "replaced", siteOf(url)));
+      return withKeyCookie(Response.json({ key: done.key }), done.key);
     }
 
     // "Lost your key?": the keys bought with this email are sent to it. The page never sees them,
@@ -165,6 +198,19 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
     }
   }
   return new Response("Not found", { status: 404 });
+}
+
+/** The key this device was unlocked with (a year-long cookie), if any. */
+function cookieKey(request: Request): string | null {
+  const match = /(?:^|;\s*)snapfort_key=([^;]+)/.exec(request.headers.get("cookie") ?? "");
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+/** Remembers a key on this device for about a year (the most browsers allow), or forgets it. */
+function withKeyCookie(response: Response, key: string | null): Response {
+  const headers = new Headers(response.headers);
+  headers.append("Set-Cookie", key ? `snapfort_key=${encodeURIComponent(key)}; Path=/; Max-Age=34560000; Secure; HttpOnly; SameSite=Lax` : "snapfort_key=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax");
+  return new Response(response.body, { status: response.status, headers });
 }
 
 async function isAdmin(request: Request, env: Env): Promise<boolean> {

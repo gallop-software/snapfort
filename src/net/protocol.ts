@@ -139,8 +139,8 @@ export type ServerMessage =
   | { t: "towers"; list: WireTower[] }
   /** A board or fire request was turned down ("locked": building here needs the Full Game). */
   | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
-  /** The answer to a "key" message. */
-  | { t: "access"; builder: boolean }
+  /** Whether you may build here (the answer to a "key" message; or "elsewhere": your key is now played on another device). */
+  | { t: "access"; builder: boolean; reason?: "elsewhere" }
   /** A newer version of SnapFort is live: this page should restart (it can watch, not move or build, until it does). */
   | { t: "update" }
   | { t: "snap"; pieces: WirePiece[] }

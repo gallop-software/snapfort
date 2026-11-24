@@ -53,8 +53,8 @@ export interface NetHandlers {
   said(said: WireSaid): void;
   /** Your message was not passed on. */
   hush(reason: "flood", wait: number): void;
-  /** Whether you may build here, after sending a key. */
-  access(builder: boolean): void;
+  /** Whether you may build here, after sending a key ("elsewhere": your key is now played on another device). */
+  access(builder: boolean, reason?: "elsewhere"): void;
   /** A newer version of SnapFort is live: this page should restart. */
   update(): void;
 }
@@ -260,7 +260,7 @@ export class NetClient {
       case "hush":
         return h.hush(msg.reason, msg.wait ?? 0);
       case "access":
-        return h.access(msg.builder);
+        return h.access(msg.builder, msg.reason);
       case "update":
         return h.update();
       case "error":

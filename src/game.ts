@@ -321,10 +321,29 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // ── Who may build here ───────────────────────────────────────────────
   /** May build here: always in a free world; in a paid one, with the Full Game (the server decides on joining). */
   let builder = !env.paid;
-  /** A visitor tried to build: the unlock panel, with the button to buy. */
+  /** A visitor tried to build: the unlock panel, with the button to buy (or, owning it, how to take it back). */
   function lockedNote(): void {
     sfx.deny();
+    if (elsewhere) return void hud.toast(touch ? "Your key is in use on another device: tap Use it here" : "Your key is in use on another device: press U to use it here", 3500);
     openPanel("unlock");
+  }
+  /** Their key was taken over by another device (one player at a time): owned, but visiting here. */
+  let elsewhere = false;
+  /** Takes the key back from the other device ("Use it here"). */
+  function useKeyHere(): void {
+    if (store.key) net.sendKey(store.key);
+  }
+  /** The bar while visiting: an offer to unlock, or (the key in use elsewhere) a way to take it back. */
+  function paintVisitBar(): void {
+    const what = document.querySelector("#visit-bar .what")!;
+    const button = document.getElementById("visit-buy")!;
+    if (elsewhere) {
+      what.innerHTML = "<b>Your key is in use on another device</b> · one player at a time";
+      button.innerHTML = `Use it here<kbd class="desk">U</kbd>`;
+    } else {
+      what.innerHTML = `<b>Visiting the ${env.name}</b> · building here comes with the Full Game`;
+      button.innerHTML = `Unlock · $7<kbd class="desk">U</kbd>`;
+    }
   }
   /** Visiting (no building: nothing selected, the hotbar faded) or building. */
   function setBuilder(on: boolean): void {
@@ -719,7 +738,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (command && code === "KeyY") return redo();
     if (command) return;
     // U: unlock the Full Game (while visiting a paid world).
-    if (code === "KeyU" && !builder) return openPanel("unlock");
+    if (code === "KeyU" && !builder) return elsewhere ? useKeyHere() : openPanel("unlock");
     // Enter talks (while editing it still confirms the cut).
     if ((code === "Enter" || code === "NumpadEnter") && !editing) return chat.open();
     // "/" too, as in Minecraft and Roblox.
@@ -1118,9 +1137,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     update() {
       showUpdate();
     },
-    access(on) {
+    access(on, reason) {
+      const wasElsewhere = elsewhere;
+      elsewhere = !on && reason === "elsewhere";
       setBuilder(on);
-      if (on && env.paid) hud.toast(`Unlocked: build anywhere on the ${env.name}!`);
+      paintVisitBar();
+      // (A message the store just showed, like "you have a new key", is not covered up.)
+      const storeSpoke = performance.now() - noticeAt < 4000;
+      if (elsewhere) hud.toast("Your Full Game key is now in use on another device", 4000);
+      else if (on && env.paid && !storeSpoke) hud.toast(wasElsewhere ? `Building here again: your key moved to this device` : `Unlocked: build anywhere on the ${env.name}!`, 3000);
     },
     hush() {
       hud.toast(SLOW_DOWN);
@@ -1336,7 +1361,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     openPanel(mode === "menu" ? "settings" : "paused");
     store.showEnter(true);
   };
-  document.getElementById("visit-buy")!.addEventListener("click", () => openPanel("unlock"));
+  document.getElementById("visit-buy")!.addEventListener("click", () => (elsewhere ? useKeyHere() : openPanel("unlock")));
+  /** When the store last showed a message. */
+  let noticeAt = -Infinity;
+  store.onNotice = (text) => {
+    noticeAt = performance.now();
+    hud.toast(text, 4500);
+  };
   document.getElementById("unlock-later")!.addEventListener("click", () => (mode === "menu" ? hud.show("menu") : backToBuilding()));
   const tips = new Tips(input.touch);
   const tipStart = player.position.clone();

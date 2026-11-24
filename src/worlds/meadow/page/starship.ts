@@ -12,7 +12,7 @@ import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
-import { solidOf } from "../../../game/keepOut";
+import { overlaps, solidOf } from "../../../game/keepOut";
 import type { PieceSpec } from "../../../game/pieces";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature, WorldTool } from "../../pageDoors";
@@ -36,6 +36,7 @@ import {
   isRocket,
   isShip,
   kindOf,
+  landedBox,
   mountFoot,
   nameOf,
   needsOf,
@@ -44,6 +45,7 @@ import {
   overlap,
   partAt,
   PARTS,
+  reachTo,
   SEATS,
   shipPose,
   SIZE,
@@ -278,6 +280,8 @@ interface Incoming {
   node: TransformNode;
   meshes: Mesh[];
   flame: Mesh;
+  /** Landed, it is solid. */
+  solid: { node: TransformNode; body: PhysicsBody } | null;
 }
 
 interface Blast {
@@ -457,9 +461,20 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         mesh.position.set(0, fromOf(n), 0);
         return mesh;
       });
-      ships.set(ship.trip, (s = { ship, node, meshes, flame: makeFlame(node, 7.5, 50) }));
+      ships.set(ship.trip, (s = { ship, node, meshes, flame: makeFlame(node, 7.5, 50), solid: null }));
     }
     s.ship = ship;
+    // Landed: builders bump into it, and crosshairs (the Remove tool's, a trebuchet's) land on it.
+    if (ship.down && !s.solid) {
+      const b = landedBox(ship);
+      const at = new TransformNode(`star-in-solid-${ship.trip}`, scene);
+      at.position.set((b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2);
+      at.rotationQuaternion = Quaternion.Identity();
+      const body = new PhysicsBody(at, PhysicsMotionType.STATIC, false, scene);
+      body.shape = new PhysicsShapeBox(Vector3.Zero(), Quaternion.Identity(), new Vector3(b[3] - b[0], b[4] - b[1], b[5] - b[2]), scene);
+      body.disableSync = true;
+      s.solid = { node: at, body };
+    }
   }
 
   function forgetShip(trip: string): void {
@@ -468,6 +483,8 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     for (const m of s.meshes) m.dispose();
     s.flame.dispose();
     s.node.dispose();
+    s.solid?.body.dispose();
+    s.solid?.node.dispose();
     ships.delete(trip);
   }
 
@@ -582,12 +599,30 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     mesh.rotation.y = yawOf(site);
   }
 
-  /** The part of a site under the crosshair, for the Remove tool. */
-  function partUnderCrosshair(): { s: Shown; n: number } | null {
-    const spot = game.aim(70);
+  /** The spot under the crosshair within the Remove tool's reach, a little into whatever is there. */
+  function underCrosshair(): [number, number, number] | null {
+    const spot = game.aim(STARSHIP.removeReach);
     if (!spot) return null;
     const yaw = game.viewYaw(), pitch = game.viewPitch();
-    const into: [number, number, number] = [spot[0] + Math.sin(yaw) * Math.cos(pitch) * 0.2, spot[1] - Math.sin(pitch) * 0.2, spot[2] + Math.cos(yaw) * Math.cos(pitch) * 0.2];
+    return [spot[0] + Math.sin(yaw) * Math.cos(pitch) * 0.2, spot[1] - Math.sin(pitch) * 0.2, spot[2] + Math.cos(yaw) * Math.cos(pitch) * 0.2];
+  }
+
+  /** The landed ship under the crosshair, for the Remove tool. */
+  function shipUnderCrosshair(): Incoming | null {
+    const at = underCrosshair();
+    if (!at) return null;
+    for (const s of ships.values()) {
+      if (!s.ship.down) continue;
+      const b = landedBox(s.ship);
+      if (at[0] >= b[0] - 0.3 && at[0] <= b[3] + 0.3 && at[1] >= b[1] - 0.3 && at[1] <= b[4] + 0.3 && at[2] >= b[2] - 0.3 && at[2] <= b[5] + 0.3) return s;
+    }
+    return null;
+  }
+
+  /** The part of a site under the crosshair, for the Remove tool. */
+  function partUnderCrosshair(): { s: Shown; n: number } | null {
+    const into = underCrosshair();
+    if (!into) return null;
     for (const s of pads.values()) {
       const standing = { ...s.pad, parts: s.pad.parts.filter((n) => !(isRocket(n) && s.pad.flight)) };
       const n = partAt(standing, ...into, 0.3);
@@ -728,7 +763,7 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
           needs: "That part has nothing to go on yet",
           away: "Not while the rocket is counting down or away",
           room: "No room: the whole site must fit inside the building area",
-          far: "Get closer",
+          far: "Get closer: build up beside it, to within reach of where it goes",
           locked: "Starships come with the Full Game",
           full: "This world has as many launch sites as it can hold",
           overlap: "Another launch site is in the way",
@@ -931,12 +966,14 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         const a = towerFoot(pad), b = mountFoot(pad);
         const rocketSide = Math.hypot(spot[0] - b[0], spot[2] - b[2]) < Math.hypot(spot[0] - a[0], spot[2] - a[2]);
         const pick = can.find((n) => (n === 10 || isRocket(n)) === rocketSide) ?? can[0] ?? missing[0]!;
-        const why = cannotPlace(pad, pick) ?? (crowded(game.build, pad, pick, game.env) ? "crowded" : null);
+        // (As near as for a wall, in height too: the tower and the rocket are climbed with scaffolding as they go up.)
+        const away = reachTo(pad, pick, [p.x, p.y, p.z]);
+        const why = cannotPlace(pad, pick) ?? (crowded(game.build, pad, pick, game.env) ? "crowded" : away > STARSHIP.placeReach ? "far" : null);
         for (const n of missing) if (n !== pick) ghost(used++, pad, n, ghosts.plan);
         ghost(used++, pad, pick, why ? ghosts.bad : ghosts.ok);
         preview = { pad: pad.id, part: pick, ok: why === null };
         const lacks = needsOf(pick).filter((n) => !pad.parts.includes(n));
-        const reason = why === "needs" ? `needs ${lacks.map((n) => `${n} · ${nameOf(n)}`).join(" and ")} first` : why === "away" ? "not while the rocket is counting down or away" : why === "crowded" ? "something is built where it goes: clear it first" : "";
+        const reason = why === "needs" ? `needs ${lacks.map((n) => `${n} · ${nameOf(n)}`).join(" and ")} first` : why === "away" ? "not while the rocket is counting down or away" : why === "crowded" ? "something is built where it goes: clear it first" : why === "far" ? `${Math.ceil(away - STARSHIP.placeReach)} m too far: build up beside it, to within ${STARSHIP.placeReach} m of where it goes` : "";
         panel(`${statusOf(s)}<small>${why ? `<span class="bad">${pick} · ${nameOf(pick)}: ${reason}</span>` : `<span class="ok">${pick} · ${nameOf(pick)}</span> · ${tap} to put it on`}</small>`);
       } else if (s) {
         preview = null;
@@ -946,7 +983,7 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         const dir = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
         const site = { x: Math.floor(spot[0] / CELL), z: Math.floor(spot[2] / CELL), dir };
         const clash = [...pads.values()].some((other) => overlap(other.pad, site));
-        const problem = !fits(site) ? "no room: the tower and the mount must fit inside the building area" : clash ? "another launch site is in the way" : !clear(game.build, site) ? "something is built in the way" : null;
+        const problem = !fits(site) ? "no room: the tower and the mount must fit inside the building area" : clash ? "another launch site is in the way" : !clear(game.build, site) ? "something is built in the way" : reachTo(site, 1, [p.x, p.y, p.z]) > STARSHIP.placeReach ? "get closer" : null;
         for (let n = 2; n <= PARTS; n++) ghost(used++, site, n, ghosts.plan);
         ghost(used++, site, 1, problem ? ghosts.bad : ghosts.ok);
         preview = { pad: null, part: 1, ok: problem === null, site };
@@ -957,15 +994,28 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
 
     /** Nothing can be built into any part of a launch site. */
     blocks(spec: PieceSpec): boolean {
-      if (pads.size === 0) return false;
+      if (pads.size === 0 && ships.size === 0) return false;
       const box = solidOf(spec, game.env);
       for (const s of pads.values()) if (cutsInto(s.pad, box)) return true;
+      for (const s of ships.values()) if (s.ship.down && overlaps(landedBox(s.ship), box, 0.2)) return true;
       return false;
     },
 
     /** The Remove tool is on a part of a launch site: show which, in red. */
     aimRemove() {
       const found = partUnderCrosshair();
+      const landed = found ? null : shipUnderCrosshair();
+      if (landed) {
+        // A landed ship: all of it in red.
+        aimed = true;
+        [18, 19, 20, 21].forEach((n, i) => {
+          ghost(i, { x: 0, z: 0, dir: 0 }, n, ghosts.bad, 1.02);
+          planMeshes[i]!.position.set(landed.ship.x, landed.node.position.y + fromOf(n), landed.ship.z);
+        });
+        for (let i = 4; i < planMeshes.length; i++) planMeshes[i]!.setEnabled(false);
+        panel(`<b>Landed ship</b><small><span class="bad">${game.touch ? "Tap Remove" : "Click"}</span> to take it away</small>`);
+        return;
+      }
       if (!found) return;
       aimed = true;
       ghost(0, found.s.pad, found.n, ghosts.bad, 1.02);
@@ -977,6 +1027,13 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     /** Remove was used on a part of a launch site: ask for it to come off. */
     remove(): boolean {
       const found = partUnderCrosshair();
+      const landed = found ? null : shipUnderCrosshair();
+      if (landed) {
+        if (!game.mayBuild()) return false;
+        send({ k: "ship-take", trip: landed.ship.trip });
+        game.sound.noise(0.25, 0.2, 500);
+        return true;
+      }
       if (!found) return false;
       if (!game.mayBuild()) return false;
       send({ k: "pad-take", id: found.s.pad.id, n: found.n });

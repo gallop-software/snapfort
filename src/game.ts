@@ -627,6 +627,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   document.addEventListener("visibilitychange", () => void checkVersion());
   /** The panel to show once play has stopped (it stops first: the mouse is released, or on touch the controls hide). */
   let nextView: "unlock" | "settings" | "paused" | "update" | null = null;
+  /** Leaving for another world, still playing (see `travel`): the browser lets go of the mouse as this page goes, and that is not Esc. */
+  let leaving = false;
   /** Stops playing (if playing) and shows a panel. */
   function openPanel(view: "unlock" | "settings" | "paused"): void {
     if (input.locked) {
@@ -652,6 +654,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
     chat.close();
     finishEdit(false);
+    // On the way to another world: no panel, the game stays in view until that world's page takes over.
+    if (leaving) return;
     if (outdated) return hud.show("update");
     // A panel asked for on the way out of play (the unlock panel, the settings to type a key in).
     if (nextView) {
@@ -1631,6 +1635,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         if (!to || to === env) return;
         const trip: Travel = { env: to.id, at: Date.now(), yaw: rig.yaw, pitch: rig.pitch, note };
         sessionStorage.setItem(TRAVEL_KEY, JSON.stringify(trip));
+        leaving = true;
         // (A dev server's test world is kept, as on every link between worlds.)
         const test = new URLSearchParams(location.search).get("world");
         location.assign(test ? `${to.path}?world=${encodeURIComponent(test)}` : to.path);

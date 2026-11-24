@@ -21,6 +21,7 @@ import {
   PARTS,
   railLine,
   RAILGUN,
+  reachTo,
   readGun,
   seatOf,
   type Gun,
@@ -109,6 +110,12 @@ const near = (room: Room, playerId: string, at: Vec, reach: number): boolean => 
   return !!p && Math.hypot(p[0] - at[0], p[2] - at[2]) <= reach && Math.abs(p[1] - at[1]) <= reach;
 };
 
+/** True when a builder is within `reach` metres of where part `n` goes (a little more is allowed for: where they are is known a tenth of a second late). */
+function within(room: Room, playerId: string, gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number, reach: number): boolean {
+  const p = room.positionOf(playerId);
+  return !!p && reachTo(gun, n, p) <= reach + 1.5;
+}
+
 export function gunsMessage(room: Room, playerId: string, data: unknown): void {
   if (typeof data !== "object" || data === null) return;
   const msg = data as { k?: unknown; id?: unknown; n?: unknown; on?: unknown; x?: unknown; y?: unknown; z?: unknown; dir?: unknown };
@@ -121,7 +128,7 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     if (!whole(msg.x) || !whole(msg.y) || !whole(msg.z) || !whole(msg.dir) || msg.dir < 0 || msg.dir > 3) return;
     const gun: Gun = { id: m.nextId, x: msg.x, y: msg.y, z: msg.z, dir: msg.dir, parts: [1], touched: now, readyAt: 0, rider: null };
     if (!fits(gun)) return no(room, playerId, "room");
-    if (!near(room, playerId, middleOf(gun, 1), RAILGUN.placeReach)) return no(room, playerId, "far");
+    if (!within(room, playerId, gun, 1, RAILGUN.placeReach)) return no(room, playerId, "far");
     const [foot] = feetOf(gun, 1);
     if (crowded(room.build, foot!) || builtInto(room.build, gun, 1)) return no(room, playerId, "crowded");
     if (!footed(room.build, foot!)) return no(room, playerId, "under");
@@ -140,7 +147,7 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
     const why = cannotPlace(room.build, gun, msg.n);
     if (why) return no(room, playerId, why);
-    if (!near(room, playerId, middleOf(gun, msg.n), RAILGUN.placeReach)) return no(room, playerId, "far");
+    if (!within(room, playerId, gun, msg.n, RAILGUN.placeReach)) return no(room, playerId, "far");
     gun.parts.push(msg.n);
     gun.touched = now;
     // Whole: it starts to charge.
@@ -154,7 +161,7 @@ export function gunsMessage(room: Room, playerId: string, data: unknown): void {
     const gun = m.list.find((g) => g.id === msg.id);
     if (!gun || !whole(msg.n) || !gun.parts.includes(msg.n)) return;
     if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
-    if (!near(room, playerId, middleOf(gun, msg.n), RAILGUN.placeReach)) return no(room, playerId, "far");
+    if (!within(room, playerId, gun, msg.n, RAILGUN.removeReach)) return no(room, playerId, "far");
     return knockOff(room, gun, [msg.n]);
   }
 

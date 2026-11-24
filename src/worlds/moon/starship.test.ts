@@ -5,7 +5,7 @@ import type { Piece } from "../../game/pieces";
 import { planFlight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
 import { server } from "./server";
-import { arrivalPose, boosterPose, boxOf, cannotPlace, CATCH, cellsOf, DESCENT, FLIGHT, heldBy, inTheWay, localBox, middleOf, mountFoot, needsOf, PARTS, SEATS, shipPose, SIZE, STARSHIP, towerFoot, type Pad, type Ship, type StarToPage } from "./starshipRules";
+import { arrivalPose, boosterPose, boxOf, cannotPlace, CATCH, cellsOf, DESCENT, FLIGHT, heldBy, inTheWay, localBox, middleOf, mountFoot, needsOf, PARTS, SEATS, shipPose, reachTo, SIZE, STARSHIP, towerFoot, type Pad, type Ship, type StarToPage } from "./starshipRules";
 import { landingSpot } from "./starships";
 import { world as HERE } from "./world";
 
@@ -39,15 +39,20 @@ function fakeRoom(build = new BuildState(), saved = new Map<string, unknown>()) 
   const memory = () => (room.memory as { star: { pads: Pad[]; ships: Ship[] } }).star;
   const say = (id: string, msg: unknown) => server.message!(room, id, msg);
   const last = (k: StarToPage["k"]) => sent.filter((s) => s.msg.k === k).at(-1)?.msg;
-  /** Builder `id` starts a site by the origin and puts every part on, in order. */
+  /** Stands a builder beside where part `n` of a site goes (on the scaffolding they would have built up to it). */
+  const by = (id: string, site: Pick<Pad, "x" | "z" | "dir">, n: number) => { const m = middleOf(site, n); at.set(id, [m[0] + 8, m[1], m[2]]); };
+  /** Builder `id` goes to where part `n` goes and puts it on; `take` takes it off. */
+  const put = (id: string, n: number, pad = 1) => { by(id, memory().pads.find((p) => p.id === pad)!, n); say(id, { k: "pad-part", id: pad, n }); };
+  const take = (id: string, n: number) => { by(id, memory().pads[0]!, n); say(id, { k: "pad-take", id: 1, n }); };
+  /** Builder `id` starts a site by the origin and puts every part on, in order, climbing as it goes up. */
   const assemble = (id: string, upTo = PARTS) => {
     at.set(id, [-50, 0.9, -15]);
     say(id, { k: "pad-new", x: -12, z: -4, dir: 0 });
-    for (let n = 2; n <= upTo; n++) say(id, { k: "pad-part", id: 1, n });
+    for (let n = 2; n <= upTo; n++) put(id, n);
     return memory().pads[0]!;
   };
   const standBy = (id: string, pad: Pad) => at.set(id, [towerFoot(pad)[0] + 9, 0.9, towerFoot(pad)[2]]);
-  return { room, sent, flown, toWorld, at, saved, memory, say, last, assemble, standBy };
+  return { room, sent, flown, toWorld, at, saved, memory, say, last, assemble, standBy, by, put, take };
 }
 
 beforeEach(() => void vi.useFakeTimers());
@@ -128,14 +133,35 @@ describe("building a launch site", () => {
     expect(r.last("pad-no")).toMatchObject({ why: "far" });
     const pad = r.assemble("a", 3);
     expect(pad.parts).toEqual([1, 2, 3]);
-    r.say("a", { k: "pad-part", id: 1, n: 14 });
+    r.put("a", 14);
     expect(r.last("pad-no")).toMatchObject({ why: "needs" });
     expect(cannotPlace(pad, 10)).toBeNull();
-    r.say("a", { k: "pad-part", id: 1, n: 3 });
+    r.put("a", 3);
     expect(r.last("pad-no")).toMatchObject({ why: "have" });
-    for (let n = 4; n <= PARTS; n++) r.say("a", { k: "pad-part", id: 1, n });
+    for (let n = 4; n <= PARTS; n++) r.put("a", n);
     expect(pad.parts).toHaveLength(PARTS);
     expect(pad.readyAt).toBe(Date.now() + STARSHIP.fuel * 1000);
+  });
+
+  it("goes up only as its builders do: a part is put on from within 12 m of where it goes, in height too", () => {
+    const r = fakeRoom();
+    const pad = r.assemble("a", 1);
+    // From the ground beside the tower: section 1 is on, but section 2 starts 17.5 m up.
+    const foot = towerFoot(pad);
+    r.at.set("a", [foot[0] + 8, 0.9, foot[2]]);
+    r.say("a", { k: "pad-part", id: 1, n: 2 });
+    expect(r.last("pad-no")).toMatchObject({ why: "far" });
+    expect(pad.parts).toEqual([1]);
+    expect(reachTo(pad, 2, [foot[0] + 8, 0.9, foot[2]])).toBeGreaterThan(STARSHIP.placeReach + 1.5);
+    // Two storeys up a scaffold beside it, it is in reach.
+    r.at.set("a", [foot[0] + 8, 2 * 3.75 + 0.9, foot[2]]);
+    r.say("a", { k: "pad-part", id: 1, n: 2 });
+    expect(pad.parts).toEqual([1, 2]);
+    // Nor can a part be taken off from far off (the Remove tool reaches 16 m).
+    r.at.set("a", [foot[0] + 20, 0.9, foot[2]]);
+    r.say("a", { k: "pad-take", id: 1, n: 2 });
+    expect(r.last("pad-no")).toMatchObject({ why: "far" });
+    expect(pad.parts).toEqual([1, 2]);
   });
 
   it("cannot stand on what is built, or on another site", () => {
@@ -154,12 +180,12 @@ describe("building a launch site", () => {
   it("comes apart from the top with the Remove tool", () => {
     const r = fakeRoom();
     const pad = r.assemble("a");
-    r.say("a", { k: "pad-take", id: 1, n: 14 });
+    r.take("a", 14);
     expect(r.last("pad-no")).toMatchObject({ why: "holds" });
-    r.say("a", { k: "pad-take", id: 1, n: 21 });
+    r.take("a", 21);
     expect(pad.parts).not.toContain(21);
     expect(pad.readyAt).toBe(0);
-    r.say("a", { k: "pad-take", id: 1, n: 13 });
+    r.take("a", 13);
     expect(pad.parts).not.toContain(13);
   });
 
@@ -218,11 +244,11 @@ describe("nothing is built into a launch site", () => {
     const wall = piece("wall", mx, 0, mz);
     expect(blocks(r, wall)).toBe(false);
     build.apply({ kind: "place", piece: wall });
-    r.say("a", { k: "pad-part", id: 1, n: 10 });
+    r.put("a", 10);
     expect(r.last("pad-no")).toMatchObject({ why: "crowded" });
     expect(pad.parts).not.toContain(10);
     build.apply({ kind: "remove", id: wall.id });
-    r.say("a", { k: "pad-part", id: 1, n: 10 });
+    r.put("a", 10);
     expect(pad.parts).toContain(10);
     expect(blocks(r, wall)).toBe(true);
   });
@@ -261,14 +287,14 @@ describe("riding", () => {
     expect(r.pad.riders.every((x) => x === null)).toBe(true);
     expect(r.pad.parts.filter((n) => n >= 18)).toEqual([]);
     expect(r.pad.flight).toMatchObject({ ship: false, booster: true });
-    r.say("a", { k: "pad-part", id: 1, n: 18 });
+    r.put("a", 18);
     expect(r.last("pad-no")).toMatchObject({ why: "away" });
     pass(CATCH - FLIGHT.handoff + 0.2);
     // Caught: the booster is back on the mount, and only the ship has to be built again.
     expect(r.pad.flight).toBeNull();
     expect(r.pad.parts.filter((n) => n >= 14)).toEqual([14, 15, 16, 17]);
     expect(r.flown).toHaveLength(0);
-    for (const n of [18, 19, 20, 21]) r.say("a", { k: "pad-part", id: 1, n });
+    for (const n of [18, 19, 20, 21]) r.put("a", n);
     expect(r.pad.parts).toHaveLength(PARTS);
     expect(r.pad.readyAt).toBeGreaterThan(Date.now());
   });
@@ -395,6 +421,31 @@ describe("a ship from another world", () => {
     pass(STARSHIP.stay + 1);
     expect(r.memory().ships).toHaveLength(0);
     expect(r.last("ship-gone")).toMatchObject({ trip: "t1" });
+  });
+
+  it("landed, it is solid to building, and the Remove tool takes it away from close by", () => {
+    const r = fakeRoom();
+    coming(r);
+    const ship = r.memory().ships[0]!;
+    const here = piece("wall", Math.floor(ship.x / 5), 0, Math.floor(ship.z / 5), 1);
+    // (Still coming in: not there yet.)
+    expect(server.blocks!(r.room, here)).toBe(false);
+    pass(3 + DESCENT + 0.2);
+    expect(server.blocks!(r.room, here)).toBe(true);
+    expect(server.blocks!(r.room, piece("floor", Math.floor(ship.x / 5), 8, Math.floor(ship.z / 5)))).toBe(true);
+    expect(server.blocks!(r.room, piece("floor", Math.floor(ship.x / 5) + 2, 0, Math.floor(ship.z / 5)))).toBe(false);
+    r.at.set("v", [ship.x + 8, 0.9, ship.z]);
+    r.say("v", { k: "ship-take", trip: "t1" });
+    expect(r.last("pad-no")).toMatchObject({ why: "locked" });
+    r.at.set("a", [ship.x + 60, 0.9, ship.z]);
+    r.say("a", { k: "ship-take", trip: "t1" });
+    expect(r.last("pad-no")).toMatchObject({ why: "far" });
+    expect(r.memory().ships).toHaveLength(1);
+    r.at.set("a", [ship.x + 8, 0.9, ship.z]);
+    r.say("a", { k: "ship-take", trip: "t1" });
+    expect(r.memory().ships).toHaveLength(0);
+    expect(r.last("ship-gone")).toMatchObject({ trip: "t1" });
+    expect(server.blocks!(r.room, here)).toBe(false);
   });
 
   it("blows up when shot, throwing its passengers clear", () => {

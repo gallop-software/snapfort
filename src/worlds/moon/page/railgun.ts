@@ -34,6 +34,7 @@ import {
   PARTS,
   railLine,
   RAILGUN,
+  reachTo,
   seatOf,
   standingFeet,
   type Gun,
@@ -688,7 +689,9 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const far = (n: number) => { const m = middleOf(s.gun, n); return Math.hypot(m[0] - spot[0], m[2] - spot[2]); };
         const can = missing.filter((n) => cannotPlace(game.build, s.gun, n) === null).sort((a, b) => far(a) - far(b));
         const pick = can[0] !== undefined && far(can[0]) < 16 ? can[0] : missing.sort((a, b) => far(a) - far(b))[0]!;
-        const why = cannotPlace(game.build, s.gun, pick);
+        // (As near as for a wall, in height too.)
+        const away = reachTo(s.gun, pick, [p.x, p.y, p.z]);
+        const why = cannotPlace(game.build, s.gun, pick) ?? (away > RAILGUN.placeReach ? "far" : null);
         for (const n of missing) if (n !== pick) draw(s.gun, n, ghosts.plan);
         draw(s.gun, pick, why ? ghosts.bad : ghosts.ok);
         preview = { gun: s.gun.id, part: pick, ok: why === null };
@@ -697,7 +700,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         showNeeds(lacking);
         const up = (lacking[0]?.y ?? 0) - 0;
         const high = up <= 0 ? "" : up === 1 ? "one storey up" : up === 2 ? "two storeys up" : up === 3 ? "three storeys up" : `${up} storeys up`;
-        const reason = { have: "", join: "nothing to join to yet", under: `needs a floor ${high} at the yellow mark: build walls up to it, and a floor on top`, crowded: "something is built in the way", room: "" }[why ?? "have"];
+        const reason = { have: "", join: "nothing to join to yet", under: `needs a floor ${high} at the yellow mark: build walls up to it, and a floor on top`, crowded: "something is built in the way", room: "", far: `${Math.ceil(away - RAILGUN.placeReach)} m too far: get within ${RAILGUN.placeReach} m of where it goes` }[why ?? "have"];
         game.panel(`${statusOf(s.gun)}<small>${why ? `<span class="bad">${pick} · ${nameOf(pick)}: ${reason}</span>` : `<span class="ok">${pick} · ${nameOf(pick)}</span> · ${game.touch ? "tap Place" : "click"} to put it on`}</small>`);
       } else if (s) {
         preview = null;
@@ -710,7 +713,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const foot = feetOf(base, 1)[0]!;
         const clash = [...guns.values()].some((g) => overlap(g.gun, base));
         showNeeds([]);
-        const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) || builtInto(game.build, base, 1) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : null;
+        const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) || builtInto(game.build, base, 1) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : reachTo(base, 1, [p.x, p.y, p.z]) > RAILGUN.placeReach ? "get closer" : null;
         for (let n = 2; n <= PARTS; n++) draw(base, n, ghosts.plan);
         draw(base, 1, problem ? ghosts.bad : ghosts.ok);
         preview = { gun: null, part: 1, ok: problem === null, base };

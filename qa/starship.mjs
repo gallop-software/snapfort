@@ -11,6 +11,7 @@
  */
 import { chromium } from "playwright-core";
 import { paidKey } from "./_paid.mjs";
+import { perch, scaffold } from "./_scaffold.mjs";
 
 const base = process.env.QA_BASE ?? "http://localhost:5173";
 const world = `starship-${Date.now().toString(36)}`;
@@ -63,7 +64,7 @@ const slots = await sf(b, () => [...document.querySelectorAll("#hotbar .slot .la
 check("Starship is on the Meadow's hotbar, after the trebuchet", slots.at(-1) === "Starship" && slots.at(-2) === "Trebuchet", slots.join(" · "));
 // The tower at cell (-12, -4), the mount 20 m on along +z.
 const TOWER = [-57.5, 0, -17.5], MOUNT = [-57.5, 0, 2.5];
-await stand(b, -57.5, 0.95, -40); await wait(200);
+await stand(b, -57.5, 0.95, -32); await wait(200);
 await b.keyboard.press("KeyL"); await wait(300);
 await lookAt(b, ...TOWER); await wait(250);
 let s = await star(b);
@@ -72,17 +73,26 @@ await shot(b, "starship-plan");
 await click(b); await wait(450);
 s = await star(b);
 check("a click starts it: tower section 1 stands", s.pads.length === 1 && s.pads[0].parts.join() === "1" && s.pads[0].drawn === 1, JSON.stringify(s.pads[0]?.parts));
-// Aimed at the tower, the tower goes up, then its arms; aimed at the mount, the mount, the booster and the ship.
-for (let i = 0; i < 11; i++) { await lookAt(b, TOWER[0], 6, TOWER[2]); await click(b); await wait(400); }
+// From the ground the next section is out of reach: it starts 17.5 m up.
+await lookAt(b, TOWER[0], 6, TOWER[2]); await wait(250);
+check("from the ground, the second tower section is too far to put on", (await star(b)).preview?.part === 2 && !(await star(b)).preview.ok && /too far: build up beside it/.test(await panel(b)), await panel(b));
+await click(b); await wait(450);
+check("...and a click there builds nothing", (await star(b)).pads[0].parts.join() === "1");
+// So: scaffolding beside it, climbed as it goes up. Aimed at the tower, the tower goes up, then its arms; aimed at the mount, the mount, the booster and the ship.
+await b.keyboard.press("KeyL"); await wait(200);
+await scaffold(b, -12, -4);
+await b.keyboard.press("KeyL"); await wait(300);
+/** Climbs to where part `n` is in reach, aims at the site from there, and clicks. */
+const putOn = async (n) => { const p = perch(-12, -4, n); await stand(b, ...p.at); await wait(260); await lookAt(b, ...p.look); await click(b); await wait(380); };
+for (const n of [2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13]) await putOn(n);
 s = await star(b);
-check("aimed at the tower: its eight sections, its top, both catch arms and the fuelling arm go on, in order", [...s.pads[0].parts].sort((x, y) => x - y).join() === "1,2,3,4,5,6,7,8,9,11,12,13", s.pads[0].parts.join());
-await stand(b, -80, 0.95, 2.5); await wait(200);
-await lookAt(b, MOUNT[0], 4, MOUNT[2]); await wait(200);
+check("climbing beside the tower: its eight sections, its top, both catch arms and the fuelling arm go on, in order", [...s.pads[0].parts].sort((x, y) => x - y).join() === "1,2,3,4,5,6,7,8,9,11,12,13", s.pads[0].parts.join());
+{ const p = perch(-12, -4, 10); await stand(b, ...p.at); await wait(260); await lookAt(b, ...p.look); await wait(200); }
 check("the next part shows in green, and the panel names it", (await star(b)).preview?.part === 10 && /12 of 21 parts.*10 · Launch mount/.test(await panel(b)), await panel(b));
-for (let i = 0; i < 9; i++) { await lookAt(b, MOUNT[0], 4, MOUNT[2]); await click(b); await wait(400); }
+for (const n of [10, 14, 15, 16, 17, 18, 19, 20, 21]) await putOn(n);
 s = await star(b);
 const builtAt = Date.now();
-check("aimed at the mount: the mount, the booster's four parts and the ship's four", s.pads[0].parts.length === 21 && s.pads[0].drawn === 21, s.pads[0].parts.join());
+check("climbing beside the mount: the mount, the booster's four parts and the ship's four", s.pads[0].parts.length === 21 && s.pads[0].drawn === 21, s.pads[0].parts.join());
 check("whole, it starts fuelling", /fuelling/.test(await panel(b)) && s.pads[0].readyAt > 0, await panel(b));
 await b.keyboard.press("KeyL"); await wait(300);
 await stand(b, 115, 0.95, -75); await sf(b, () => { const s = window.snapfort; s.rig.yaw = -Math.PI / 2 + 0.3; s.rig.pitch = -0.3; }); await wait(500);
@@ -113,6 +123,10 @@ await click(r); await wait(500);
 check("it will not launch while it is fuelling", /Still fuelling/.test(await toast(r)), await toast(r));
 await wait(Math.max(0, 20500 - (Date.now() - builtAt)));
 check("fuelled, it says where it is going", /Starship ready · to the Moon/.test(await panel(r)), await panel(r));
+// (From here until the rider is on the Moon, their page must never show the settings panel or the "click to keep building" note.)
+const flashed = [];
+await r.exposeFunction("__flashed", (what) => void flashed.push(what));
+await sf(r, () => new MutationObserver(() => { if (!document.getElementById("view-paused").hidden) window.__flashed("settings"); else if (document.body.classList.contains("away")) window.__flashed("away"); }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ["hidden", "class"] }));
 // The builder stands by the mount, to be blown away.
 await stand(b, MOUNT[0] + 11, 0.95, MOUNT[2]);
 await click(r); await wait(700);
@@ -130,6 +144,7 @@ check("the stack climbs off the mount, the rider with it", s.pads[0].boosterY > 
 check("the parts are no longer solid where they stood", s.pads[0].solid === 13, `${s.pads[0].solid}`);
 await r.waitForURL(/\/moon/, { timeout: 20000 }).catch(() => {});
 check("the ship leaves this world, and the rider's page follows it to the Moon", /\/moon\?world=/.test(r.url()), r.url());
+check("...straight there: no settings panel on the way out", !flashed.includes("settings") && !flashed.includes("away"), flashed.join());
 s = await star(b);
 check("in the Meadow the ship's four parts are gone, and the booster is on its way back", s.pads[0].parts.length === 17 && s.pads[0].flight?.booster === true && s.pads[0].flight.ship === false, s.pads[0].parts.join());
 await sf(b, () => { window.snapfort.rig.pitch = -0.9; }); await wait(4000);
@@ -160,13 +175,14 @@ await shot(r, "starship-moon-landed");
 // ── The trip back: a Starship built on the Moon ──────────────────────────
 const slotsMoon = await sf(r, () => [...document.querySelectorAll("#hotbar .slot .label")].map((e) => e.textContent));
 check("Starship is on the Moon's hotbar too", slotsMoon.includes("Starship") && slotsMoon.includes("Railgun"), slotsMoon.join(" · "));
-await stand(r, -100, 0.95, -120); await wait(300);
-await say(r, { k: "pad-new", x: -22, z: -28, dir: 1 }); await wait(300);
-for (let n = 2; n <= 21; n++) { await say(r, { k: "pad-part", id: 1, n }); await wait(90); }
+await stand(r, -107.5 + 9, 0.95, -137.5); await wait(300);
+await say(r, { k: "pad-new", x: -22, z: -28, dir: 0 }); await wait(300);
+await scaffold(r, -22, -28);
+for (let n = 2; n <= 21; n++) { await stand(r, ...perch(-22, -28, n).at); await wait(240); await say(r, { k: "pad-part", id: 1, n }); await wait(90); }
 await wait(400);
 s = await star(r);
 check("a builder with the Full Game builds one on the Moon", s.pads[0]?.parts.length === 21, JSON.stringify(s.pads[0]?.parts));
-await stand(r, -107.5 + 10, 0.95, -137.5 - 6); await wait(21000);
+await stand(r, -107.5 - 10, 0.95, -137.5 - 6); await wait(21000);
 await r.keyboard.press("KeyH"); await wait(900);
 check("...and rides it", (await star(r)).seated === 1, await toast(r));
 await click(r); await wait(600);
@@ -195,10 +211,25 @@ s = await star(r); q = await me(r);
 check("it swings upright, lands in the Meadow and lets the rider out", s.ships[0]?.down && Math.abs(s.ships[0].tilt) < 0.01 && q.y < 3 && !q.down && q.env === "meadow", `y ${q.y.toFixed(1)} ${JSON.stringify(s.ships[0])}`);
 if (seen) { await lookAt(b, seen.x, 25, seen.z); await wait(300); await shot(b, "starship-meadow-landed"); }
 
+// ── A landed ship: solid, and the Remove tool takes it away ──────────────
+if (seen) {
+  await front(b);
+  await stand(b, seen.x + 14, 0.95, seen.z); await sf(b, () => { window.snapfort.rig.yaw = -Math.PI / 2; window.snapfort.rig.pitch = 0; }); await wait(300);
+  await b.keyboard.down("KeyW"); await wait(1500); await b.keyboard.up("KeyW"); await wait(200);
+  check("a landed ship is solid: a builder cannot walk through it", (await me(b)).x > seen.x + 4.5, `x ${((await me(b)).x - seen.x).toFixed(1)} m from its middle`);
+  await b.keyboard.press("KeyV"); await wait(300);
+  await lookAt(b, seen.x, 6, seen.z); await wait(300);
+  check("the Remove tool on it offers to take it away", /Landed ship.*take it away/.test(await panel(b)), await panel(b));
+  await shot(b, "starship-remove-landed");
+  await click(b); await wait(700);
+  check("...and a click does, for everyone", (await star(b)).ships.length === 0 && (await star(r)).ships.length === 0);
+  await b.keyboard.press("KeyV"); await wait(300);
+}
+
 // ── Hitting something: it blows up ───────────────────────────────────────
 await front(b);
-await stand(b, TOWER[0] + 10, 0.95, TOWER[2]); await wait(300);
-for (const n of [18, 19, 20, 21]) { await say(b, { k: "pad-part", id: 1, n }); await wait(120); }
+for (const n of [18, 19, 20, 21]) { await stand(b, ...perch(-12, -4, n).at); await wait(240); await say(b, { k: "pad-part", id: 1, n }); await wait(120); }
+await stand(b, TOWER[0] - 10, 0.95, TOWER[2] - 5); await wait(300);
 const rebuilt = Date.now();
 check("in the Meadow only the ship has to be built again", (await star(b)).pads[0].parts.length === 21);
 // Nothing can be built into the rocket itself any more, so: something in its way over its nose. A
@@ -231,7 +262,7 @@ check("the camera is back over their shoulder", q.chase === null);
 // ── Someone arriving later ───────────────────────────────────────────────
 const late = await open("late");
 s = await star(late);
-check("someone arriving later sees the launch site as it stands, and the landed ship", s.pads.length === 1 && s.pads[0].drawn === 13 && s.ships.length === 1 && s.ships[0].down, JSON.stringify({ pads: s.pads.map((p) => p.parts.length), ships: s.ships.length }));
+check("someone arriving later sees the launch site as it stands, and no ship (it was taken away)", s.pads.length === 1 && s.pads[0].drawn === 13 && s.ships.length === 0, JSON.stringify({ pads: s.pads.map((p) => p.parts.length), ships: s.ships.length }));
 
 check("no errors in any page", errors.length === 0, errors.slice(0, 4).join(" | "));
 await browser.close();

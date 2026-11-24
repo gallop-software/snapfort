@@ -57,8 +57,15 @@ export const SIZE = {
 } as const;
 
 export const STARSHIP = {
-  /** How near (across the ground) a builder must be to the tower or the mount to put a part on, m. The tower's crane does the lifting. */
-  placeReach: 45,
+  /**
+   * How near a builder must be to where a part goes to put it on, m: as near
+   * as for a wall, in height too, so the tower and the rocket are climbed
+   * with scaffolding as they go up (user, 2026-11-24: "from the ground i
+   * could build the whole rocket. I need to build the scaffolding"). And how
+   * near to take one off, or to take a landed ship away.
+   */
+  placeReach: 12,
+  removeReach: 16,
   /** How near to the foot of the tower or the mount to ride the lift up, m. */
   boardReach: 16,
   /** Seconds of fuelling once it is whole. */
@@ -205,6 +212,16 @@ export function boxOf(site: Site, n: number): [number, number, number, number, n
 export function middleOf(site: Site, n: number): Vec {
   const b = boxOf(site, n);
   return [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2];
+}
+
+/** How far a point is from a box, m (0 inside it). */
+function distanceTo(b: readonly number[], p: Vec): number {
+  return Math.hypot(Math.max(b[0]! - p[0], 0, p[0] - b[3]!), Math.max(b[1]! - p[1], 0, p[1] - b[4]!), Math.max(b[2]! - p[2], 0, p[2] - b[5]!));
+}
+
+/** How far a builder (their body's middle) is from where part `n` goes, m. */
+export function reachTo(site: Site, n: number, p: Vec): number {
+  return distanceTo(boxOf(site, n), p);
 }
 
 /** The middle of the foot of the tower, and of the mount (where the rocket stands), on the ground. */
@@ -402,6 +419,14 @@ export function arrivalPose(t: number): Pose {
   return { ahead: 0, up, tilt: 0, burn: c >= -0.4 ? 0.7 : s % 4 < 0.5 ? 0.25 : 0 };
 }
 
+/** The space a landed ship fills: solid, and nothing can be built into it. */
+export function landedBox(ship: Pick<Ship, "x" | "z">): Box {
+  return [ship.x - SIZE.hull / 2, 0, ship.z - SIZE.hull / 2, ship.x + SIZE.hull / 2, ARRIVE.stand + SIZE.shipTall, ship.z + SIZE.hull / 2];
+}
+
+/** How far a builder is from a landed ship, m. */
+export const reachToShip = (ship: Pick<Ship, "x" | "z">, p: Vec) => distanceTo(landedBox(ship), p);
+
 /** A point on a ship coming in (it lies over toward +z). */
 export function onShip(ship: Pick<Ship, "x" | "z">, pose: Pose, along: number): Vec {
   return [ship.x, pose.up + along * Math.cos(pose.tilt), ship.z + along * Math.sin(pose.tilt)];
@@ -507,4 +532,6 @@ export type StarToServer =
   /** From a seat: starts the countdown, for that world. */
   | { k: "pad-launch"; to: string }
   /** Just arrived from another world, as a passenger of this trip. */
-  | { k: "ship-aboard"; trip: string };
+  | { k: "ship-aboard"; trip: string }
+  /** Takes a landed ship away (the Remove tool). */
+  | { k: "ship-take"; trip: string };

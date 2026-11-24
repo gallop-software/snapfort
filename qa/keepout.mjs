@@ -10,6 +10,7 @@
  */
 import { chromium } from "playwright-core";
 import { paidKey } from "./_paid.mjs";
+import { perch, scaffold } from "./_scaffold.mjs";
 
 const base = process.env.QA_BASE ?? "http://localhost:5173";
 const world = `keepout-${Date.now().toString(36)}`;
@@ -118,10 +119,14 @@ async function engine(page, label, at) {
 /** A whole Starship launch site with its tower in cell (tx, tz), the rocket along +z; then everything round it. */
 async function rocket(page, label, tx, tz) {
   const cx = (tx + 0.5) * CELL, cz = (tz + 0.5) * CELL;
-  await stand(page, cx, 0.95, cz - 22); await wait(400);
+  await stand(page, cx, 0.95, cz - 14); await wait(400);
   await say(page, { k: "pad-new", x: tx, z: tz, dir: 0 }); await wait(300);
-  for (let n = 2; n <= 21; n++) { await say(page, { k: "pad-part", id: 1, n }); await wait(80); }
+  // (Parts go on only from close by: scaffolding to climb while it is built, taken down again before anything is tried.)
+  const poles = await scaffold(page, tx, tz);
+  for (let n = 2; n <= 21; n++) { await stand(page, ...perch(tx, tz, n).at); await wait(240); await say(page, { k: "pad-part", id: 1, n }); await wait(80); }
   await wait(500);
+  await stand(page, cx, 0.95, cz - 30);
+  await takeAway(page, poles);
   const pad = await sf(page, () => [...window.snapfort.feature.starship.pads.values()][0]?.pad.parts.length);
   check(`${label}: (a whole launch site is built)`, pad === 21, `${pad}`);
   // The tower is 12 m square; the mount 15 m square, 20 m on. (Both go a little into the ground: no floor under them.)
@@ -130,9 +135,10 @@ async function rocket(page, label, tx, tz) {
   for (let x = tx - 3; x <= tx + 3; x++) for (let z = tz - 3; z <= tz + 7; z++) cells.push([x, z]);
   await sweep(page, label, cells, (s) => cuts(solid(s), tower, 0.2) || cuts(solid(s), mount, 0.2));
   // A part cannot go on where something is built: a second site, with a wall where its mount goes.
-  await stand(page, cx + 100, 0.95, cz - 22); await wait(400);
+  await stand(page, cx + 100, 0.95, cz - 14); await wait(400);
   await say(page, { k: "pad-new", x: tx + 20, z: tz, dir: 0 }); await wait(300);
   const wall = await sends(page, [["wall", tx + 20, 0, tz + 4, 0]]);
+  await stand(page, cx + 100 + 9, 0.95, cz + 20); await wait(400);
   await say(page, { k: "pad-part", id: 2, n: 10 }); await wait(500);
   const second = () => sf(page, () => [...window.snapfort.feature.starship.pads.values()].find((s) => s.pad.id === 2)?.pad.parts.join());
   check(`${label}: a part cannot go on where something is built`, wall.kept[0] && (await second()) === "1" && /built in the way/.test(await toast(page)), `${await second()} · ${await toast(page)}`);

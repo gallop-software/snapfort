@@ -1,7 +1,7 @@
 import type { BuildState } from "../../game/buildState";
 import { CELL, WORLD_HALF_CELLS } from "../../game/constants";
 import { planFall, type Fall } from "../../game/fall";
-import { solidOf } from "../../game/keepOut";
+import { overlaps, solidOf } from "../../game/keepOut";
 import { gridBox, type Piece } from "../../game/pieces";
 import { positionAt, type Flight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
@@ -23,6 +23,7 @@ import {
   isBooster,
   isRocket,
   isShip,
+  landedBox,
   mountFoot,
   onHull,
   onShip,
@@ -30,6 +31,8 @@ import {
   partAt,
   PARTS,
   readPad,
+  reachTo,
+  reachToShip,
   readShip,
   rocketBalls,
   SEATS,
@@ -161,6 +164,15 @@ export function starLetGo(room: Room, playerId: string): void {
 }
 
 const across = (a: Vec, b: Vec) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+
+/**
+ * True when a builder is within `reach` metres of where part `n` goes (a
+ * little more is allowed for: where they are is known a tenth of a second late).
+ */
+function within(room: Room, playerId: string, pad: Pad, n: number, reach: number): boolean {
+  const p = room.positionOf(playerId);
+  return !!p && reachTo(pad, n, p) <= reach + 1.5;
+}
 
 /** True when a builder is near the tower or the mount, across the ground. */
 function near(room: Room, playerId: string, pad: Pad, reach: number): boolean {
@@ -319,7 +331,7 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
     if (!int(msg.x) || !int(msg.z) || !int(msg.dir) || msg.dir < 0 || msg.dir > 3) return;
     const pad: Pad = { id: m.nextId, x: msg.x, z: msg.z, dir: msg.dir, parts: [1], touched: now, readyAt: 0, riders: Array.from({ length: SEATS }, () => null), count: 0, to: "", flight: null };
     if (!fits(pad)) return no(room, playerId, "room");
-    if (!near(room, playerId, pad, STARSHIP.placeReach)) return no(room, playerId, "far");
+    if (!within(room, playerId, pad, 1, STARSHIP.placeReach)) return no(room, playerId, "far");
     if (!clear(room.build, pad)) return no(room, playerId, "crowded");
     tidy(room);
     if (m.pads.some((p) => overlap(p, pad)) || m.ships.some((s) => cellsOf(pad).some((c) => Math.abs((c.x + 0.5) * CELL - s.x) < 12 && Math.abs((c.z + 0.5) * CELL - s.z) < 12))) return no(room, playerId, "overlap");
@@ -336,7 +348,7 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
     if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
     const why = cannotPlace(pad, msg.n) ?? (crowded(room.build, pad, msg.n, room.env) ? "crowded" : null);
     if (why) return no(room, playerId, why);
-    if (!near(room, playerId, pad, STARSHIP.placeReach)) return no(room, playerId, "far");
+    if (!within(room, playerId, pad, msg.n, STARSHIP.placeReach)) return no(room, playerId, "far");
     pad.parts.push(msg.n);
     pad.touched = now;
     // Whole: fuelling starts.
@@ -350,7 +362,7 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
     const pad = m.pads.find((p) => p.id === msg.id);
     if (!pad || !int(msg.n) || !pad.parts.includes(msg.n)) return;
     if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
-    if (!near(room, playerId, pad, STARSHIP.placeReach)) return no(room, playerId, "far");
+    if (!within(room, playerId, pad, msg.n, STARSHIP.removeReach)) return no(room, playerId, "far");
     if (isRocket(msg.n) && (pad.flight || pad.count)) return no(room, playerId, "counting");
     if (heldBy(msg.n).some((k) => pad.parts.includes(k))) return no(room, playerId, "holds");
     if (isShip(msg.n) && pad.riders.some((r) => r !== null)) return no(room, playerId, "busy");
@@ -394,6 +406,18 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
     return wake(room, FLIGHT.count);
   }
 
+  if (msg.k === "ship-take") {
+    // The Remove tool on a landed ship: any builder, from close by, takes the whole of it away.
+    const ship = m.ships.find((s) => s.trip === msg.trip);
+    if (!ship || !ship.down) return;
+    if (!room.mayBuild(playerId)) return no(room, playerId, "locked");
+    const p = room.positionOf(playerId);
+    if (!p || reachToShip(ship, p) > STARSHIP.removeReach + 1.5) return no(room, playerId, "far");
+    m.ships = m.ships.filter((s) => s !== ship);
+    say(room, { k: "ship-gone", trip: ship.trip });
+    return save(room);
+  }
+
   if (msg.k === "ship-aboard") {
     const ship = m.ships.find((s) => s.trip === msg.trip);
     if (!ship || ship.down || ship.riders.includes(playerId) || ship.riders.length >= ship.seats) return;
@@ -405,10 +429,11 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
 
 /** A piece cannot be built into any part of a launch site. */
 export function starBlocks(room: Room, piece: Piece): boolean {
-  const pads = mem(room).pads;
-  if (pads.length === 0) return false;
+  const { pads, ships } = mem(room);
+  if (pads.length === 0 && ships.length === 0) return false;
   const box = solidOf(piece, room.env);
-  return pads.some((pad) => cutsInto(pad, box));
+  // (A landed ship too. One still coming in is not there yet: what is built where it lands blows it up.)
+  return pads.some((pad) => cutsInto(pad, box)) || ships.some((ship) => ship.down && overlaps(landedBox(ship), box, 0.2));
 }
 
 /**

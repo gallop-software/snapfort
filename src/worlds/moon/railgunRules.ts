@@ -26,8 +26,14 @@ export const PARTS = 22;
 export type PartKind = "base" | "breech" | "capacitor" | "rail" | "rise" | "muzzle" | "capsule";
 
 export const RAILGUN = {
-  /** How near a builder must be to put a part on, m. */
-  placeReach: 22,
+  /**
+   * How near a builder must be to where a part goes to put it on, m: as near
+   * as for a wall, in height too (user, 2026-11-24: "I have to be nearby...
+   * just like you can't build walls from far away"; it was 22). And how near
+   * to take one off.
+   */
+  placeReach: 12,
+  removeReach: 16,
   /** How near to the capsule to get in, m. */
   boardReach: 6,
   /** A shot landing this near a part's middle knocks it out, m. */
@@ -191,6 +197,11 @@ export function partSpace(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number): B
     const y0 = low.y * LEVEL + ((j + 1) / steps) * LEVEL;
     return alongX ? [from, y0 + 0.3, low.z * CELL + side, to, y0 + TALL.rise, (low.z + 1) * CELL - side] : [low.x * CELL + side, y0 + 0.3, from, (low.x + 1) * CELL - side, y0 + TALL.rise, to];
   });
+}
+
+/** How far a builder (their body's middle) is from where part `n` goes, m (0 right at it). */
+export function reachTo(gun: Pick<Gun, "x" | "y" | "z" | "dir">, n: number, p: Vec): number {
+  return Math.min(...partSpace(gun, n).map((b) => Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[3]), Math.max(b[1] - p[1], 0, p[1] - b[4]), Math.max(b[2] - p[2], 0, p[2] - b[5]))));
 }
 
 /** True when a piece filling `box` would cut into a part of this gun. */

@@ -364,6 +364,7 @@ export class World extends DurableObject<Env> {
     if (outdated) send(ws, { t: "update" });
     void this.keepWatch();
     this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
+    this.tellCount();
     serverOf(this.environment).joined?.(this.room(), player.id);
   }
 
@@ -382,6 +383,7 @@ export class World extends DurableObject<Env> {
     this.release(player.id);
     serverOf(this.environment).left?.(this.room(), player.id);
     this.broadcast({ t: "leave", id: player.id });
+    this.tellCount();
     if (this.players.size === 0) this.flush();
   }
 
@@ -492,6 +494,11 @@ export class World extends DurableObject<Env> {
     this.environment = worldOf(id);
     this.environmentKnown = true;
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('environment', ?)", this.environment.id);
+  }
+
+  /** Tells the ledger how many builders are here now, for the world cards on everyone's menu. */
+  private tellCount(): void {
+    if (this.name) this.ledger().present(this.name, this.players.size).catch(() => {});
   }
 
   private ledger() {

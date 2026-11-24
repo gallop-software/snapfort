@@ -114,6 +114,36 @@ check("'Have a key?' on the panel opens the key box in the settings", (await m.i
   await ctx.close();
 }
 
+// ── How many builders are in each world; the world you are in is not a link ─
+{
+  const counts = (page, sel) => sf(page, (sel) => Object.fromEntries([...document.querySelectorAll(`${sel} [data-builders]`)].map((el) => [el.dataset.builders, el.textContent])), sel);
+  const one = await open("/moon");
+  const two = await open("/moon");
+  const three = await open("/");
+  // (Every page opened above in this test world is still there: count them from the server's own answer.)
+  const truth = await sf(one, (w) => fetch(`/api/worlds?world=${w}`).then((r) => r.json()), world);
+  const moon = truth.worlds.find((w) => w.id === "moon").builders, meadow = truth.worlds.find((w) => w.id === "meadow").builders;
+  check("the server knows how many builders are in each world", moon >= 2 && meadow >= 1, JSON.stringify(truth.worlds));
+  await one.reload(); await one.waitForSelector("body.ready"); await wait(2600);
+  const cards = await counts(one, "#worlds");
+  check("each world's card says how many builders are there", cards.moon === `${moon} builders` && cards.meadow === `${meadow} ${meadow === 1 ? "builder" : "builders"}`, JSON.stringify(cards));
+  check("…and the menu still fits", await fits(one));
+  await two.context().close(); await wait(1200);
+  await one.click("#play-free"); await wait(800);
+  await sf(one, () => document.exitPointerLock()); await wait(1500);
+  const mini = await counts(one, "#mini-worlds");
+  check("…the world switcher too, and it notices when someone leaves", (await one.isVisible("#mini-worlds")) && mini.moon === String(moon - 1) && mini.meadow === String(meadow), JSON.stringify(mini));
+  check("…and the settings still fit", await fits(one));
+  await one.click("#resume").catch(() => {}); await wait(300);
+  // The card of the world you are in: clicking it does not load the page again.
+  const four = await open("/moon");
+  await sf(four, () => { window.__same = true; });
+  await four.click("#worlds .world.current"); await wait(1200);
+  check("clicking the card of the world you are in does nothing (the page is not loaded again)", (await sf(four, () => window.__same === true)) && (await sf(four, () => document.querySelector("#worlds .world.current").getAttribute("href"))) === null);
+  check("…while the other world's card still goes there", (await sf(four, () => document.querySelector("#worlds .world:not(.current)").getAttribute("href"))).startsWith("/?world="));
+  await three.context().close(); await four.context().close(); await one.context().close();
+}
+
 check("no errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

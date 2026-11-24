@@ -1,4 +1,5 @@
-import { DEFAULT_WORLD, worldAtPath, worldOf } from "../src/worlds";
+import type { Environment } from "../src/game/environments";
+import { DEFAULT_WORLD, worldAtPath, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
 import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail } from "./mail";
@@ -70,11 +71,15 @@ function forward(target: { stub: DurableObjectStub; name: string }, request: Req
  */
 function world(env: Env, request: Request) {
   const url = new URL(request.url);
-  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  const place = worldOf(url.searchParams.get("env"));
-  const name = url.searchParams.get("world");
-  const id = local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}${place === DEFAULT_WORLD ? "" : `-${place.id}`}` : place.room;
+  const id = roomOf(url, worldOf(url.searchParams.get("env")));
   return { stub: env.WORLD.get(env.WORLD.idFromName(id)), name: id };
+}
+
+/** The name of a world's room for this request: its own, or on a dev server with ?world=<name>, that test world's. */
+function roomOf(url: URL, place: Environment): string {
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  const name = url.searchParams.get("world");
+  return local && name && /^[a-z0-9-]{1,40}$/.test(name) ? `test-${name}${place === DEFAULT_WORLD ? "" : `-${place.id}`}` : place.room;
 }
 
 /** Where links in emails go: the real site, or this dev server. */
@@ -98,6 +103,12 @@ async function api(url: URL, request: Request, env: Env, ctx: ExecutionContext):
     // never meets a test checkout).
     case "/api/store":
       return Response.json({ ready: stripeReady(env), live, build: BUILD_ID });
+
+    // How many builders are in each world right now, for the world cards.
+    case "/api/worlds": {
+      const counts = await ledger(env).builders(WORLDS.map((w) => roomOf(url, w)));
+      return Response.json({ worlds: WORLDS.map((w, i) => ({ id: w.id, builders: counts[i] })) }, { headers: { "Cache-Control": "no-store" } });
+    }
 
     case "/api/buy": {
       if (request.method !== "POST") return new Response("Use POST", { status: 405 });

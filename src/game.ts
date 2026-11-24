@@ -40,7 +40,7 @@ import { Store } from "./ui/store";
 import { Tips } from "./ui/tips";
 import { pieceLabel, type Environment } from "./game/environments";
 import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
-import { reachOf } from "./ui/worlds";
+import { askBuilders, reachOf } from "./ui/worlds";
 import { SyncedState } from "./net/sync";
 import { loadSettings, saveSettings } from "./settings";
 import { CameraRig, SCOPE_ZOOMS } from "./render/cameraRig";
@@ -1034,6 +1034,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       chat.clear();
       for (const said of extras.chat) chat.show(said, myId, now);
       feature?.joined?.();
+      // The world cards' counts now include this builder (asked a moment later: the world tells
+      // the count's keeper as it welcomes us, and that word may still be on its way).
+      setTimeout(askBuilders, 1500);
     },
     snapshot(pieces) {
       if (solo) return;

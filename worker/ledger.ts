@@ -61,8 +61,22 @@ export class Ledger extends DurableObject<LedgerEnv> {
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS mail (who TEXT NOT NULL, at INTEGER NOT NULL)");
     // Where each key is being played (one player at a time).
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS active (key TEXT PRIMARY KEY, world TEXT NOT NULL, player TEXT NOT NULL, since INTEGER NOT NULL)");
+    // How many builders are in each world's room right now (each room says so whenever that changes).
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS present (room TEXT PRIMARY KEY, builders INTEGER NOT NULL, at INTEGER NOT NULL)");
     // One-time links (replacing a key), sent to the buyer's email.
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS tokens (token TEXT PRIMARY KEY, key TEXT NOT NULL, expires INTEGER NOT NULL)");
+  }
+
+  /** A room says how many builders are in it now. */
+  present(room: string, builders: number): void {
+    if (builders > 0) this.ctx.storage.sql.exec("INSERT OR REPLACE INTO present (room, builders, at) VALUES (?, ?, ?)", room, builders, Date.now());
+    else this.ctx.storage.sql.exec("DELETE FROM present WHERE room = ?", room);
+  }
+
+  /** How many builders are in each of these rooms (0 for one that has said nothing). */
+  builders(rooms: readonly string[]): number[] {
+    const counts = new Map(this.ctx.storage.sql.exec<{ room: string; builders: number }>("SELECT room, builders FROM present").toArray().map((r) => [r.room, r.builders]));
+    return rooms.map((room) => counts.get(room) ?? 0);
   }
 
   /** A new key, not yet paid for. */

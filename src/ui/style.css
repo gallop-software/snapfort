@@ -893,6 +893,16 @@ body.visiting #hotbar { opacity: 0.45; }
 .world .pic { position: relative; display: block; aspect-ratio: 16 / 9; background: #ccc center / cover no-repeat; }
 .world .info { display: grid; gap: 3px; padding: 10px 13px 12px; }
 .world .info b { font-size: 18px; font-weight: 900; }
+.world .info .name { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+/* How many builders are in a world right now: a green dot and the number (grey when nobody is). */
+.builders { font-style: normal; font-size: 12.5px; font-weight: 800; color: #2c8a4b; white-space: nowrap; }
+.builders:empty { display: none; }
+.builders::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; background: #3fb766; vertical-align: 0; }
+.builders.none { color: rgba(31, 41, 55, 0.5); }
+.builders.none::before { background: rgba(31, 41, 55, 0.25); }
+.world:not([href]) { cursor: default; }
+.world:not([href]):hover { transform: none; }
+.mini-world .builders { font-size: 12px; margin-left: 2px; }
 .world .info small { font-size: 12.5px; font-weight: 600; line-height: 1.35; opacity: 0.72; }
 .badge {
   position: absolute;

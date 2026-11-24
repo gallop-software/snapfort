@@ -217,6 +217,11 @@ All in `src/worlds/moon/` again; the Meadow's reference pictures still match to 
 - A flight (thrown, falling, flown back on rockets) is planned by the server when it begins, landing spot included. With the Moon's launcher firing every 3 s and flights lasting about 10 s, what a builder was to land on can be shot away while they are in the air; they were then flown to where it used to be and left there (a page that is awake dropped them with its own physics a moment later; a tab in the background hung in the air for everyone).
 - Fix (shared server code, `fly` in `worker/world.ts`, so it covers every world): when a flight ends, the server looks under the landing spot again; if what was there has gone, the builder goes on down to whatever is there now, the same way they were coming (on the rockets, where the flight ended in a glide). `npm run qa:landing` reproduces it.
 
+## Builders in each world, and the card you are on (user, 2026-11-23: "put the number builders in each environment"; "when I have it selected, it still refreshes it")
+
+- Every world's card on the menu and its button in the settings' world switcher says how many builders are there now ("3 builders"; just the number on the small buttons; grey when nobody is). Each world's room tells the Ledger its count whenever someone joins or leaves (`present`), and `/api/worlds` reads them all in one go, so showing the menu never wakes a sleeping world. The page asks when it loads, a moment after joining, when a panel with the cards opens, and every 12 s while one is showing.
+- The card (and switcher button) of the world you are in is no longer a link: clicking it used to load the page again.
+
 ## Progress
 
 - [x] Phase 1 — core sandbox (built 2026-11-21)

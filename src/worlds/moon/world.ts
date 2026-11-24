@@ -46,7 +46,8 @@ export const world: Environment = {
     minRange: 25,
     baseRange: 300,
     rangePerMetre: 1,
-    reload: 6,
+    // A shot every 3 seconds (user, 2026-11-23); a trebuchet takes 6.
+    reload: 3,
     launchHeight: 7,
     // Big chunks of moon rock, there in under a second, nearly straight (user, 2026-11-23): it hits
     // the first thing in its line, so it cannot be lobbed over a wall as a trebuchet's stone can.

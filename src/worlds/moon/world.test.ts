@@ -44,6 +44,10 @@ describe("the Moon", () => {
     expect(lobbed.pieceId).toBeUndefined();
   });
 
+  it("reloads in 3 seconds", () => {
+    expect(MOON.siege.reload).toBe(3);
+  });
+
   it("lets launchers reach 1.6 times as far", () => {
     expect(maxRange(treb, MOON)).toBeCloseTo(maxRange(treb, EARTHLY) * 1.6);
     const far: Vec = [2.5 + 400, 0, 2.5];

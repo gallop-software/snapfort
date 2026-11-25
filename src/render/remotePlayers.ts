@@ -11,6 +11,7 @@ import type { WireMove, WirePlayer } from "../net/protocol";
 import { fallEnd, fallPhase, fallPosition, type Fall } from "../game/fall";
 import type { OutfitBuilder, Ride } from "../worlds/pageDoors";
 import { Avatar, downness } from "./avatar";
+import { wading } from "./player";
 import { StandIns } from "./standIns";
 
 /** Positions are shown this far in the past, so there are always two to blend between, ms. */
@@ -190,8 +191,10 @@ export class RemotePlayers {
       const avatar = (remote.avatar ??= this.claim(remote.player.color));
       if (ride) avatar.sit(ride.x, ride.y, ride.z, ride.yaw, ride.pitch, ride.roll);
       else {
-        avatar.root.position.set(remote.x, remote.y - HALF_HEIGHT, remote.z);
+        const feet = remote.y - HALF_HEIGHT;
+        avatar.root.position.set(remote.x, feet - wading(feet, this.wade(remote.x, remote.z)), remote.z);
         avatar.root.rotation.y = remote.yaw;
+        if (remote.ground && feet < 0.4) this.wake(remote.x, remote.z, remote.vx, remote.vz, dt);
         avatar.animate(dt, remote.yaw, remote.vx, remote.vz, remote.ground, remote.tumbling, remote.down, remote.gliding);
       }
       const showTag = size >= TAG_SIZE;
@@ -267,6 +270,11 @@ export class RemotePlayers {
    * one of two running strides, or in the air), facing the way they run, with a
    * small bob on each step.
    */
+  /** How deep the water is at a spot, m (a world with pools says: see Scenery.wade). */
+  wade: (x: number, z: number) => number = () => 0;
+  /** Tells the world someone is moving through its water (see Scenery.wake). */
+  wake: (x: number, z: number, vx: number, vz: number, dt: number) => void = () => {};
+
   private placeStandIn(remote: Remote, dt: number): void {
     const speed = Math.hypot(remote.vx, remote.vz);
     const running = remote.ground && speed > 0.5;
@@ -274,7 +282,8 @@ export class RemotePlayers {
     const pose = !remote.ground ? "air" : !running ? "stand" : Math.sin(remote.stride) > 0 ? "runA" : "runB";
     const bob = running ? Math.abs(Math.sin(remote.stride)) * 0.08 : 0;
     const yaw = running ? Math.atan2(remote.vx, remote.vz) : remote.yaw;
-    this.standIns.add(pose, remote.x, remote.y - HALF_HEIGHT + bob, remote.z, yaw, Color3.FromHexString(remote.player.color));
+    const feet = remote.y - HALF_HEIGHT;
+    this.standIns.add(pose, remote.x, feet - wading(feet, this.wade(remote.x, remote.z)) + bob, remote.z, yaw, Color3.FromHexString(remote.player.color));
   }
 
   private claim(color: string): Avatar {

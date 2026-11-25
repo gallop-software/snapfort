@@ -12,6 +12,7 @@ import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder"
 import { CreateDisc } from "@babylonjs/core/Meshes/Builders/discBuilder";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
+import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
@@ -308,15 +309,15 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
   // (It stays where it grew while the air thins, even if the machine is taken away.)
   const grewFrom = { x: 0, z: 0 };
 
-  // Standing water: pools in the low places, which fill as it warms.
+  // Standing water: wide pools in the low places, which fill as it warms. Builders wade into them (see `wade` below).
   const poolMat = new StandardMaterial("pool", scene);
   poolMat.diffuseColor = new Color3(0.16, 0.3, 0.44);
   poolMat.specularColor = new Color3(0.9, 0.9, 0.9);
   poolMat.specularPower = 90;
-  poolMat.alpha = 0.86;
+  // (Not see-through: where two pools run together their water is one colour, with no darker lens where they overlap.)
   poolMat.zOffset = -4;
-  const pool = CreateDisc("pool", { radius: 1, tessellation: 28 }, scene);
-  pool.rotation.x = Math.PI / 2;
+  const pool = CreateDisc("pool", { radius: 1, tessellation: 72 }, scene);
+  // (Each pool is laid flat by its own matrix below: turning the disc here as well would stand them on edge, far from where they belong.)
   pool.material = poolMat;
   pool.isPickable = false;
   pool.receiveShadows = true;
@@ -324,12 +325,113 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
   const POOLS: [number, number, number, number][] = [];
   {
     const r = rng(53);
-    for (let i = 0; i < 16; i++) POOLS.push([(r() - 0.5) * 620, (r() - 0.5) * 620, 5 + r() * 15, 0.75 + r() * 0.5]);
+    for (let i = 0; i < 16; i++) POOLS.push([(r() - 0.5) * 620, (r() - 0.5) * 620, 18 + r() * 52, 0.75 + r() * 0.5]);
   }
   const poolMatrices = new Float32Array(POOLS.length * 16);
   pool.thinInstanceSetBuffer("matrix", poolMatrices, 16, false);
   pool.setEnabled(false);
   let poolsAt = -1;
+  /** The deepest a pool gets, m (to a builder's waist), and how fast its bed falls away from the shore. */
+  const POOL_DEEP = 0.9, POOL_SLOPE = 0.12;
+  /** How deep the water is at a spot: nothing at a pool's shore, deepening toward its middle. */
+  const wade = (x: number, z: number): number => {
+    if (poolsAt <= 0) return 0;
+    let deep = 0;
+    for (const [px, pz, wide, squash] of POOLS) {
+      const rx = wide * poolsAt, rz = rx * squash;
+      const d = Math.hypot((x - px) / rx, (z - pz) / rz);
+      if (d < 1) deep = Math.max(deep, Math.min(POOL_DEEP, (1 - d) * Math.min(rx, rz) * POOL_SLOPE));
+    }
+    return deep;
+  };
+
+  // Whoever moves through a pool stirs it: rings spreading over the water from where they are, and drops thrown up round them.
+  const WATER = 0.06;
+  const foamMat = glowing(scene, "foam");
+  foamMat.zOffset = -6;
+  const rings: { mesh: Mesh; age: number; life: number; wide: number }[] = [];
+  for (let i = 0; i < 28; i++) {
+    const mesh = CreateTorus("ripple", { diameter: 2, thickness: 0.09, tessellation: 28 }, scene);
+    mesh.material = foamMat;
+    mesh.isPickable = false;
+    mesh.setEnabled(false);
+    rings.push({ mesh, age: 0, life: 0, wide: 0 });
+  }
+  const DROPLETS = 160;
+  const drop = CreateSphere("splash", { diameter: 1, segments: 3 }, scene);
+  drop.material = foamMat;
+  drop.isPickable = false;
+  drop.alwaysSelectAsActiveMesh = true;
+  const splashes = new Float32Array(DROPLETS * 16);
+  /** Each drop: where it is, how it moves, how much longer it lasts (s), and its size (m). */
+  const flying = Array.from({ length: DROPLETS }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, left: 0, size: 0 }));
+  drop.thinInstanceSetBuffer("matrix", splashes, 16, false);
+  drop.setEnabled(false);
+  let ringNext = 0, dropNext = 0, ringDue = 0, dropDue = 0;
+  const wake = (x: number, z: number, vx: number, vz: number, dt: number): void => {
+    const speed = Math.hypot(vx, vz);
+    if (speed < 0.6 || wade(x, z) <= 0) return;
+    const hard = Math.min(1, speed / 14);
+    // A ring every stride or so; more drops the faster they go.
+    ringDue += dt * (2.2 + 3.5 * hard);
+    while (ringDue >= 1) {
+      ringDue -= 1;
+      const ring = rings[ringNext++ % rings.length]!;
+      ring.age = 0;
+      ring.life = 1.3 + Math.random() * 0.6;
+      ring.wide = 1.6 + 2.2 * hard + Math.random() * 0.6;
+      ring.mesh.position.set(x + (Math.random() - 0.5) * 0.5, WATER, z + (Math.random() - 0.5) * 0.5);
+      ring.mesh.setEnabled(true);
+    }
+    dropDue += dt * 70 * hard;
+    while (dropDue >= 1) {
+      dropDue -= 1;
+      const d = flying[dropNext++ % DROPLETS]!;
+      const angle = Math.random() * Math.PI * 2, out = 0.6 + Math.random() * 1.6;
+      d.x = x + Math.cos(angle) * 0.3;
+      d.z = z + Math.sin(angle) * 0.3;
+      d.y = WATER;
+      // (Thrown forward with whoever threw them, and out to the sides: a runner carries a spray along.)
+      const along = 0.55 + Math.random() * 0.5;
+      d.vx = vx * along + Math.cos(angle) * out;
+      d.vz = vz * along + Math.sin(angle) * out;
+      // (Mars's pull: they hang in the air longer than they would on Earth.)
+      d.vy = 2 + Math.random() * 2.6 * (0.5 + hard);
+      d.left = 5;
+      d.size = 0.05 + Math.random() * 0.07;
+    }
+  };
+  const FALL = 9.9;
+  const hidden = Matrix.Zero();
+  /** Moves the rings and the drops on. */
+  const stir = (dt: number) => {
+    for (const ring of rings) {
+      if (!ring.mesh.isEnabled()) continue;
+      ring.age += dt;
+      const t = ring.age / ring.life;
+      if (t >= 1) { ring.mesh.setEnabled(false); continue; }
+      const r = 0.35 + ring.wide * (1 - (1 - t) ** 2);
+      ring.mesh.scaling.set(r, 0.25, r);
+      ring.mesh.visibility = 0.55 * (1 - t) ** 1.5;
+    }
+    let any = false;
+    for (let i = 0; i < DROPLETS; i++) {
+      const d = flying[i]!;
+      if (d.left > 0) {
+        d.vy -= FALL * dt;
+        d.x += d.vx * dt;
+        d.y += d.vy * dt;
+        d.z += d.vz * dt;
+        d.left = d.y < WATER - 0.05 ? 0 : d.left - dt;
+      }
+      if (d.left > 0) {
+        any = true;
+        Matrix.Compose(new Vector3(d.size, d.size, d.size), Quaternion.Identity(), new Vector3(d.x, d.y, d.z)).copyToArray(splashes, i * 16);
+      } else hidden.copyToArray(splashes, i * 16);
+    }
+    if (any || drop.isEnabled()) drop.thinInstanceBufferUpdated("matrix");
+    drop.setEnabled(any);
+  };
 
   // The aurora: a ring of curtains high round the night sky, while there is thick air to light up.
   const auroraMat = glowing(scene, "aurora");
@@ -461,6 +563,7 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
       pool.thinInstanceBufferUpdated("matrix");
     }
     paint(poolMat.diffuseColor, mix([0.03, 0.04, 0.08], mix([0.16, 0.3, 0.44], [0.28, 0.4, 0.52], shower), day));
+    paint(foamMat.emissiveColor, mix([0.2, 0.24, 0.32], [0.86, 0.93, 1], day));
 
     // The aurora, at night, for as long as there is thick air.
     const lights = night * smooth(0.08, 0.5, air);
@@ -501,9 +604,12 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
     setShadows(on) {
       sun.shadowEnabled = on;
     },
+    wade,
+    wake,
     update(dt) {
       followHeight();
       fall(dt);
+      stir(dt);
       // The sky moves slowly: a few times a second is plenty.
       since += dt;
       if (since < 0.1) return;

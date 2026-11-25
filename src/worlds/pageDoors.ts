@@ -172,6 +172,13 @@ export interface Scenery {
   /** Live sun shadows on or off (battery saver turns them off). */
   setShadows(on: boolean): void;
   update(dt: number): void;
+  /**
+   * How deep the water is at a spot on the ground, m (0 on dry land). Whoever stands
+   * there is drawn that much lower, wading; the ground they walk on stays level.
+   */
+  wade?(x: number, z: number): number;
+  /** Someone is moving through that water at a spot, this fast (m/s along x and z), for this frame of `dt` seconds: it ripples and splashes. */
+  wake?(x: number, z: number, vx: number, vz: number, dt: number): void;
 }
 
 export interface PieceSkin {

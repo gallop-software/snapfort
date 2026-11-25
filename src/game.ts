@@ -135,6 +135,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const sfx = new Sfx(page.sounds);
   const army = new SoldierView(scene, world.shadows);
   const remotes = new RemotePlayers(scene, world.shadows, page.outfit);
+  // A world with water to wade in: everyone standing in it is drawn that deep.
+  if (world.wade) player.wade = remotes.wade = world.wade;
+  if (world.wake) player.wake = remotes.wake = world.wake;
   const trebuchets = new TrebuchetView(scene, state, world.shadows, env, page.siegeModel(scene));
   // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
   const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)), env, page.dust);

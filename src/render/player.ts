@@ -10,6 +10,14 @@ import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
 import { BUILDER_GROUP } from "./physicsGroups";
 
 const HEIGHT = 1.8;
+
+/**
+ * How much lower to draw someone whose feet are `feet` m above the ground where the water is `deep`:
+ * all of it on the ground, none once they are up on something built there or well into a jump.
+ */
+export function wading(feet: number, deep: number): number {
+  return deep <= 0 ? 0 : deep * Math.max(0, Math.min(1, 1 - (feet - 0.1) / 0.3));
+}
 const RADIUS = 0.4;
 /** Fast on purpose: getting around quickly makes building quick. */
 const WALK_SPEED = 16;
@@ -237,12 +245,19 @@ export class Player {
   /** Sitting on something of a world's own (see PageGame.ride), or null. */
   riding: Ride | null = null;
 
+  /** How deep the water is at a spot, m (a world with pools says: see Scenery.wade). */
+  wade: (x: number, z: number) => number = () => 0;
+  /** Tells the world someone is moving through its water (see Scenery.wake). */
+  wake: (x: number, z: number, vx: number, vz: number, dt: number) => void = () => {};
+
   /** Moves the avatar to the character and animates it. Call before rendering. */
   animate(dt: number, facingYaw: number): void {
     // Thrown or falling comes first: whatever they sat on, they are off it.
     if (this.riding && !this.fall) return this.avatar.sit(this.riding.x, this.riding.y, this.riding.z, this.riding.yaw, this.riding.pitch, this.riding.roll);
-    this.avatar.root.position.set(this.position.x, this.position.y - HEIGHT / 2, this.position.z);
+    const feet = this.position.y - HEIGHT / 2;
+    this.avatar.root.position.set(this.position.x, feet - wading(feet, this.wade(this.position.x, this.position.z)), this.position.z);
     const v = this.controller.getVelocity();
+    if (this.onGround && feet < 0.4) this.wake(this.position.x, this.position.z, v.x, v.z, dt);
     this.avatar.animate(dt, facingYaw, v.x, v.z, this.onGround, this.tumbling, this.down, this.gliding || this.aloft);
   }
 }

@@ -54,7 +54,7 @@ const sky = (page) => sf(page, () => {
   return {
     horizon: [c.r, c.g, c.b], stars: s.getMaterialByName("sky").emissiveTexture.level, sun: up("sun-halo"), blue: halo.b > halo.r, sunLight: s.getLightByName("sun").intensity,
     ice: glow("piece-wall-wood"), brick: glow("piece-wall-brick"), roof: glow("piece-roof-brick"), phobos: up("phobos"), earth: up("earth"),
-    ground: s.getMeshByName("ground")?.material?.diffuseTexture?.name, walls: s.meshes.filter((m) => m.name.startsWith("canyon")).length, clouds: !!s.getMeshByName("cloud"),
+    ground: s.getMeshByName("ground")?.material?.diffuseTexture?.name, walls: s.meshes.filter((m) => m.name.startsWith("canyon")).length, clouds: s.getMeshByName("cloud")?.isEnabled() ?? false,
   };
 });
 

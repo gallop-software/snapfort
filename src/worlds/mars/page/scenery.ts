@@ -6,8 +6,10 @@ import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
-import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
+import { CreateDisc } from "@babylonjs/core/Meshes/Builders/discBuilder";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -20,7 +22,8 @@ import { CELL } from "../../../game/constants";
 import { rng } from "../../../render/paint";
 import type { Scenery } from "../../pageDoors";
 import { daylight, deimosDirection, dusk, earthDirection, phobosDirection, solsAt, sunDirection, sunHeight } from "../sol";
-import { discTexture, glowTexture, hazeTexture, marsGroundTexture, phobosTexture, starTexture } from "./textures";
+import { sky as weather } from "./air";
+import { auroraTexture, discTexture, glowTexture, hazeTexture, marsGroundTexture, mossTexture, phobosTexture, spreadTexture, starTexture } from "./textures";
 
 /** Dust in the air: far things fade into the colour of the horizon. */
 const FOG_START = 220, FOG_END = 1500;
@@ -35,6 +38,9 @@ type RGB = readonly [number, number, number];
 const DAY = { zenith: [0.6, 0.47, 0.36], horizon: [0.87, 0.71, 0.53] } as const;
 /** With the sun on the horizon: the dust goes grey, and (drawn apart) blue round the sun. */
 const DUSK = { zenith: [0.17, 0.16, 0.21], horizon: [0.38, 0.32, 0.3] } as const;
+/** The same hours once the air is thick: a blue sky by day, and a sunset gone red, as on the Earth (thick air scatters the blue out of the low sun; Mars's thin dust does the opposite). */
+const WET_DAY = { zenith: [0.3, 0.52, 0.88], horizon: [0.78, 0.87, 0.95] } as const;
+const WET_DUSK = { zenith: [0.25, 0.24, 0.4], horizon: [0.9, 0.52, 0.32] } as const;
 const NIGHT = { zenith: [0.02, 0.02, 0.045], horizon: [0.1, 0.095, 0.14] } as const;
 
 const mix = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
@@ -144,6 +150,12 @@ function canyonWall(scene: Scene, side: 1 | -1, material: StandardMaterial): Mes
  * are stars, Phobos crossing the wrong way, Deimos, and the Earth as an
  * evening star, and what is built of ice or glass glows.
  *
+ * And it changes with the air (./air.ts: 0 thin, 1 thick). As a Terraformer
+ * runs the sky pales to blue and its sunsets redden, clouds form, showers
+ * pass, lichen and then green spread outward from the machine, water stands
+ * in pools, and at night an aurora hangs over it all. Stop the machine and it
+ * all goes back the way it came.
+ *
  * Copied from the Moon's and changed from there.
  */
 export function scenery(scene: Scene, camera: Camera): Scenery {
@@ -235,6 +247,103 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
   canyonWall(scene, 1, rock);
   canyonWall(scene, -1, rock);
 
+  // ── What thick air brings ──
+  // Clouds: one squashed ball drawn many times, as the Meadow's are; they only show once there is air to hold them.
+  const cloudMat = glowing(scene, "cloud");
+  cloudMat.fogEnabled = false;
+  const cloud = CreateSphere("cloud", { diameter: 1, segments: 6 }, scene);
+  cloud.material = cloudMat;
+  cloud.isPickable = false;
+  cloud.alwaysSelectAsActiveMesh = true;
+  {
+    const r = rng(17);
+    const matrices: number[] = [];
+    for (let i = 0; i < 18; i++) {
+      const angle = r() * Math.PI * 2, radius = 300 + r() * 900;
+      const centre = new Vector3(Math.cos(angle) * radius, 260 + r() * 160, Math.sin(angle) * radius);
+      const puffs = 3 + Math.floor(r() * 3);
+      for (let p = 0; p < puffs; p++) {
+        const size = 60 + r() * 70;
+        matrices.push(...Matrix.Compose(new Vector3(size * 1.6, size * 0.45, size), Quaternion.Identity(), centre.add(new Vector3((p - puffs / 2) * 52 + r() * 16, r() * 12, r() * 34))).asArray());
+      }
+    }
+    cloud.thinInstanceSetBuffer("matrix", new Float32Array(matrices), 16, true);
+  }
+
+  // Rain: short pale streaks falling round the camera while a shower passes.
+  const DROPS = 260, RAIN_WIDE = 46, RAIN_TALL = 30;
+  const rainMat = glowing(scene, "rain");
+  rainMat.emissiveColor = new Color3(0.82, 0.88, 0.95);
+  rainMat.alpha = 0.34;
+  const rain = CreateBox("rain", { width: 0.035, height: 1.5, depth: 0.035 }, scene);
+  rain.material = rainMat;
+  rain.isPickable = false;
+  rain.alwaysSelectAsActiveMesh = true;
+  const drops = new Float32Array(DROPS * 16);
+  const dropAt: number[] = [];
+  {
+    const r = rng(29);
+    for (let i = 0; i < DROPS; i++) dropAt.push((r() - 0.5) * RAIN_WIDE, r() * RAIN_TALL, (r() - 0.5) * RAIN_WIDE, 16 + r() * 8);
+    Matrix.Identity().copyToArray(drops, 0);
+    for (let i = 1; i < DROPS; i++) drops.copyWithin(i * 16, 0, 16);
+  }
+  rain.thinInstanceSetBuffer("matrix", drops, 16, false);
+  rain.setEnabled(false);
+  let rainClock = 0;
+
+  // What grows: a mat of lichen, then moss, then green, spreading outward from the machine over the ground.
+  const growth = CreateDisc("growth", { radius: 1, tessellation: 48 }, scene);
+  growth.rotation.x = Math.PI / 2;
+  growth.position.y = 0.035;
+  const moss = mossTexture(scene);
+  const growthMat = new StandardMaterial("growth", scene);
+  growthMat.diffuseTexture = moss;
+  growthMat.opacityTexture = spreadTexture(scene);
+  growthMat.specularColor = Color3.Black();
+  growthMat.zOffset = -2;
+  growth.material = growthMat;
+  growth.receiveShadows = true;
+  growth.isPickable = false;
+  growth.setEnabled(false);
+  // (It stays where it grew while the air thins, even if the machine is taken away.)
+  const grewFrom = { x: 0, z: 0 };
+
+  // Standing water: pools in the low places, which fill as it warms.
+  const poolMat = new StandardMaterial("pool", scene);
+  poolMat.diffuseColor = new Color3(0.16, 0.3, 0.44);
+  poolMat.specularColor = new Color3(0.9, 0.9, 0.9);
+  poolMat.specularPower = 90;
+  poolMat.alpha = 0.86;
+  poolMat.zOffset = -4;
+  const pool = CreateDisc("pool", { radius: 1, tessellation: 28 }, scene);
+  pool.rotation.x = Math.PI / 2;
+  pool.material = poolMat;
+  pool.isPickable = false;
+  pool.receiveShadows = true;
+  pool.alwaysSelectAsActiveMesh = true;
+  const POOLS: [number, number, number, number][] = [];
+  {
+    const r = rng(53);
+    for (let i = 0; i < 16; i++) POOLS.push([(r() - 0.5) * 620, (r() - 0.5) * 620, 5 + r() * 15, 0.75 + r() * 0.5]);
+  }
+  const poolMatrices = new Float32Array(POOLS.length * 16);
+  pool.thinInstanceSetBuffer("matrix", poolMatrices, 16, false);
+  pool.setEnabled(false);
+  let poolsAt = -1;
+
+  // The aurora: a ring of curtains high round the night sky, while there is thick air to light up.
+  const auroraMat = glowing(scene, "aurora");
+  const curtains = auroraTexture(scene);
+  curtains.uScale = 3;
+  auroraMat.opacityTexture = curtains;
+  auroraMat.emissiveColor = new Color3(0.2, 1, 0.5);
+  auroraMat.alphaMode = ADDITIVE;
+  auroraMat.disableDepthWrite = true;
+  auroraMat.backFaceCulling = false;
+  const aurora = inTheSky(CreateCylinder("aurora", { diameterTop: 1500, diameterBottom: 2600, height: 700, tessellation: 40, cap: Mesh.NO_CAP, sideOrientation: Mesh.BACKSIDE }, scene), auroraMat);
+  aurora.position.y = 620;
+  aurora.setEnabled(false);
+
   // Up a tall tower the ground is further away: push the fog and the shadows'
   // reach out with height, so the view down stays clear and shadowed.
   let lastHeight = -10;
@@ -263,17 +372,25 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
   };
 
   const held = heldSol();
+  /** How hard it is raining, 0..1 (set with the hour; the drops move every frame). */
+  let raining = 0;
   const place = (mesh: Mesh, [x, y, z]: RGB) => mesh.position.set(x * FAR, y * FAR, z * FAR);
   /** Sets everything that depends on the hour. */
   const tell = () => {
     const sols = held ?? solsAt(Date.now());
+    const air = weather.air;
+    // How far the thaw has got: the sky turns first, then cloud, then rain; lichen first on the ground, then green.
+    const wet = smooth(0.05, 0.75, air);
     const height = sunHeight(sols), day = daylight(sols), low = dusk(sols), night = 1 - day;
     const toSun = sunDirection(sols);
 
     // The sky's colours: night, through dusk, to day.
     const high = smooth(0, 0.24, height);
-    const zenith = mix(NIGHT.zenith, mix(DUSK.zenith, DAY.zenith, high), day);
-    const horizon = mix(NIGHT.horizon, mix(DUSK.horizon, DAY.horizon, high), day);
+    // A shower passing: they come and go through the sol once the air is thick enough to rain.
+    const shower = smooth(0.6, 0.85, air) * smooth(0.25, 0.6, Math.sin(sols * Math.PI * 2 * 9));
+    const grey = (c: RGB): RGB => mix(c, [0.56, 0.6, 0.66], shower * 0.55);
+    const zenith = mix(NIGHT.zenith, grey(mix(mix(DUSK.zenith, WET_DUSK.zenith, wet), mix(DAY.zenith, WET_DAY.zenith, wet), high)), day);
+    const horizon = mix(NIGHT.horizon, grey(mix(mix(DUSK.horizon, WET_DUSK.horizon, wet), mix(DAY.horizon, WET_DAY.horizon, wet), high)), day);
     paint(skyMat.emissiveColor, zenith);
     stars.level = night * night;
     paint(bandMat.emissiveColor, horizon);
@@ -287,7 +404,8 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
     place(sunHalo.mesh, toSun);
     place(sunDisc.mesh, toSun);
     sunHalo.mesh.scaling.setAll(700 + 900 * low);
-    paint(sunHalo.material.emissiveColor, mix([1, 0.9, 0.74], [0.22, 0.5, 1], low), 0.5 + 0.5 * low);
+    // (In thick air it is the other way about: the low sun goes red.)
+    paint(sunHalo.material.emissiveColor, mix([1, 0.9, 0.74], mix([0.22, 0.5, 1], [1, 0.42, 0.16], wet), low), (0.5 + 0.5 * low) * (1 - 0.6 * shower));
     paint(sunDisc.material.emissiveColor, mix([1, 0.97, 0.9], [0.8, 0.9, 1], low));
 
     // Light. By day it comes from the sun (never from quite on the horizon, or shadows run forever);
@@ -316,10 +434,66 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
     place(earth.mesh, earthDirection(sols));
     paint(earth.material.emissiveColor, [0.55, 0.75, 1], night);
 
+    // Clouds: white by day, dim at night; thicker and greyer in a shower.
+    const cloudy = smooth(0.3, 0.7, air);
+    cloud.setEnabled(cloudy > 0.01);
+    cloud.visibility = cloudy * (0.75 + 0.25 * shower);
+    cloud.rotation.y = sols * 1.7;
+    paint(cloudMat.emissiveColor, mix(mix([0.1, 0.1, 0.14], [1, 0.97, 0.93], day), [0.6, 0.63, 0.68], shower * 0.7));
+    raining = shower;
+
+    // The ground: lichen spreading from the machine, greening as it goes; and the pools filling.
+    if (weather.source && weather.to > 0) [grewFrom.x, grewFrom.z] = [weather.source.x, weather.source.z];
+    growth.setEnabled(air > 0.02);
+    if (air > 0.02) {
+      const reach = 20 + 2300 * smooth(0.02, 1, air) ** 1.5;
+      growth.position.x = grewFrom.x;
+      growth.position.z = grewFrom.z;
+      growth.scaling.set(reach, reach, 1);
+      moss.uScale = moss.vScale = reach / 9;
+      paint(growthMat.diffuseColor, mix([0.32, 0.27, 0.2], [0.34, 0.62, 0.27], smooth(0.3, 0.95, air)));
+    }
+    const filled = Math.round(smooth(0.45, 0.95, air) * 50) / 50;
+    pool.setEnabled(filled > 0);
+    if (filled !== poolsAt) {
+      poolsAt = filled;
+      POOLS.forEach(([x, z, wide, squash], i) => Matrix.Compose(new Vector3(wide * filled, wide * filled * squash, 1), Quaternion.RotationAxis(Vector3.Right(), Math.PI / 2), new Vector3(x, 0.05, z)).copyToArray(poolMatrices, i * 16));
+      pool.thinInstanceBufferUpdated("matrix");
+    }
+    paint(poolMat.diffuseColor, mix([0.03, 0.04, 0.08], mix([0.16, 0.3, 0.44], [0.28, 0.4, 0.52], shower), day));
+
+    // The aurora, at night, for as long as there is thick air.
+    const lights = night * smooth(0.08, 0.5, air);
+    aurora.setEnabled(lights > 0.01);
+    auroraMat.alpha = lights * 0.8;
+    curtains.uOffset = sols * 3;
+    aurora.rotation.y = sols * 2.3;
+
     findLit();
     for (const { material, color } of lit) paint(material.emissiveColor, color, night);
   };
   tell();
+
+  /** Moves the rain: every drop falls, and starts again at the top, round wherever the camera is. */
+  const fall = (dt: number) => {
+    rain.setEnabled(raining > 0.02);
+    if (raining <= 0.02) return;
+    rainClock += dt;
+    rainMat.alpha = 0.34 * raining;
+    const eye = camera.globalPosition;
+    const wrap = (v: number, size: number) => ((v % size) + size) % size;
+    for (let i = 0; i < DROPS; i++) {
+      const o = i * 4;
+      // (Each keeps its own place in a block of air that the camera moves through, so walking does not drag the rain along.)
+      const x = eye.x + wrap(dropAt[o]! - eye.x, RAIN_WIDE) - RAIN_WIDE / 2;
+      const z = eye.z + wrap(dropAt[o + 2]! - eye.z, RAIN_WIDE) - RAIN_WIDE / 2;
+      const y = eye.y - RAIN_TALL / 2 + wrap(dropAt[o + 1]! - rainClock * dropAt[o + 3]! - eye.y, RAIN_TALL);
+      drops[i * 16 + 12] = x;
+      drops[i * 16 + 13] = Math.max(0.7, y);
+      drops[i * 16 + 14] = z;
+    }
+    rain.thinInstanceBufferUpdated("matrix");
+  };
 
   let since = 0;
   return {
@@ -329,6 +503,7 @@ export function scenery(scene: Scene, camera: Camera): Scenery {
     },
     update(dt) {
       followHeight();
+      fall(dt);
       // The sky moves slowly: a few times a second is plenty.
       since += dt;
       if (since < 0.1) return;

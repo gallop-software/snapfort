@@ -4,6 +4,7 @@ import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCapsule } from "@babylonjs/core/Meshes/Builders/capsuleBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Outfit, OutfitRig } from "../../pageDoors";
 
 /**
@@ -11,6 +12,10 @@ import type { Outfit, OutfitRig } from "../../pageDoors";
  * and copper visor, dark boots and gloves, and an air pack on the back. The
  * player's colour is the chest piece and the bands on the arms, so builders
  * still tell each other apart.
+ *
+ * Folded on the pack are the wings: two long sails of pale fabric on dark
+ * spars, in the player's colour at the tips. They are spread (the "glide"
+ * extra) while a builder flies, which the air must be thick enough for.
  *
  * Copied from the Moon's suit; its rocket pack is an air pack here (nobody is
  * thrown into space on Mars).
@@ -62,5 +67,22 @@ export function outfit(rig: OutfitRig, color: string): Outfit {
   (visor.material as StandardMaterial).specularColor = new Color3(0.9, 0.7, 0.5);
   (visor.material as StandardMaterial).specularPower = 40;
   add(CreateBox("helmet-stripe", { width: 0.07, height: 0.03, depth: 0.3 }, scene), trim, body, 0, 2.075, -0.02);
-  return { tint: trim };
+  // Wings, spread from the pack: a spar and a sail each side, swept back a little, the tip in the player's colour.
+  const sail = rig.shared("suit-sail", 0.95, 0.9, 0.8);
+  // (Lit a little from within, so the undersides seen from below are not dark against the sky.)
+  sail.emissiveColor = new Color3(0.42, 0.39, 0.33);
+  const wings: Mesh[] = [];
+  for (const side of [-1, 1]) {
+    const wing = (mesh: Mesh, material: StandardMaterial, out: number, back: number, up: number) => {
+      const m = add(mesh, material, body, side * out, 1.45 + up, -0.42 - back);
+      m.rotation.y = side * 0.22;
+      m.rotation.z = side * -0.1;
+      wings.push(m);
+    };
+    wing(CreateBox("wing-spar", { width: 3.3, height: 0.07, depth: 0.09 }, scene), dark, 1.75, 0.02, 0.18);
+    wing(CreateBox("wing-sail", { width: 2.3, height: 0.03, depth: 1.25 }, scene), sail, 1.35, 0.55, 0.12);
+    wing(CreateBox("wing-outer", { width: 1.1, height: 0.03, depth: 0.8 }, scene), sail, 2.85, 0.5, 0.25);
+    wing(CreateBox("wing-tip", { width: 0.34, height: 0.035, depth: 0.6 }, scene), trim, 3.5, 0.48, 0.31);
+  }
+  return { tint: trim, extras: { glide: wings } };
 }

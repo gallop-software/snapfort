@@ -1,4 +1,5 @@
-import type { SoundTable } from "../../pageDoors";
+import type { SoundKit, SoundTable } from "../../pageDoors";
+import { sky } from "./air";
 
 /**
  * Mars's sounds. The air is real but under a hundredth as thick as the
@@ -6,10 +7,31 @@ import type { SoundTable } from "../../pageDoors";
  * low, as the rovers' microphones recorded it. The suit's own radio and servos
  * add the only clean notes.
  *
- * Copied from the Moon's, which were already soft; tuned further when the
- * air can thicken (step 4 of the plan).
+ * Thicken the air (see ./air.ts) and sound comes back: every sound here is
+ * made through `inAir`, which lets it grow louder and brighter with the air.
+ *
+ * Copied from the Moon's, which were already soft.
  */
-export const sounds: SoundTable = {
+
+/** A sound kit as heard through the air as it is now: up to half as loud again, and noise up to two and a half times as bright. */
+function inAir(k: SoundKit): SoundKit {
+  const a = sky.air;
+  if (a <= 0) return k;
+  return {
+    ...k,
+    tone: (type, from, to, seconds, volume, delay) => k.tone(type, from, to, seconds, volume * (1 + 0.5 * a), delay),
+    noise: (seconds, volume, cutoff) => k.noise(seconds, volume * (1 + 0.5 * a), cutoff * (1 + 1.5 * a)),
+  };
+}
+
+/** Every sound in a table, made through the air. */
+function through(table: SoundTable): SoundTable {
+  const made: Record<string, unknown> = {};
+  for (const [name, play] of Object.entries(table)) made[name] = (k: SoundKit, ...rest: unknown[]) => (play as (k: SoundKit, ...rest: unknown[]) => void)(inAir(k), ...rest);
+  return made as unknown as SoundTable;
+}
+
+const dry: SoundTable = {
   /** Thrown: a rising whoop over the radio. */
   yelp(k) {
     k.tone("sine", 360, 1100, 0.5, 0.26);
@@ -93,3 +115,5 @@ export const sounds: SoundTable = {
     k.tone("sine", 262, 240, 0.6, 0.26, 0.44);
   },
 };
+
+export const sounds: SoundTable = through(dry);

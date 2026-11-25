@@ -20,6 +20,7 @@
     "qa:pay": "node qa/pay.mjs",
     "qa:moon": "node qa/moon.mjs",
     "qa:mars": "node qa/mars.mjs",
+    "qa:terraformer": "node qa/terraformer.mjs",
     "qa:menu": "node qa/menu.mjs",
     "qa:presence": "node qa/presence.mjs",
     "qa:keys": "node qa/keys.mjs",

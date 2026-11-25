@@ -430,3 +430,74 @@ export function phobosTexture(scene: Scene): Texture {
   for (let i = 0; i < 9; i++) line(g, w * 0.4, h * (0.15 + i * 0.09), w, h * (0.1 + i * 0.1));
   return toTexture(c, scene, "phobos", false);
 }
+
+/** What grows once Mars thaws: a patchy mat of lichen and moss, near-white so the scenery can tint it from dark lichen to green. Tiles. */
+export function mossTexture(scene: Scene): Texture {
+  const size = 256;
+  const [c, g] = canvas(size);
+  g.fillStyle = "#c8c8c8";
+  g.fillRect(0, 0, size, size);
+  const r = rng(61);
+  for (let i = 0; i < 700; i++) {
+    const x = r() * size, y = r() * size, rad = 2 + r() * 7;
+    g.fillStyle = r() > 0.45 ? `rgba(255, 255, 255, ${0.1 + r() * 0.25})` : `rgba(60, 70, 50, ${0.1 + r() * 0.25})`;
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
+      g.beginPath();
+      g.arc(x + ox, y + oy, rad, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  return toTexture(c, scene, "moss");
+}
+
+/** How the growth thins toward its edge: solid in the middle, breaking into patches, then nothing. Stretched over the whole of it. */
+export function spreadTexture(scene: Scene): Texture {
+  const size = 512;
+  const [c, g] = canvas(size);
+  const fade = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  fade.addColorStop(0, "rgba(255, 255, 255, 0.92)");
+  fade.addColorStop(0.55, "rgba(255, 255, 255, 0.85)");
+  fade.addColorStop(0.8, "rgba(255, 255, 255, 0.3)");
+  fade.addColorStop(1, "rgba(255, 255, 255, 0)");
+  g.fillStyle = fade;
+  g.fillRect(0, 0, size, size);
+  // Bare patches eaten out of it, more of them toward the edge.
+  const r = rng(83);
+  g.globalCompositeOperation = "destination-out";
+  for (let i = 0; i < 900; i++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * size * 0.5;
+    const k = d / (size * 0.5);
+    g.fillStyle = `rgba(0, 0, 0, ${0.15 + k * 0.6})`;
+    g.beginPath();
+    g.arc(size / 2 + Math.cos(a) * d, size / 2 + Math.sin(a) * d, 2 + r() * 9 * (0.4 + k), 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalCompositeOperation = "source-over";
+  const texture = new Texture(c.toDataURL("image/png"), scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+  texture.name = "spread";
+  texture.hasAlpha = true;
+  texture.wrapU = texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+  return texture;
+}
+
+/** The aurora: curtains of light, brightest low down and fading upward. Tiles round the sky. */
+export function auroraTexture(scene: Scene): Texture {
+  const w = 1024, h = 256;
+  const [c, g] = canvas(w, h);
+  g.clearRect(0, 0, w, h);
+  const r = rng(101);
+  for (let i = 0; i < 150; i++) {
+    const x = r() * w, wide = 3 + r() * 16, tall = h * (0.35 + r() * 0.65), strong = 0.08 + r() * 0.3;
+    const ray = g.createLinearGradient(0, h, 0, h - tall);
+    ray.addColorStop(0, `rgba(255, 255, 255, 0)`);
+    ray.addColorStop(0.12, `rgba(255, 255, 255, ${strong})`);
+    ray.addColorStop(1, "rgba(255, 255, 255, 0)");
+    g.fillStyle = ray;
+    for (const ox of [-w, 0, w]) g.fillRect(x + ox, h - tall, wide, tall);
+  }
+  const texture = new Texture(c.toDataURL("image/png"), scene, false, true, Texture.BILINEAR_SAMPLINGMODE);
+  texture.name = "aurora";
+  texture.hasAlpha = true;
+  texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+  return texture;
+}

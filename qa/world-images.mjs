@@ -8,8 +8,9 @@
  * trebuchets before it, and a Starship lifting off its launch tower behind.
  * The Moon: a base of domes and towers, a rail gun running the length of it, a
  * Starship on its mount, launchers, and a rover in front with the Earth above.
- * Mars: a base of ice, redbrick and iron under greenhouses, on the canyon
- * floor, as the sun sets blue behind it and the ice begins to glow.
+ * Mars: a base of ice, redbrick and iron under greenhouses on the canyon floor,
+ * the Terraformer running behind it, the sky paling and green spreading over
+ * the red ground, a builder on their wings and a helicopter lifting off.
  * Everything is built the way a builder builds it (pieces through the page,
  * parts by the world's own messages from close by), so the server agrees.
  *
@@ -326,27 +327,48 @@ function marsBase() {
 async function mars() {
   console.log("Mars");
   const world = `art-r-${stamp}`;
-  // The hour is held: late in the day, at sunset, and just after it (see ?sol= in the world's scenery).
-  const hours = [["0", 0.56], ["1", 0.625], ["2", 0.64], ["3", 0.658]];
-  let first = true;
-  for (const [n, sol] of hours) {
-    const page = await open(`/mars?sol=${sol}`, world);
-    if (first) await build(page, marsBase());
-    first = false;
-    // Builders: one on a beacon, one walking in from the east.
-    const crew = await open(`/mars?sol=${sol}`, world, { width: 600, height: 400 });
-    await hover(crew, 12.5, 0.95, -1.5);
-    await crew.keyboard.press("KeyH");
-    const hand = await open(`/mars?sol=${sol}`, world, { width: 600, height: 400 });
-    await hover(hand, 16, 0.95, 20);
-    await hand.evaluate(() => { window.snapfort.rig.yaw = -1.9; });
-    await hover(page, 60, 0.95, 60);
-    await wait(1500);
-    // From the east, looking west past the base to where the sun goes down.
-    await frame(page, [44, 3.4, 30], [-40, 17, 12]);
-    await shoot(page, `mars-${n}`);
-    await closeAll();
-    await wait(1200);
+  // The hour is held in the afternoon, and (on this computer only) the air a quarter thick: still Mars's own
+  // sky, with green spreading from the machine over the red ground, and just enough air for wings. See ?sol= and ?air= in the world's page code.
+  const at = "/mars?sol=0.46&air=0.27";
+  const page = await open(at, world);
+  await build(page, marsBase());
+  // The Terraformer behind the base, every part put on from beside it.
+  const site = { x: -17, z: 9 };
+  const boxes = await page.evaluate(async (site) => { const r = await import("/src/worlds/mars/terraformerRules.ts"); return Array.from({ length: r.PARTS }, (_, i) => r.boxOf(site, i + 1)); }, site);
+  const beside = (b) => [b[3] + 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2];
+  await hover(page, ...beside(boxes[0]));
+  await send(page, { k: "terra-new", ...site });
+  await wait(500);
+  const id = await page.evaluate(() => [...window.snapfort.feature.terraformer.terras.values()][0]?.terra.id);
+  if (id === undefined) throw new Error("no Terraformer: " + (await page.textContent("#toast")));
+  for (let n = 2; n <= boxes.length; n++) { await hover(page, ...beside(boxes[n - 1])); await send(page, { k: "terra-part", id, n }); await wait(200); }
+  console.log(`  Terraformer of ${await page.evaluate(() => [...window.snapfort.feature.terraformer.terras.values()][0].terra.parts.length)} parts`);
+  // Builders: one on a beacon, one flying in on their wings, one lifting off in a helicopter.
+  const crew = await open(at, world, { width: 600, height: 400 });
+  await hover(crew, 12.5, 0.95, -1.5);
+  await crew.keyboard.press("KeyH");
+  const pilot = await open(at, world, { width: 600, height: 400 });
+  const pad = await pilot.evaluate(() => [...window.snapfort.feature.helicopter.helis.values()][0].pose);
+  await hover(pilot, pad[0] + 2, 0.95, pad[2]);
+  await pilot.keyboard.press("KeyH");
+  await wait(700);
+  await pilot.evaluate(() => { window.snapfort.rig.yaw = -1.9; });
+  // (Up a few metres, then it hovers.)
+  await pilot.keyboard.down("Space");
+  await wait(2600);
+  await pilot.keyboard.up("Space");
+  const flier = await open(at, world, { width: 600, height: 400 });
+  await hover(page, 70, 0.95, -60);
+  await wait(600);
+  // From the south-east, looking past the base to the machine.
+  await frame(page, [56, 4.5, -8], [-42, 30, 42], 1.0);
+  await wait(900);
+  for (let i = 0; i < 6; i++) {
+    // The flier starts each glide from the same spot, a little further on in each picture.
+    await hover(flier, 22, 21 + i * 1.5, 30 - i * 3);
+    await flier.evaluate(() => { const s = window.snapfort; s.rig.yaw = -1.75; s.rig.pitch = 0.02; s.feature.wings.open(); });
+    await wait(500 + i * 220);
+    await shoot(page, `mars-${i}`);
   }
 }
 

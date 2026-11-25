@@ -8,6 +8,11 @@ export const PULL = 0.38;
  * the Earth's (the Moon here is a third, so the two feel alike underfoot; what
  * sets Mars apart is that it has air, weather, and a day that passes).
  *
+ * Its own things, each in a file of its own here: a beacon whose missile dives
+ * from above (the siege numbers below), airbags for whoever is hit, the
+ * Terraformer and the air it makes, wings and helicopters to fly in it, and
+ * Starships to and from the other worlds.
+ *
  * Built from what a real base would use: ice cells in an inflatable skin (the
  * light slot: NASA's Mars Ice Home), bricks pressed from the red soil with no
  * binder, and iron smelted from the rust that makes the planet red. Roofs are
@@ -23,9 +28,9 @@ export const world: Environment = {
   room: "mars",
   paid: true,
   card: {
-    blurb: "The red planet at its true gravity, with a day that passes and a blue sunset.",
+    blurb: "Build the machine that gives the red planet air, then spread your wings and fly.",
     picture: "https://cdn.snapfort.io/worlds/mars.jpg",
-    perks: ["Build in ice, redbrick and iron", "Greenhouse roofs that glow at night", "A 20-minute Martian day"],
+    perks: ["Build in ice, redbrick and iron", "A Terraformer, wings and helicopters", "A day that passes, with a blue sunset"],
   },
 
   gravity: 26 * PULL,

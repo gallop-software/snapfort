@@ -536,25 +536,31 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     return null;
   };
 
-  /** Where the rocket goes, when there is somewhere. */
-  const destination = () => game.worlds()[0] ?? null;
+  /** Where a site's rocket is bound: where it is flying to, else what its pilot chose, else the first other world there is. Null when there is nowhere. */
+  const destinationOf = (pad: Pad) => game.worlds().find((w) => w.id === (pad.flight?.to || pad.to)) ?? game.worlds()[0] ?? null;
+  /** A world's name as it goes in a sentence: "the Moon", "Mars". */
+  const said = (w: { name: string; said?: string }) => w.said ?? `the ${w.name}`;
+  /** Whether this player chooses where a site's rocket goes: the pilot, with more than one place to go, before the countdown. */
+  const choosing = (pad: Pad) => pad.pilot === game.myId() && game.worlds().length > 1 && !pad.count && !pad.flight;
+  /** The move key (left or right) as it was last frame, so one press changes the destination once. */
+  let turned = 0;
   const fuelling = (pad: Pad) => Math.max(0, Math.ceil((pad.readyAt - serverNow()) / 1000));
 
   /** A line about a site for the panel. */
   function statusOf(s: Shown): string {
     const pad = s.pad;
-    const to = destination();
+    const to = destinationOf(pad);
     if (pad.flight) {
       const t = timeOf(pad);
       if (t < FLIGHT.hold) return `<b class="ok">Engines lit</b>`;
-      if (pad.flight.ship) return `<b class="ok">Lift-off${to ? ` · to the ${to.name}` : ""}</b>`;
+      if (pad.flight.ship) return `<b class="ok">Lift-off${to ? ` · to ${said(to)}` : ""}</b>`;
       return pad.flight.booster ? `<b>Booster coming back · ${Math.max(0, Math.ceil(CATCH - t))} s</b>` : `<b class="bad">Booster lost</b>`;
     }
     if (pad.count) return `<b class="ok">Lift-off in ${Math.max(0, Math.ceil(FLIGHT.count - (serverNow() - pad.count) / 1000))}</b><small>${pad.riders.filter((r) => r !== null).length} of ${SEATS} seats taken</small>`;
     if (pad.parts.length < PARTS) return `<b>Starship · ${pad.parts.length} of ${PARTS} parts</b>`;
     const way = s.blocked ? `<small class="bad">Something is built in its way: it will hit it</small>` : "";
     const wait = fuelling(pad);
-    return (wait > 0 ? `<b>Starship fuelling · ${wait} s</b>` : `<b class="ok">Starship ready${to ? ` · to the ${to.name}` : ""}</b>`) + way;
+    return (wait > 0 ? `<b>Starship fuelling · ${wait} s</b>` : `<b class="ok">Starship ready${to ? ` · to ${said(to)}` : ""}</b>`) + way;
   }
 
   /** The site this player stands at the foot of (near enough to ride the lift), if any. */
@@ -782,7 +788,7 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     },
 
     /** In a seat, the ship carries the player; getting out sets them down. */
-    drive(_dt: number, _input: DriveInput): boolean {
+    drive(_dt: number, input: DriveInput): boolean {
       if (putDown) {
         game.player.seat(...putDown);
         putDown = null;
@@ -791,6 +797,15 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
       if (game.player.knockedDown) return false;
       const s = mine(), incoming = myShip();
       if (!s && !incoming) return false;
+      // The pilot's move keys, left and right, go through the places it can fly to.
+      const turn = input.strafe > 0.5 ? 1 : input.strafe < -0.5 ? -1 : 0;
+      if (s && turn !== 0 && turned === 0 && choosing(s.pad)) {
+        const list = game.worlds();
+        const at = Math.max(0, list.findIndex((w) => w.id === destinationOf(s.pad)?.id));
+        send({ k: "pad-to", to: list[(at + turn + list.length) % list.length]!.id });
+        game.sound.tone("sine", 620, 820, 0.07, 0.14);
+      }
+      turned = turn;
       const c = s ? cabinOf(s.pad) : cabinOfShip(incoming!.ship);
       game.player.seat(c[0], Math.min(1490, c[1] + 0.9), c[2]);
       return true;
@@ -894,7 +909,10 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         else {
           const at = s ?? nearLift();
           const ready = s && whole(s.pad) && !s.pad.count && fuelling(s.pad) === 0;
-          panel(at ? statusOf(at) + (ready ? `<small>${game.touch ? "Tap Place" : "Click"} to start the countdown</small>` : "") : null);
+          // In a seat: where it is bound, who chooses, and how to change it.
+          const to = s && !s.pad.flight && !s.pad.count ? destinationOf(s.pad) : null;
+          const bound = !to || !s ? "" : choosing(s.pad) ? `<small>Bound for ${said(to)} · you are the pilot: ${game.touch ? "push left or right" : "<kbd>A</kbd> <kbd>D</kbd>"} to change where</small>` : game.worlds().length > 1 ? `<small>Bound for ${said(to)}: the pilot chooses</small>` : "";
+          panel(at ? statusOf(at) + bound + (ready ? `<small>${game.touch ? "Tap Place" : "Click"} to start the countdown</small>` : "") : null);
         }
       }
       aimed = false;
@@ -943,7 +961,7 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
       if (!whole(s.pad)) return game.toast(`Not finished: ${s.pad.parts.length} of ${PARTS} parts`);
       const wait = fuelling(s.pad);
       if (wait > 0) return game.toast(`Still fuelling: ${wait} s`);
-      const to = destination();
+      const to = destinationOf(s.pad);
       if (!to) return game.toast("There is nowhere to fly to yet");
       send({ k: "pad-launch", to: to.id });
     },

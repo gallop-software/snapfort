@@ -97,7 +97,7 @@ export interface Room {
   save(name: string, value: unknown): void;
   load(name: string): unknown;
   /** The other worlds there are: somewhere to send things, or people. */
-  worlds(): { id: string; name: string }[];
+  worlds(): { id: string; name: string; said?: string }[];
   /**
    * Sends plain data to another world's server half (its `fromWorld`), waking
    * that world if it sleeps. Resolves with its answer; undefined when there is

@@ -246,3 +246,8 @@ export function helisDrop(room: Room): void {
     if (heightOf(room, h) > 0.3) comeDown(room, h, h.pose, h.pose[0], h.pose[2], 0);
   }
 }
+
+/** The space every helicopter that is not being thrown fills, about (for a ship coming down on one). */
+export function helisSolid(room: Room): [number, number, number, number, number, number][] {
+  return mem(room).helis.filter((h) => h.lostUntil === 0).map((h) => [h.pose[0] - 1.6, h.pose[1], h.pose[2] - 1.6, h.pose[0] + 1.6, h.pose[1] + 3.6, h.pose[2] + 1.6]);
+}

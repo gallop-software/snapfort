@@ -166,4 +166,7 @@ export function terraBlocks(room: Room, piece: Piece): boolean {
   return m.list.some((t) => cutsInto(t, box));
 }
 
-export { boxOf };
+/** The space every part in place fills (for a ship coming down on the machine). */
+export function terraSolid(room: Room): [number, number, number, number, number, number][] {
+  return mem(room).list.flatMap((t) => t.parts.map((n) => [...boxOf(t, n)] as [number, number, number, number, number, number]));
+}

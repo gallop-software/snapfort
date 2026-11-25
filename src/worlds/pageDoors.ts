@@ -93,8 +93,8 @@ export interface PageGame {
   mayBuild(): boolean;
   /** Shows a few words of the world's own above the hotbar (HTML), or takes them away (null). */
   panel(html: string | null): void;
-  /** The other worlds there are: somewhere to go. */
-  worlds(): { id: string; name: string }[];
+  /** The other worlds there are: somewhere to go. `said` is the name as it goes in a sentence ("the Moon", "Mars"). */
+  worlds(): { id: string; name: string; said?: string }[];
   /**
    * Leaves for another world, still playing: its page opens in place of this
    * one, and is handed `note` (plain data) as its `arrival`.

@@ -98,9 +98,15 @@ export interface Pad {
   readyAt: number;
   /** Who sits in each seat. */
   riders: (string | null)[];
+  /**
+   * Who chooses where it goes: the first aboard (user, 2026-11-24: "go with the
+   * pilot choosing"). It passes to another rider when they get out. Left out or
+   * null with nobody aboard.
+   */
+  pilot?: string | null;
   /** When the countdown began (ms); 0 when there is none. */
   count: number;
-  /** Where it is going (a world's id), once a countdown has begun. */
+  /** Where it is bound (a world's id): what the pilot has chosen, fixed once a countdown has begun. "" until anyone chooses: the first other world there is. */
   to: string;
   flight: PadFlight | null;
 }
@@ -531,7 +537,7 @@ export function readPad(v: unknown): Pad | null {
     f && typeof f.at === "number" && typeof f.to === "string" && typeof f.trip === "string"
       ? { at: f.at, to: f.to, trip: f.trip, ship: f.ship === true, booster: f.booster === true, ...(typeof f.hitAt === "number" ? { hitAt: f.hitAt } : {}) }
       : null;
-  const pad: Pad = { id: p.id, x: p.x, z: p.z, dir: p.dir, parts, touched: typeof p.touched === "number" ? p.touched : 0, readyAt: typeof p.readyAt === "number" ? p.readyAt : 0, riders, count: typeof p.count === "number" ? p.count : 0, to: typeof p.to === "string" ? p.to : "", flight };
+  const pad: Pad = { id: p.id, x: p.x, z: p.z, dir: p.dir, parts, touched: typeof p.touched === "number" ? p.touched : 0, readyAt: typeof p.readyAt === "number" ? p.readyAt : 0, riders, pilot: typeof p.pilot === "string" && riders.includes(p.pilot) ? p.pilot : (riders.find((r) => r !== null) ?? null), count: typeof p.count === "number" ? p.count : 0, to: typeof p.to === "string" ? p.to : "", flight };
   return fits(pad) ? pad : null;
 }
 
@@ -568,7 +574,9 @@ export type StarToServer =
   | { k: "pad-take"; id: number; n: number }
   /** Rides the lift up to a seat in the ship (or comes back down). */
   | { k: "pad-sit"; id: number; on: boolean }
-  /** From a seat: starts the countdown, for that world. */
+  /** From the pilot's seat: where it is bound. Changes nothing once the countdown has begun. */
+  | { k: "pad-to"; to: string }
+  /** From a seat: starts the countdown, for the world the pilot chose (or, when nobody has chosen, that one). */
   | { k: "pad-launch"; to: string }
   /** Just arrived from another world, as a passenger of this trip. */
   | { k: "ship-aboard"; trip: string }

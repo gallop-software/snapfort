@@ -1618,7 +1618,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       },
       sound: sfx.kit,
       touch: input.touch,
-      worlds: () => WORLDS.filter((w) => w !== env).map((w) => ({ id: w.id, name: w.name })),
+      worlds: () => WORLDS.filter((w) => w !== env).map((w) => ({ id: w.id, name: w.name, said: saidName(w) })),
       travel: (worldId, note) => {
         const to = WORLDS.find((w) => w.id === worldId);
         if (!to || to === env) return;

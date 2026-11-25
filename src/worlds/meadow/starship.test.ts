@@ -507,3 +507,97 @@ describe("a ship from another world", () => {
     expect(Math.max(Math.abs(spot.x), Math.abs(spot.z))).toBeGreaterThan(155);
   });
 });
+
+describe("where it goes: the pilot chooses", () => {
+  const two = () => {
+    const r = fakeRoom();
+    r.room.worlds = () => [{ id: "elsewhere", name: "Elsewhere" }, { id: "further", name: "Further" }];
+    const pad = r.assemble("a");
+    for (const id of ["a", "b", "c"]) r.standBy(id, pad);
+    return { r, pad };
+  };
+  const sit = (r: ReturnType<typeof fakeRoom>, id: string, on = true) => r.say(id, { k: "pad-sit", id: 1, on });
+
+  it("the first aboard is the pilot, and only the pilot's choice counts", () => {
+    const { r, pad } = two();
+    sit(r, "a");
+    sit(r, "b");
+    expect(pad.pilot).toBe("a");
+    expect(pad.to).toBe("");
+    r.say("b", { k: "pad-to", to: "further" });
+    expect(pad.to).toBe("");
+    r.say("a", { k: "pad-to", to: "further" });
+    expect(pad.to).toBe("further");
+    expect(r.last("pad")).toMatchObject({ pad: { to: "further", pilot: "a" } });
+    // Nowhere that exists: refused, and it stays as chosen.
+    r.say("a", { k: "pad-to", to: "nowhere-at-all" });
+    expect(r.last("pad-no")).toEqual({ k: "pad-no", why: "nowhere" });
+    expect(pad.to).toBe("further");
+  });
+
+  it("it flies to where the pilot chose, whoever starts the countdown and whatever their page asks for", () => {
+    const { r, pad } = two();
+    sit(r, "a");
+    sit(r, "b");
+    r.say("a", { k: "pad-to", to: "further" });
+    pass(STARSHIP.fuel + 1);
+    r.say("b", { k: "pad-launch", to: "elsewhere" });
+    expect(pad.count).toBeGreaterThan(0);
+    expect(pad.to).toBe("further");
+    pass(FLIGHT.count + 1);
+    expect(pad.flight?.to).toBe("further");
+    expect(r.toWorld.at(-1)?.to).toBe("further");
+  });
+
+  it("with no choice made it goes where it always did: the first other world, or the one asked for", () => {
+    const { r, pad } = two();
+    sit(r, "a");
+    pass(STARSHIP.fuel + 1);
+    r.say("a", { k: "pad-launch", to: "" });
+    expect(pad.to).toBe("elsewhere");
+  });
+
+  it("the choice is fixed once the countdown has begun", () => {
+    const { r, pad } = two();
+    sit(r, "a");
+    pass(STARSHIP.fuel + 1);
+    r.say("a", { k: "pad-launch", to: "elsewhere" });
+    r.say("a", { k: "pad-to", to: "further" });
+    expect(r.last("pad-no")).toEqual({ k: "pad-no", why: "counting" });
+    expect(pad.to).toBe("elsewhere");
+  });
+
+  it("when the pilot gets out another rider is the pilot, and with everyone out the choice is forgotten", () => {
+    const { r, pad } = two();
+    sit(r, "a");
+    sit(r, "b");
+    r.say("a", { k: "pad-to", to: "further" });
+    sit(r, "a", false);
+    expect(pad.pilot).toBe("b");
+    // (What was chosen stands until the new pilot changes it.)
+    expect(pad.to).toBe("further");
+    r.say("b", { k: "pad-to", to: "elsewhere" });
+    expect(pad.to).toBe("elsewhere");
+    r.say("b", { k: "pad-to", to: "further" });
+    sit(r, "b", false);
+    expect(pad.pilot).toBeNull();
+    expect(pad.to).toBe("");
+    // The next one in starts afresh, as the pilot.
+    sit(r, "c");
+    expect(pad.pilot).toBe("c");
+    expect(pad.to).toBe("");
+    // A pilot thrown out of their seat (or gone from the world) passes it on too.
+    sit(r, "a");
+    server.left!(r.room, "c");
+    expect(pad.pilot).toBe("a");
+  });
+
+  it("the pilot is still the pilot after the room has slept", () => {
+    const { r } = two();
+    sit(r, "b");
+    sit(r, "a");
+    r.say("b", { k: "pad-to", to: "further" });
+    const woke = fakeRoom(new BuildState(), r.saved);
+    expect(woke.memory().pads[0]).toMatchObject({ pilot: "b", to: "further" });
+  });
+});

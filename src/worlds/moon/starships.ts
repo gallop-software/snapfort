@@ -173,10 +173,22 @@ export function starJoined(room: Room, playerId: string): void {
 }
 
 /** A builder is gone, or thrown: out of whatever seat they were in. */
+/**
+ * After someone has left a seat: if that was the pilot, another rider is (the
+ * one in the lowest seat), and with nobody left aboard and no countdown
+ * running, what was chosen is forgotten.
+ */
+function passOn(pad: Pad): void {
+  if (pad.pilot && pad.riders.includes(pad.pilot)) return;
+  pad.pilot = pad.riders.find((r) => r !== null) ?? null;
+  if (!pad.pilot && !pad.count && !pad.flight) pad.to = "";
+}
+
 export function starLetGo(room: Room, playerId: string): void {
   for (const pad of mem(room).pads) {
     if (!pad.riders.includes(playerId)) continue;
     pad.riders = pad.riders.map((r) => (r === playerId ? null : r));
+    passOn(pad);
     tell(room, pad);
     save(room);
   }
@@ -412,6 +424,7 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
       // (Nobody gets out once it has left the ground.)
       if (!pad.riders.includes(playerId) || pad.flight) return;
       pad.riders = pad.riders.map((r) => (r === playerId ? null : r));
+      passOn(pad);
       save(room);
       return tell(room, pad);
     }
@@ -421,7 +434,23 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
     const seat = pad.riders.indexOf(null);
     if (seat < 0) return no(room, playerId, "busy");
     if (!near(room, playerId, pad, STARSHIP.boardReach + 3)) return no(room, playerId, "far");
+    // The first aboard is the pilot, and starts from no choice made.
+    if (pad.riders.every((r) => r === null) && !pad.count) pad.to = "";
     pad.riders[seat] = playerId;
+    if (!pad.pilot || !pad.riders.includes(pad.pilot)) pad.pilot = playerId;
+    save(room);
+    return tell(room, pad);
+  }
+
+  if (msg.k === "pad-to") {
+    // The pilot chooses where it is bound, until the countdown begins.
+    const pad = m.pads.find((p) => p.riders.includes(playerId));
+    if (!pad || pad.flight || pad.pilot !== playerId) return;
+    if (pad.count) return no(room, playerId, "counting");
+    const to = room.worlds().find((w) => w.id === msg.to);
+    if (!to) return no(room, playerId, "nowhere");
+    if (pad.to === to.id) return;
+    pad.to = to.id;
     save(room);
     return tell(room, pad);
   }
@@ -432,8 +461,8 @@ export function starMessage(room: Room, playerId: string, data: unknown): void {
     if (pad.count) return no(room, playerId, "counting");
     if (!whole(pad)) return no(room, playerId, "broken");
     if (now < pad.readyAt) return no(room, playerId, "fuelling");
-    // Where to: the world asked for, when there is such a one; else the first there is.
-    const to = room.worlds().find((w) => w.id === msg.to) ?? room.worlds()[0];
+    // Where to: the world the pilot chose; with no choice made, the one asked for; else the first there is.
+    const to = room.worlds().find((w) => w.id === pad.to) ?? room.worlds().find((w) => w.id === msg.to) ?? room.worlds()[0];
     if (!to) return no(room, playerId, "nowhere");
     pad.count = now;
     pad.to = to.id;

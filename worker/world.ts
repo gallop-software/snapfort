@@ -6,7 +6,7 @@ import { fallEnd, planFall, type Fall } from "../src/game/fall";
 import type { Room } from "../src/worlds/serverDoors";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
-import type { Environment } from "../src/game/environments";
+import { saidName, type Environment } from "../src/game/environments";
 import { DEFAULT_WORLD, serverOf, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import type { Ledger } from "./ledger";
@@ -879,7 +879,7 @@ export class World extends DurableObject<Env> {
           return undefined;
         }
       },
-      worlds: () => WORLDS.filter((w) => w !== this.environment).map((w) => ({ id: w.id, name: w.name })),
+      worlds: () => WORLDS.filter((w) => w !== this.environment).map((w) => ({ id: w.id, name: w.name, said: saidName(w) })),
       toWorld: async (worldId, data) => {
         const to = WORLDS.find((w) => w.id === worldId);
         if (!to || to === this.environment) return undefined;

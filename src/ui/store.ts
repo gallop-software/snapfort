@@ -1,3 +1,4 @@
+import { saidName } from "../game/environments";
 import { worldAtPath } from "../worlds";
 import { cleanKey } from "../net/keys";
 
@@ -414,7 +415,7 @@ export class Store {
     const n = this.pick;
     const cost = `$${EACH * n}`;
     const unlock = adding ? `Add ${seatsText(n)} · ${cost}` : n === 1 ? `Unlock · ${cost}` : `Unlock for ${n} players · ${cost}`;
-    const offer = n === 1 ? `Unlock the ${here.name} · ${cost}` : `Unlock the ${here.name} for ${n} players · ${cost}`;
+    const offer = n === 1 ? `Unlock ${saidName(here)} · ${cost}` : `Unlock ${saidName(here)} for ${n} players · ${cost}`;
     for (const [id, text] of [["offer-buy", offer], ["unlock-buy", unlock]] as const) {
       const button = document.getElementById(id) as HTMLButtonElement;
       button.disabled = !this.canBuy;

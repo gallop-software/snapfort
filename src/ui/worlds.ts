@@ -51,7 +51,7 @@ export function paintWorlds(env: Environment, testWorld: string | null): void {
     document.getElementById("unlock-perks")!.innerHTML = [...shown.card.perks, "Every paid world we add, included"].map((p) => `<li>${escape(p)}</li>`).join("");
     const go = document.getElementById("thanks-go") as HTMLAnchorElement;
     go.href = href(shown);
-    go.textContent = `Go to the ${shown.name}`;
+    go.textContent = `Go to ${saidName(shown)}`;
     go.hidden = env.paid;
   }
 

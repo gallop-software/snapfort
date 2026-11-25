@@ -448,7 +448,7 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 - A routed general's new Core is free, 20 s after the last one fell.
 - Units fire on what comes in range but do not chase; shot from out of reach while idle, they go for whoever is shooting.
 - Pieces: lattice 4, printcrete 8, steel 14 lithium; a rail battery (the siege slot, worked by the general) 150. Nothing comes back for a piece removed. Only its builder can remove or edit a piece; anyone's army can shoot it down. A straight shot needs a clear line (walls shelter); artillery lobs over.
-- A general starts with nothing picked on the hotbar, since pieces cost lithium and the first clicks are on the army.
+- A general starts with nothing picked on the hotbar, since pieces cost lithium and the first clicks are on the army; they arrive looking at their own Core, level, so the first click selects it; and in place of the shared first-game tips (place a wall, try another piece) a new general gets four notes of Mojave's own, once in each browser.
 - When a general's colour is too like another's, their army wears the least similar of eight fixed colours.
 - Computer generals (one by default, 0 to 3 from the Generals card, J): they play by the same rules through the same orders, and make way when a person needs the place. They go when the last person does.
 - Dark, as drawn: black ground under the open sky, with banks of darkness 13 m high standing on what has never been seen (so a base in the dark cannot be made out; a tall tower shows above it). Pieces are drawn as they are now, not as last seen: only the world's own buildings are remembered.

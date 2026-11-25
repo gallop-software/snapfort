@@ -64,6 +64,7 @@ check("a general has a place, a Core, four Haulers, and lithium in the bank", wa
 const core = wa.buildings[0];
 const [coreX, coreZ] = centreOf(core, 3);
 check("they stand by their Core, at one of the eight starts", Math.hypot(wa.pos[0] - coreX, wa.pos[2] - coreZ) < 40 && Math.hypot(coreX, coreZ) > 300, wa.pos.map(Math.round).join(","));
+check("they arrive facing their Core: the crosshair is on it", await sf(a, () => { const p = window.snapfort.feature.pick(); return p?.k === "building" && p.b.kind === "core"; }));
 check("nothing is picked to build with at first (pieces cost lithium here)", await sf(a, () => !document.querySelector("#hotbar .selected")));
 check("the bank, the map and the command card are on screen", await sf(a, () => !document.getElementById("mj-bank").hidden && !document.getElementById("mj-card").hidden && document.getElementById("mj-map").getBoundingClientRect().width > 100));
 await sf(a, () => window.snapfort.net.sendWorld({ m: "bots", n: 0 }));

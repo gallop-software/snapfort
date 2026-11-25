@@ -96,6 +96,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   let cardDirty = true;
   let lookAt = 0, mapAt = 0, cardAt = 0, shotAt = 0, boomAt = 0;
   let lastHint: string | null = null;
+  /** Frames left in which a general who has just arrived is turned to face their base. */
+  let faceHome = 0;
   /** What a hint says, without its markup. */
   const plain = (html: string | null) => (html ?? "").replace(/<[^>]+>/g, "");
 
@@ -606,7 +608,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           if (slot >= 0 && start && game.playing() && !placed) {
             placed = true;
             game.player.teleport(start[0], 0.95, start[1]);
-            game.face(Math.atan2(-start[0], -start[1]));
+            faceHome = 3;
           }
         }
         cardDirty = true;
@@ -864,6 +866,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
 
   function update(): void {
     const now = performance.now();
+    if (faceHome > 0 && start && game.playing()) {
+      faceHome--;
+      game.face(Math.atan2(start[0], start[1]));
+      // (Looking level, so the crosshair is on the Core and not on the ground before it: a click selects it.)
+      game.look(0.04);
+    }
     // Whoever is selected and has gone is let go of.
     for (const id of selected) if (!army.units.has(id) || !mine(army.units.get(id)!.owner)) selected.delete(id) && (cardDirty = true);
     for (const id of selectedBuildings) if (!army.buildings.has(id)) selectedBuildings.delete(id) && (cardDirty = true);
@@ -1002,6 +1010,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     spawn() {
       if (slot >= 0 && start) {
         placed = true;
+        // (They arrive looking at their own Core, which stands a few cells further from the middle of the map.)
+        faceHome = 3;
         return [start[0], 0.95, start[1]];
       }
       // Watching: from the middle of the map.

@@ -199,8 +199,9 @@ describe("building a Terraformer", () => {
     expect(woke.air()).toEqual(t.air());
     // And whoever joins is sent it all.
     server.joined!(woke.room, "b");
-    expect(woke.last()).toMatchObject({ k: "terras", air: t.air() });
-    expect((woke.last() as Extract<TerraToPage, { k: "terras" }>).list.length).toBe(1);
+    const all = woke.sent.map((m) => m.msg).find((m) => m.k === "terras") as Extract<TerraToPage, { k: "terras" }>;
+    expect(all).toMatchObject({ k: "terras", air: t.air() });
+    expect(all.list.length).toBe(1);
   });
 });
 

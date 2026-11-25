@@ -1,8 +1,8 @@
-import { CELL, LEVEL, WORLD_HALF_CELLS } from "../../../game/constants";
-import { standHeight } from "../../../game/fall";
+import { CELL, WORLD_HALF_CELLS } from "../../../game/constants";
 import type { DriveInput, PageGame, WorldFeature } from "../../pageDoors";
 import { WINGS, wingStep } from "../wingRules";
 import { sky } from "./air";
+import { inWall as walled, surfaceUnder as under } from "./solid";
 
 /** Half a builder's height: the body's centre is this far above the feet. */
 const HALF = 0.9;
@@ -32,30 +32,8 @@ export function startWings(game: PageGame): WingsFeature {
   let jumpWas = false, released = false;
   let told = -Infinity, wind = 0;
 
-  /** The top of whatever is under a spot at or below `feet`: a piece, a part of the Terraformer, or the ground. */
-  function surfaceUnder(x: number, feet: number, z: number): number {
-    let top = 0;
-    for (let y = feet; y > -LEVEL; y -= LEVEL) {
-      for (const p of game.build.near(x, Math.max(0, y), z)) {
-        const h = standHeight(p, x, z, game.env.roof);
-        if (h !== null && h <= feet + 0.3 && h > top) top = h;
-      }
-      if (top > 0) break;
-    }
-    for (const b of sky.solids) if (x > b[0] - 0.4 && x < b[3] + 0.4 && z > b[2] - 0.4 && z < b[5] + 0.4 && b[4] <= feet + 0.3 && b[4] > top) top = b[4];
-    return top;
-  }
-
-  /** True when a body centred here is inside a wall or a part of the Terraformer. */
-  function inWall(x: number, y: number, z: number): boolean {
-    for (const p of game.build.near(x, y, z)) {
-      if (p.type !== "wall") continue;
-      const top = standHeight(p, x, z);
-      if (top !== null && y - HALF < top - 0.25 && y + HALF > p.y * LEVEL) return true;
-    }
-    for (const b of sky.solids) if (x > b[0] - 0.4 && x < b[3] + 0.4 && z > b[2] - 0.4 && z < b[5] + 0.4 && y - HALF < b[4] - 0.25 && y + HALF > b[1]) return true;
-    return false;
-  }
+  const surfaceUnder = (x: number, feet: number, z: number) => under(game, x, feet, z);
+  const inWall = (x: number, y: number, z: number) => walled(game, x, y - HALF, z, HALF * 2);
 
   const clear = () => { const p = game.player.position; return p.y - HALF - surfaceUnder(p.x, p.y - HALF, p.z); };
   const canOpen = () => !flying && !game.player.knockedDown && clear() > WINGS.clearance;

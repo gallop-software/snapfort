@@ -1,6 +1,7 @@
 import type { WorldPage } from "../../pageDoors";
 import { startAirbags } from "./airbags";
 import { together } from "./features";
+import { startHelicopters } from "./helicopter";
 import { outfit } from "./outfit";
 import { scenery } from "./scenery";
 import { siegeModel } from "./siege";
@@ -20,10 +21,10 @@ export const page: WorldPage = {
   dust: [0.78, 0.47, 0.33],
   // The Terraformer, beside the Beacon on the hotbar.
   tools: [TERRAFORMER_TOOL],
-  // Airbags round whoever is hit, the Terraformer and the air it makes, and wings to fly in it.
+  // Airbags round whoever is hit, the Terraformer and the air it makes, wings to fly in it, and helicopters.
   start(game) {
-    const airbags = startAirbags(game), terraformer = startTerraformers(game), wings = startWings(game);
-    // (Each is kept in reach by name too, for the checks that drive them.)
-    return Object.assign(together(wings, terraformer, airbags), { airbags, terraformer, wings });
+    const airbags = startAirbags(game), terraformer = startTerraformers(game), wings = startWings(game), helicopter = startHelicopters(game);
+    // (Each is kept in reach by name too, for the checks that drive them. In a helicopter, its controls come before the wings'.)
+    return Object.assign(together(helicopter, wings, terraformer, airbags), { airbags, terraformer, wings, helicopter });
   },
 };

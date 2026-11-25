@@ -64,7 +64,7 @@ npm run qa:refs         # every world compared with its reference pictures (-- -
 ## Adding a world
 
 1. Copy the folder of the closest world, `src/worlds/<id>/`, under a new id (its folder name, its `id`, and a new `path` and `room`). Say in `world.ts` which world it was copied from.
-2. Add it to the list in `src/worlds/index.ts`, and put its menu picture at `public/worlds/<id>.jpg` (`qa/world-images.mjs` renders them from the game, and the link preview `public/og.jpg`).
+2. Add it to the list in `src/worlds/index.ts`, and put its menu picture in the bucket at `worlds/<id>.jpg` (`https://cdn.snapfort.io/worlds/<id>.jpg`; `qa/world-images.mjs` renders them from the game, and the link preview `og.jpg`, and says how to upload them).
 3. Change anything inside the folder: the numbers in `world.ts`, the look and sound in `page/`, rules of its own in `server.ts`. Nothing outside the folder needs to change, and nothing inside may import from another world.
 4. `npm test` checks the world is complete and keeps to itself. When it is finished, `npm run qa:refs -- --save <id>` saves its reference pictures, so later work elsewhere cannot change it unnoticed.
 

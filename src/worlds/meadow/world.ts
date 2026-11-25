@@ -13,7 +13,7 @@ export const world: Environment = {
   paid: false,
   card: {
     blurb: "Build castles, fire trebuchets, and fly a Starship to the Moon.",
-    picture: "/worlds/meadow.jpg",
+    picture: "https://cdn.snapfort.io/worlds/meadow.jpg",
     perks: [],
   },
 

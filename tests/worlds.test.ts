@@ -52,8 +52,8 @@ describe("the list of worlds", () => {
       expect(w.path, w.id).toMatch(/^\/[a-z0-9-]*$/);
       expect(w.name.length, w.id).toBeGreaterThan(0);
       expect(w.card.blurb.length, w.id).toBeGreaterThan(0);
-      expect(w.card.picture, w.id).toBe(`/worlds/${w.id}.jpg`);
-      expect(statSync(join(root, "public", w.card.picture)).size, w.id).toBeGreaterThan(1000);
+      // (In the bucket, on the CDN: not a file in the build.)
+      expect(w.card.picture, w.id).toBe(`https://cdn.snapfort.io/worlds/${w.id}.jpg`);
       for (const n of [w.gravity, w.jumpHeight, w.stoneGravity, w.flightTime, w.range, w.throwPower, w.knockdownDrop, w.rubbleGravity]) expect(n > 0 && Number.isFinite(n), w.id).toBe(true);
       expect(Object.keys(w.materials).sort(), w.id).toEqual([...MATERIALS].sort());
       for (const m of MATERIALS) {

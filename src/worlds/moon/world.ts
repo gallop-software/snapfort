@@ -21,7 +21,7 @@ export const world: Environment = {
   paid: true,
   card: {
     blurb: "Low gravity, space suits and rovers. Get hit and you are thrown into space.",
-    picture: "/worlds/moon.jpg",
+    picture: "https://cdn.snapfort.io/worlds/moon.jpg",
     perks: ["Build in lattice, regolith and titanium", "Launchers reach 1.6× further", "Blast each other into space"],
   },
 

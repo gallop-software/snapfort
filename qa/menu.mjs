@@ -32,7 +32,7 @@ const tip = (page) => sf(page, () => { const t = document.getElementById("tip");
 const p = await open("/");
 check("the menu: two world cards with pictures, one button, no settings or key list in sight", (await p.locator(".world .pic").count()) === 2 && (await p.isVisible("#play-free")) && !(await p.isVisible("#settings")) && !(await p.isVisible(".keys")) && (await fits(p)));
 check("…the meadow card is marked as where you are, the Moon's as the Full Game", await sf(p, () => document.querySelector('.world[data-env="meadow"]').classList.contains("current") && document.querySelector('.world[data-env="moon"] .badge').textContent === "Full Game"));
-check("…and the pictures load", await sf(p, () => Promise.all(["/worlds/meadow.jpg", "/worlds/moon.jpg"].map((u) => fetch(u).then((r) => r.ok && r.headers.get("content-type")?.includes("image")))).then((a) => a.every(Boolean))));
+check("…and the pictures load", await sf(p, () => Promise.all(["meadow", "moon"].map((w) => new Promise((done) => { const i = new Image(); i.onload = () => done(i.naturalWidth === 960); i.onerror = () => done(false); i.src = `https://cdn.snapfort.io/worlds/${w}.jpg`; }))).then((a) => a.every(Boolean))));
 check("'Playing as' shows your name and colour", (await p.textContent("#me-name")) === (await p.inputValue("#player-name")) && !!(await sf(p, () => document.getElementById("me-dot").style.background)));
 await p.click("#open-controls");
 check("Controls opens the key list, and fits", (await p.isVisible(".keys")) && (await fits(p)));

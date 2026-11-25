@@ -1,7 +1,8 @@
 /**
  * Renders the pictures the site is shown by, from the game itself: each
- * world's menu card (public/worlds/<world>.jpg) and the link preview
- * (public/og.jpg, the Meadow's picture at 1200x630).
+ * world's menu card (worlds/<world>.jpg in the bucket snapfort-io, served at
+ * cdn.snapfort.io) and the link preview (og.jpg there, the Meadow's picture
+ * at 1200x630).
  *
  * The Meadow: a castle with its keep, corner towers, gate and wall walk,
  * trebuchets before it, and a Starship lifting off its launch tower behind.
@@ -20,7 +21,9 @@
  * The shots land in qa/shots/art-<world>-<n>.png (2400x1350; the Meadow's 0 is
  * before lift-off, 1 to 9 during it). Pick one of each and resize it to a
  * 960x540 JPEG for the card; the link preview is the top 2400x1260 of the
- * Meadow's, at 1200x630 (its bottom strip is only grass).
+ * Meadow's, at 1200x630 (its bottom strip is only grass). Then put them in the
+ * bucket: gallop studio upload <file> --to r2://snapfort-io/worlds/ --replace
+ * (og.jpg to r2://snapfort-io/), and gallop studio purge for each.
  */
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";

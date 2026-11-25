@@ -376,3 +376,11 @@ In both worlds, each with its own copy (worlds never share code): `starshipRules
 - The words: the title and link preview are "SnapFort.io - Build and Explore"; the description, the home-screen manifest, the Meadow's card and the README talk of building and exploring, not of a tallest tower or a flag.
 - The pictures (`qa/world-images.mjs`, rewritten): the Meadow's card is a brick castle (curtain wall with a gate, battlements and a wall walk, corner towers, a metal keep) with crewed trebuchets before it and a Starship lifting off its launch tower behind; the Moon's is a base of domes and towers, a whole rail gun running off under the Earth, a Starship on its mount, launchers and rovers. Everything in them is built as a builder builds it (pieces through the page, Starship and rail gun parts by the world's own messages from within reach), and the lift-off is a real one, with a rider. The link preview is `public/og.jpg` (the Meadow's picture, 1200x630); `og-flag.jpg` is gone, and `public/_redirects` sends emails that still ask for it to the new one. `qa/og-image.mjs` is gone too.
 - QA: `npm run qa:trebuchet` no longer checks the flag; the reference pictures in `qa/refs/` were saved again without it.
+
+## Pictures in the bucket (user, 2026-11-24: "create a bucket snapfort.io assign cdn.snapfort.io to it, and move all images there")
+
+- The R2 bucket is `snapfort-io` (a bucket's name cannot have a dot), served at `https://cdn.snapfort.io`. It is this project's bucket in Gallop (`gallop studio config`).
+- In it: `og.jpg` (the link preview, also the picture at the top of the emails) and `worlds/meadow.jpg`, `worlds/moon.jpg` (the menu cards). They are no longer in `public/`: the page, the emails and each world's `card.picture` name the CDN address, and `public/_redirects` sends the old `/og-flag.jpg` there.
+- Still in the build, on purpose: `favicon.svg` and the three home-screen icons (a browser asks the site itself for those). `qa/refs/` are test pictures, not the site's.
+- New pictures: render with `qa/world-images.mjs`, then `gallop studio upload ... --replace` and `gallop studio purge` (its header says how).
+

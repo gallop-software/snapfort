@@ -192,7 +192,7 @@ function layout(subject: string, heading: string, intro: string, body: string, s
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fbe9c8;">
 <tr><td align="center" style="padding:28px 14px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff6e4;border-radius:24px;overflow:hidden;box-shadow:0 6px 0 rgba(31,42,55,0.45);font-family:ui-rounded,'SF Pro Rounded','Nunito',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2a37;">
-    <tr><td><a href="${site}"><img src="${site}/og.jpg" width="560" alt="A castle with trebuchets before its gate, and a Starship lifting off behind" style="display:block;width:100%;height:auto;border:0;"></a></td></tr>
+    <tr><td><a href="${site}"><img src="https://cdn.snapfort.io/og.jpg" width="560" alt="A castle with trebuchets before its gate, and a Starship lifting off behind" style="display:block;width:100%;height:auto;border:0;"></a></td></tr>
     <tr><td align="center" style="padding:26px 30px 4px;">
       <div style="font-size:36px;font-weight:900;letter-spacing:-0.5px;line-height:1;">Snap<span style="color:#f0765a;">Fort</span><span style="font-size:18px;color:#2f8f8a;font-weight:800;">.io</span></div>
     </td></tr>

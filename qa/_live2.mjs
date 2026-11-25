@@ -11,7 +11,8 @@ const until = async (page, fn, arg, ms = 12000) => { const end = Date.now() + ms
 
 const before = await admin("/admin/overview");
 const inMojave = (o) => (o.worlds ?? o.rooms ?? []).find?.((w) => w.env === "mojave" || w.id === "mojave" || w.world === "mojave");
-console.log("in Mojave before:", JSON.stringify(inMojave(before)?.players?.length ?? "unknown"));
+const names = (o) => (inMojave(o)?.players ?? []).map((p) => `${p.name} (${p.status ?? ""})`).join(", ") || "nobody";
+console.log("in Mojave before:", names(before));
 const existing = await admin("/admin/keys?email=qa@snapfort.io");
 let key = Array.isArray(existing) ? existing.find((k) => (k.seats ?? 1) >= 2 && k.paid !== false)?.key : undefined;
 if (!key) key = (await admin("/admin/grant?email=qa@snapfort.io&seats=2", "POST")).key;
@@ -45,6 +46,19 @@ say(!!bb && bb.supply === "4 / 12", `a second general, on the key's second seat,
 await wait(14000);
 const later = await bank(a);
 say(later.lithium > ba.lithium, `lithium comes in on the live server (${ba.lithium} → ${later.lithium})`);
+// A general arrives looking at their Core: one click selects it.
+await a.mouse.down(); await a.mouse.up();
+await wait(500);
+const selected = /Command Core/.test(await card(a));
+say(selected, "a click on the Core selects it (the card shows it)");
+if (selected) {
+  const l0 = (await bank(a)).lithium;
+  if (l0 < 50) await wait(12000);
+  await a.keyboard.press("h");
+  const made = await until(a, () => /5 \/ 12/.test(document.getElementById("mj-bank").textContent), null, 8000);
+  say(!!made, "H orders a Hauler on the live server: supply 5 / 12");
+}
+await a.keyboard.press("Backspace");
 // The whole army key with no army says so; the build menu opens; the generals list shows the other general and the computer.
 await a.keyboard.press("n");
 await wait(400);
@@ -55,41 +69,21 @@ await wait(400);
 const gens = await card(a);
 say(/Generals/.test(gens) && /ask to ally/.test(gens), `J lists the other generals (${gens.replace(/\s+/g, " ").slice(0, 110)})`);
 await a.keyboard.press("Backspace");
-// Idle Hauler key, then right back; select the Core by its key path: I cycles Haulers, so use the mouse on the Core instead.
-// The general stands a few cells from the Core, toward the middle of the map: turn round to face it and click.
 await a.keyboard.press("Tab");
 await wait(500);
 say(await a.evaluate(() => document.getElementById("mj").classList.contains("big")), "Tab opens the map");
 await a.screenshot({ path: "qa/shots/live-map.png" });
 await a.keyboard.press("Tab");
-// Turn to find the Core: sweep the view round in steps, clicking, until a building is selected.
-let selected = false;
-for (let i = 0; i < 24 && !selected; i++) {
-  await a.mouse.move(640 + (i % 2 ? 1 : -1), 380);
-  await a.evaluate(() => document.dispatchEvent(new MouseEvent("mousemove", { movementX: 60, movementY: 0 })));
-  await wait(120);
-  await a.mouse.down(); await a.mouse.up();
-  await wait(250);
-  selected = /Command Core/.test(await card(a));
-}
-say(selected, "a click on the Core selects it (the card shows it)");
-if (selected) {
-  const l0 = (await bank(a)).lithium;
-  if (l0 < 50) await wait(12000);
-  await a.keyboard.press("h");
-  const made = await until(a, () => /5 \/ 12/.test(document.getElementById("mj-bank").textContent), null, 8000);
-  say(!!made, "H orders a Hauler on the live server: supply 5 / 12");
-}
 await a.keyboard.press("Backspace");
 await a.screenshot({ path: "qa/shots/live-general.png" });
 // What is only for checks is refused on the live site: nothing to send it with from here but the page itself, which has no way to; the server's own test covers it.
 const over = await admin("/admin/overview");
 const room = inMojave(over);
-console.log("in Mojave now:", JSON.stringify(room?.players?.map((p) => p.name) ?? room ?? Object.keys(over)));
+console.log("in Mojave now:", names(over), "· pieces", room?.pieces);
 say(errors.length === 0, `no errors on either page${errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""}`);
 await browser.close();
 // Both gone: after the grace period nothing of theirs is left, and the room goes quiet.
 await wait(100000);
 const after = await admin("/admin/overview");
-console.log("in Mojave after they left:", JSON.stringify(inMojave(after)?.players?.length ?? "unknown"), "pieces:", JSON.stringify(inMojave(after)?.pieces ?? "unknown"));
+console.log("in Mojave after they left:", names(after), "· pieces", inMojave(after)?.pieces);
 process.exit(bad ? 1 : 0);

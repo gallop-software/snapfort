@@ -1679,6 +1679,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.show("away");
     }
   }
+  // Started: the menu is no longer held back (it shows now if the trip or the restart turned out not to count).
+  document.documentElement.classList.remove("arriving");
   if (!builder) (document.getElementById("play-free") as HTMLButtonElement).textContent = `Visit the ${env.name}`;
 
   if (import.meta.env.DEV) {

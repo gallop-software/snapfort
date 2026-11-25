@@ -32,6 +32,15 @@
     <link rel="preconnect" href="https://cdn.snapfort.io" />
   </head>
   <body>
+    <!-- Arriving still playing (by rocket from another world, or a restart for a new version): no menu
+         while this page loads. The game takes the mark off once it has started (src/game.ts). -->
+    <script>
+      try {
+        var trip = sessionStorage.getItem("snapfort.travel");
+        var resume = JSON.parse(sessionStorage.getItem("snapfort.resume") || "null");
+        if (trip || (resume && resume.playing)) document.documentElement.classList.add("arriving");
+      } catch (e) {}
+    </script>
     <canvas id="game" tabindex="0"></canvas>
     <div id="hud">
       <div id="crosshair"></div>

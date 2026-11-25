@@ -256,6 +256,8 @@ body.touch #world-panel { bottom: auto; top: 58px; font-size: 12px; padding: 5px
   background: rgba(31, 42, 55, 0.3);
 }
 #overlay[hidden] { display: none; }
+/* Arriving still playing (see the script at the top of index.html): no menu while the page loads. */
+html.arriving #overlay { display: none; }
 
 .panel {
   margin: auto;

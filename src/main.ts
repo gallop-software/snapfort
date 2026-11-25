@@ -19,6 +19,7 @@ async function boot(): Promise<void> {
 
 boot().catch((error: unknown) => {
   console.error(error);
+  document.documentElement.classList.remove("arriving");
   const button = document.getElementById("play-free");
   if (button) button.textContent = "Could not start. Reload to try again.";
 });

@@ -463,6 +463,45 @@ export function shipBalls(ship: Ship, now: number): Ball[] {
   return [4, 12, 20, 28, 36, 44].map((along) => ({ c: onShip(ship, pose, along), r: SIZE.hull / 2 + 0.6, of: "ship" as const }));
 }
 
+/** Points down a ship's length (metres from its foot) its hull is checked at, and how big it is round each. */
+const HULL_AT = [4, 12, 20, 28, 36, 44, 48];
+const HULL_R = SIZE.hull / 2;
+/** When a ship coming in is low enough to meet anything built (the tallest things stand about 300 m), seconds after it appears. */
+export const WATCH_FROM = Math.max(0, (ARRIVE.top - 340) / ARRIVE.speed);
+
+/**
+ * True when the hull of a ship coming in, `t` seconds after it appears,
+ * touches any of these boxes (metres), or comes within `spare` metres of one.
+ * Standing on the ground, also when one is in the space it stands in.
+ */
+export function shipTouches(ship: Pick<Ship, "x" | "z">, t: number, boxes: readonly Box[], spare = 0): boolean {
+  if (boxes.length === 0) return false;
+  const pose = arrivalPose(t);
+  for (const along of HULL_AT) {
+    const c = onShip(ship, pose, along);
+    for (const b of boxes) if (distanceTo(b, c) < HULL_R + spare) return true;
+  }
+  if (t < DESCENT) return false;
+  const stands = landedBox(ship);
+  const space: Box = [stands[0], -1, stands[2], stands[3], stands[4], stands[5]];
+  return boxes.some((b) => overlaps(space, b, 0.05));
+}
+
+/** True when nothing in `boxes` is in a ship's way (with `spare` metres to spare), all the way down to where it stands. */
+export function descentClear(ship: Pick<Ship, "x" | "z">, boxes: readonly Box[], spare = 1.5): boolean {
+  const reach = SIZE.shipTall + SIZE.hull + spare;
+  const near = boxes.filter((b) => b[3] > ship.x - reach && b[0] < ship.x + reach && b[5] > ship.z - reach && b[2] < ship.z + reach);
+  if (near.length === 0) return true;
+  let top = 0;
+  for (const b of near) top = Math.max(top, b[4]);
+  for (let t = DESCENT; t >= 0; t -= 0.05) {
+    // (Its foot is its lowest point: above everything, nothing can touch it.)
+    if (arrivalPose(t).up > top + HULL_R + spare) break;
+    if (shipTouches(ship, t, near, spare)) return false;
+  }
+  return true;
+}
+
 /**
  * Something built in the rocket's way: any piece in the nine cells under the
  * mount, from the ground to the top of the sky. Returns how many seconds

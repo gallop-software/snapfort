@@ -28,8 +28,10 @@ import {
   kindOf,
   middleOf,
   nameOf,
+  joinsOf,
   operational,
   partAt,
+  partSpace,
   overlap,
   PARTS,
   railLine,
@@ -42,6 +44,7 @@ import {
   type GunToServer,
   type PartKind,
 } from "../railgunRules";
+import { outOfReach } from "../../../game/reach";
 import { EDGE } from "../space";
 
 /**
@@ -258,7 +261,7 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
   let seated: number | null = null;
   let asked = 0;
   /** What the Railgun tool is showing this frame: which gun and part, and whether it can go there. */
-  let preview: { gun: number | null; part: number; ok: boolean; base?: { x: number; y: number; z: number; dir: number } } | null = null;
+  let preview: { gun: number | null; part: number; ok: boolean; why?: string; base?: { x: number; y: number; z: number; dir: number } } | null = null;
   let aimed = false;
   const planMeshes: Mesh[] = [];
   const send = (msg: GunToServer) => game.send(msg);
@@ -521,11 +524,11 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         asked = 0;
         const why: Record<string, string> = {
           have: "That part is already on",
-          join: "That part has nothing to join to yet",
+          join: "The part it joins on to has to go on first",
           under: "It needs a floor under it, at its own height: build up to it first",
-          crowded: "Something is built in the way",
+          crowded: "Something is built where it goes: remove it first",
           room: "No room: the whole gun must fit inside the building area",
-          far: "Get closer",
+          far: `Too far: get within ${RAILGUN.placeReach} m of where it goes`,
           locked: "Rail guns come with the Full Game",
           full: "The Moon has as many rail guns as it can hold",
           overlap: "Another rail gun is in the way",
@@ -694,13 +697,13 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const why = cannotPlace(game.build, s.gun, pick) ?? (away > RAILGUN.placeReach ? "far" : null);
         for (const n of missing) if (n !== pick) draw(s.gun, n, ghosts.plan);
         draw(s.gun, pick, why ? ghosts.bad : ghosts.ok);
-        preview = { gun: s.gun.id, part: pick, ok: why === null };
         // Nothing under it: say how high the floor has to be, and mark the spot (the rising end stands a storey or more up).
         const lacking = why === "under" ? standingFeet(s.gun, pick).filter((f) => !footed(game.build, f)) : [];
         showNeeds(lacking);
         const up = (lacking[0]?.y ?? 0) - 0;
         const high = up <= 0 ? "" : up === 1 ? "one storey up" : up === 2 ? "two storeys up" : up === 3 ? "three storeys up" : `${up} storeys up`;
-        const reason = { have: "", join: "nothing to join to yet", under: `needs a floor ${high} at the yellow mark: build walls up to it, and a floor on top`, crowded: "something is built in the way", room: "", far: `${Math.ceil(away - RAILGUN.placeReach)} m too far: get within ${RAILGUN.placeReach} m of where it goes` }[why ?? "have"];
+        const reason = { have: "", join: `put on ${joinsOf(pick).filter((n) => n < pick).map((n) => `${n} · ${nameOf(n)}`).join(" or ")} first`, under: `needs a floor ${high || "under it"} at the yellow mark: build walls up to it, and a floor on top`, crowded: "something is built where it goes: remove it first", room: "", far: outOfReach(partSpace(s.gun, pick), [p.x, p.y, p.z], RAILGUN.placeReach) }[why ?? "have"];
+        preview = { gun: s.gun.id, part: pick, ok: why === null, why: `${pick} · ${nameOf(pick)}: ${reason}` };
         game.panel(`${statusOf(s.gun)}<small>${why ? `<span class="bad">${pick} · ${nameOf(pick)}: ${reason}</span>` : `<span class="ok">${pick} · ${nameOf(pick)}</span> · ${game.touch ? "tap Place" : "click"} to put it on`}</small>`);
       } else if (s) {
         preview = null;
@@ -713,10 +716,10 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         const foot = feetOf(base, 1)[0]!;
         const clash = [...guns.values()].some((g) => overlap(g.gun, base));
         showNeeds([]);
-        const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) || builtInto(game.build, base, 1) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : reachTo(base, 1, [p.x, p.y, p.z]) > RAILGUN.placeReach ? "get closer" : null;
+        const problem = !fits(base) ? "no room: all 175 m of it must fit inside the building area" : clash ? "another rail gun is in the way" : crowded(game.build, foot) || builtInto(game.build, base, 1) ? "something is built in the way" : !footed(game.build, foot) ? "needs the ground or a floor under it" : reachTo(base, 1, [p.x, p.y, p.z]) > RAILGUN.placeReach ? outOfReach(partSpace(base, 1), [p.x, p.y, p.z], RAILGUN.placeReach) : null;
         for (let n = 2; n <= PARTS; n++) draw(base, n, ghosts.plan);
         draw(base, 1, problem ? ghosts.bad : ghosts.ok);
-        preview = { gun: null, part: 1, ok: problem === null, base };
+        preview = { gun: null, part: 1, ok: problem === null, why: problem ?? "", base };
         game.panel(`<b>New rail gun</b><small>${problem ? `<span class="bad">${problem}</span>` : `<span class="ok">1 · Base</span> · ${game.touch ? "tap Place" : "click"} to start it here, pointing this way`}</small>`);
       }
       for (let i = used; i < planMeshes.length; i++) planMeshes[i]!.setEnabled(false);
@@ -765,6 +768,8 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     useTool(id: string) {
       if (id !== RAILGUN_TOOL.id || !preview || asked) return;
       if (!preview.ok) {
+        // A click that does nothing says why.
+        if (preview.why) game.toast(preview.why[0]!.toUpperCase() + preview.why.slice(1), 3500);
         game.sound.tone("square", 150, 150, 0.07, 0.07);
         return;
       }

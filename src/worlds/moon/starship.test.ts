@@ -472,6 +472,54 @@ describe("a ship from another world", () => {
     expect(r.flown.map((f) => f.id)).toEqual(["a"]);
   });
 
+  it("blows up in the air on anything built up into its way as it comes down, throwing its passengers clear", () => {
+    const build = new BuildState();
+    const r = fakeRoom(build);
+    coming(r);
+    const ship = r.memory().ships[0]!;
+    r.say("a", { k: "ship-aboard", trip: "t1" });
+    // A floor 150 m up, right where it comes down.
+    build.apply({ kind: "place", piece: piece("floor", Math.floor(ship.x / 5), 40, Math.floor(ship.z / 5)) });
+    pass(3 + DESCENT - 1.5);
+    expect(r.memory().ships).toHaveLength(0);
+    expect(r.flown.map((f) => f.id)).toEqual(["a"]);
+    expect((r.last("boom") as { at: Vec }).at[1]).toBeGreaterThan(100);
+  });
+
+  it("blows up on a rover driven beneath it as it lands: the rover is thrown, and its driver with the passengers", () => {
+    const r = fakeRoom();
+    coming(r);
+    const ship = r.memory().ships[0]!;
+    r.say("a", { k: "ship-aboard", trip: "t1" });
+    const rovers = (r.room.memory as { rovers: { pose: number[]; rider: string | null; lostUntil: number; home: boolean }[] }).rovers;
+    // (Wherever the rovers stand, it was given a spot clear of them.)
+    for (const rover of rovers) expect(Math.hypot(rover.pose[0]! - ship.x, rover.pose[2]! - ship.z)).toBeGreaterThan(6);
+    pass(3 + DESCENT - 2);
+    expect(r.memory().ships).toHaveLength(1);
+    // Someone drives one right under it.
+    Object.assign(rovers[0]!, { pose: [ship.x + 1, 0, ship.z, 0, 0, 0], rider: "b", home: false });
+    r.at.set("b", [ship.x + 1, 1.2, ship.z]);
+    pass(2.2);
+    expect(r.memory().ships).toHaveLength(0);
+    expect(r.last("boom")).toBeTruthy();
+    expect(r.flown.map((f) => f.id).sort()).toEqual(["a", "b"]);
+    expect(rovers[0]!.rider).toBeNull();
+    expect(rovers[0]!.lostUntil).toBeGreaterThan(0);
+  });
+
+  it("is given a way down clear of tall towers all round, and lands among them", () => {
+    const build = new BuildState();
+    // A forest of towers 190 m tall, 30 m apart, all over the world.
+    for (let x = -42; x <= 42; x += 6) for (let z = -42; z <= 42; z += 6) for (let y = 0; y < 50; y++) build.apply({ kind: "place", piece: piece("wall", x, y, z) });
+    const r = fakeRoom(build);
+    coming(r);
+    const ship = r.memory().ships[0]!;
+    r.say("a", { k: "ship-aboard", trip: "t1" });
+    pass(3 + DESCENT + 0.2);
+    expect(ship.down).toBe(true);
+    expect(r.flown).toHaveLength(0);
+  });
+
   it("is given somewhere clear of what is built and of launch sites", () => {
     const build = new BuildState();
     for (let x = -30; x < 30; x++) for (let z = -30; z < 30; z++) build.apply({ kind: "place", piece: piece("floor", x, 0, z) });

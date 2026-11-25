@@ -75,9 +75,9 @@ s = await star(b);
 check("a click starts it: tower section 1 stands", s.pads.length === 1 && s.pads[0].parts.join() === "1" && s.pads[0].drawn === 1, JSON.stringify(s.pads[0]?.parts));
 // From the ground the next section is out of reach: it starts 17.5 m up.
 await lookAt(b, TOWER[0], 6, TOWER[2]); await wait(250);
-check("from the ground, the second tower section is too far to put on", (await star(b)).preview?.part === 2 && !(await star(b)).preview.ok && /too far: build up beside it/.test(await panel(b)), await panel(b));
+check("from the ground, the second tower section is too far to put on", (await star(b)).preview?.part === 2 && !(await star(b)).preview.ok && /2 · Tower section 2: \d+ m above you.*build up .*to within 12 m/.test(await panel(b)), await panel(b));
 await click(b); await wait(450);
-check("...and a click there builds nothing", (await star(b)).pads[0].parts.join() === "1");
+check("...and a click there builds nothing, and says why", (await star(b)).pads[0].parts.join() === "1" && /Tower section 2: \d+ m above you/.test(await b.textContent("#toast")), await b.textContent("#toast"));
 // So: scaffolding beside it, climbed as it goes up. Aimed at the tower, the tower goes up, then its arms; aimed at the mount, the mount, the booster and the ship.
 await b.keyboard.press("KeyL"); await wait(200);
 await scaffold(b, -12, -4);

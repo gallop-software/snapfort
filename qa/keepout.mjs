@@ -141,7 +141,7 @@ async function rocket(page, label, tx, tz) {
   await stand(page, cx + 100 + 9, 0.95, cz + 20); await wait(400);
   await say(page, { k: "pad-part", id: 2, n: 10 }); await wait(500);
   const second = () => sf(page, () => [...window.snapfort.feature.starship.pads.values()].find((s) => s.pad.id === 2)?.pad.parts.join());
-  check(`${label}: a part cannot go on where something is built`, wall.kept[0] && (await second()) === "1" && /built in the way/.test(await toast(page)), `${await second()} · ${await toast(page)}`);
+  check(`${label}: a part cannot go on where something is built`, wall.kept[0] && (await second()) === "1" && /built where it goes/.test(await toast(page)), `${await second()} · ${await toast(page)}`);
   await takeAway(page, wall.ids);
   await say(page, { k: "pad-part", id: 2, n: 10 }); await wait(500);
   check(`${label}: ...cleared, it goes on, and then nothing can be built there`, (await second()) === "1,10" && (await asks(page, [["wall", tx + 20, 0, tz + 4, 0]]))[0] === "blocked", await second());

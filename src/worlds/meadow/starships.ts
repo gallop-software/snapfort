@@ -1,7 +1,7 @@
 import type { BuildState } from "../../game/buildState";
-import { CELL, WORLD_HALF_CELLS } from "../../game/constants";
+import { CELL, LEVEL, WORLD_HALF_CELLS } from "../../game/constants";
 import { planFall, type Fall } from "../../game/fall";
-import { overlaps, solidOf } from "../../game/keepOut";
+import { overlaps, solidOf, type Box } from "../../game/keepOut";
 import { gridBox, type Piece } from "../../game/pieces";
 import { positionAt, type Flight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
@@ -16,6 +16,7 @@ import {
   cellsOf,
   clear,
   DESCENT,
+  descentClear,
   fits,
   FLIGHT,
   heldBy,
@@ -38,9 +39,11 @@ import {
   SEATS,
   shipBalls,
   shipPose,
+  shipTouches,
   SIZE,
   STARSHIP,
   towerFoot,
+  WATCH_FROM,
   whole,
   type Pad,
   type Ship,
@@ -55,9 +58,15 @@ export interface StarMemory {
   nextId: number;
   /** When each shot in the air was first seen (ms), to know where a flying rocket will be when it arrives. */
   shots: WeakMap<Flight, number>;
+  /** While a ship is coming down: when its way was last looked over (ms), so that is done one at a time. */
+  watched?: number;
 }
 
 const mem = (room: Room) => (room.memory as { star: StarMemory }).star;
+/** What else stands in the Meadow that a ship coming in could hit: nothing. */
+const others = (_room: Room): Box[] => [];
+/** A ship blew up with its foot at `foot`: nothing else of the Meadow's is caught in it. */
+function blast(_room: Room, _foot: Vec): void {}
 const say = (room: Room, msg: StarToPage) => room.broadcast(msg);
 const no = (room: Room, playerId: string, why: Extract<StarToPage, { k: "pad-no" }>["why"]) => room.send(playerId, { k: "pad-no", why } satisfies StarToPage);
 const save = (room: Room) => room.save("starship", { nextId: mem(room).nextId, pads: mem(room).pads, ships: mem(room).ships });
@@ -122,6 +131,14 @@ export function settle(room: Room): void {
   for (const ship of [...m.ships]) {
     const t = (now - ship.at) / 1000;
     if (!ship.down && t >= DESCENT) touchdown(room, ship);
+    else if (!ship.down && t >= WATCH_FROM) {
+      // Low enough to meet what is built: anything its hull touches on the way down blows it up, there and then.
+      if (shipTouches(ship, t, solids(room, ship))) explodeShip(room, ship);
+      else if (now - (m.watched ?? 0) >= 100) {
+        m.watched = now;
+        room.later(140, () => settle(room));
+      }
+    }
     if (t >= DESCENT + STARSHIP.stay && m.ships.includes(ship)) {
       m.ships = m.ships.filter((s) => s !== ship);
       say(room, { k: "ship-gone", trip: ship.trip });
@@ -293,13 +310,23 @@ function caught(room: Room, pad: Pad): void {
   tell(room, pad);
 }
 
+/**
+ * Everything solid a ship coming in could hit: what is built, launch sites
+ * (with any rocket standing on one), ships already down, and whatever else
+ * this world has standing about.
+ */
+function solids(room: Room, coming: Ship): Box[] {
+  const m = mem(room);
+  const boxes: Box[] = [...others(room)];
+  for (const piece of room.build.all()) boxes.push(solidOf(piece, room.env));
+  for (const pad of m.pads) for (const n of pad.parts) if (!(pad.flight && isRocket(n))) boxes.push(boxOf(pad, n));
+  for (const s of m.ships) if (s !== coming && s.down) boxes.push(landedBox(s));
+  return boxes;
+}
+
 /** A ship from another world is down: its passengers get out. If something has been built where it lands, it blows up instead. */
 function touchdown(room: Room, ship: Ship): void {
-  const cx = Math.floor(ship.x / CELL), cz = Math.floor(ship.z / CELL);
-  for (const piece of room.build.all()) {
-    const b = gridBox(piece);
-    if (b[3] >= cx - 0.5 && b[0] <= cx + 1.5 && b[5] >= cz - 0.5 && b[2] <= cz + 1.5 && b[1] < 14) return explodeShip(room, ship);
-  }
+  if (shipTouches(ship, DESCENT, solids(room, ship))) return explodeShip(room, ship);
   ship.down = true;
   ship.riders = [];
   tellShip(room, ship);
@@ -315,6 +342,7 @@ function explodeShip(room: Room, ship: Ship): void {
   say(room, { k: "boom", at: onShip(ship, pose, 26), size: 60 });
   say(room, { k: "ship-gone", trip: ship.trip });
   riders.forEach((id, i) => hurl(room, id, onShip(ship, pose, CABIN), i, riders.length));
+  blast(room, onShip(ship, pose, 0));
   save(room);
 }
 
@@ -492,11 +520,20 @@ export function starStruck(room: Room, point: Vec): void {
   }
 }
 
-/** Somewhere clear to land: open ground a little way from where builders arrive, with nothing built in it and no launch site on it. */
-export function landingSpot(build: BuildState, pads: readonly Pad[], ships: readonly Ship[], turn = Math.random()): { x: number; z: number } {
+/**
+ * Somewhere clear to land: open ground a little way from where builders
+ * arrive, with nothing built in it and no launch site on it, and nothing
+ * (however tall, and whatever `others` this world has standing) in the ship's
+ * way as it comes down. Failing that, the open ground nearest the middle.
+ */
+export function landingSpot(build: BuildState, pads: readonly Pad[], ships: readonly Ship[], turn = Math.random(), others: readonly Box[] = []): { x: number; z: number } {
   const taken = new Set<string>();
+  const boxes: Box[] = [...others];
+  for (const pad of pads) for (const n of pad.parts) boxes.push(boxOf(pad, n));
+  for (const s of ships) boxes.push(landedBox(s));
   for (const piece of build.all()) {
     const b = gridBox(piece);
+    boxes.push([b[0] * CELL, b[1] * LEVEL, b[2] * CELL, b[3] * CELL, b[4] * LEVEL, b[5] * CELL]);
     for (let x = Math.floor(b[0] - 0.01); x <= Math.floor(b[3] + 0.01); x++) for (let z = Math.floor(b[2] - 0.01); z <= Math.floor(b[5] + 0.01); z++) taken.add(`${x},${z}`);
   }
   for (const pad of pads) for (const c of cellsOf(pad)) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) taken.add(`${c.x + dx},${c.z + dz}`);
@@ -504,7 +541,7 @@ export function landingSpot(build: BuildState, pads: readonly Pad[], ships: read
   const free = (cx: number, cz: number) => {
     if (Math.abs(cx) > WORLD_HALF_CELLS - 4 || Math.abs(cz) > WORLD_HALF_CELLS - 4) return false;
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (taken.has(`${cx + dx},${cz + dz}`)) return false;
-    return true;
+    return descentClear({ x: (cx + 0.5) * CELL, z: (cz + 0.5) * CELL }, boxes);
   };
   for (let ring = 60; ring <= 220; ring += 20) {
     for (let i = 0; i < 16; i++) {
@@ -513,6 +550,11 @@ export function landingSpot(build: BuildState, pads: readonly Pad[], ships: read
       if (free(cx, cz)) return { x: (cx + 0.5) * CELL, z: (cz + 0.5) * CELL };
     }
   }
+  // Crowded: any open ground at all, the nearest to the middle first.
+  const cells: [number, number][] = [];
+  for (let cx = -WORLD_HALF_CELLS + 4; cx <= WORLD_HALF_CELLS - 4; cx++) for (let cz = -WORLD_HALF_CELLS + 4; cz <= WORLD_HALF_CELLS - 4; cz++) cells.push([cx, cz]);
+  cells.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]));
+  for (const [cx, cz] of cells) if (free(cx, cz)) return { x: (cx + 0.5) * CELL, z: (cz + 0.5) * CELL };
   return { x: 62.5, z: 2.5 };
 }
 
@@ -524,11 +566,12 @@ export function starFromWorld(room: Room, from: string, data: unknown): unknown 
   const m = mem(room);
   if (m.ships.some((s) => s.trip === msg.trip)) return true;
   const now = Date.now();
-  const spot = landingSpot(room.build, m.pads, m.ships);
+  const spot = landingSpot(room.build, m.pads, m.ships, Math.random(), others(room));
   const ship: Ship = { trip: msg.trip, from, at: Math.max(now, Math.min(now + 120_000, msg.at)), ...spot, seats: Math.max(1, Math.min(SEATS, Math.round(msg.seats))), riders: [], down: false };
   m.ships.push(ship);
   save(room);
   tellShip(room, ship);
+  wake(room, (ship.at - now) / 1000 + WATCH_FROM);
   wake(room, (ship.at - now) / 1000 + DESCENT);
   return true;
 }

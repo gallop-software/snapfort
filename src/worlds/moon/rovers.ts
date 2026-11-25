@@ -224,17 +224,27 @@ export function roversInTheWay(room: Room, flight: Flight): { time: number; poin
  * turning over, and comes down a little way off. (Whoever was driving has
  * already been thrown into space by the shared rules.)
  */
-export function roversStruck(room: Room, point: Vec): void {
+export function roversStruck(room: Room, point: Vec, within: number = ROVER.tossWithin): string[] {
+  const drivers: string[] = [];
   for (const rover of mem(room).rovers) {
     if (rover.lostUntil > 0) continue;
     const dx = rover.pose[0] - point[0], dz = rover.pose[2] - point[2];
     const flat = Math.hypot(dx, dz);
-    if (Math.hypot(flat, rover.pose[1] + ROVER.middleUp - point[1]) > ROVER.tossWithin) continue;
+    if (Math.hypot(flat, rover.pose[1] + ROVER.middleUp - point[1]) > within) continue;
     // Right on top of it: any way at all.
     const a = flat > 0.3 ? Math.atan2(dx, dz) : Math.random() * Math.PI * 2;
-    if (rover.rider !== null) roversLetGo(room, rover.rider);
+    if (rover.rider !== null) {
+      drivers.push(rover.rider);
+      roversLetGo(room, rover.rider);
+    }
     comeDown(room, rover, rover.pose, rover.pose[0] + Math.sin(a) * ROVER.tossOut, rover.pose[2] + Math.cos(a) * ROVER.tossOut, ROVER.tossUp, ROVER.tossFor);
   }
+  return drivers;
+}
+
+/** The space every rover on the ground fills, about (for a ship coming down on one). */
+export function roversSolid(room: Room): [number, number, number, number, number, number][] {
+  return mem(room).rovers.filter((r) => r.lostUntil === 0).map((r) => [r.pose[0] - 1.5, r.pose[1], r.pose[2] - 1.5, r.pose[0] + 1.5, r.pose[1] + 1.6, r.pose[2] + 1.5]);
 }
 
 /** Pieces went: a rover parked on one of them drops to whatever is below. */

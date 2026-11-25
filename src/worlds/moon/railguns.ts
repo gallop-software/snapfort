@@ -2,11 +2,12 @@ import type { BuildState } from "../../game/buildState";
 import { LEVEL } from "../../game/constants";
 import type { Environment } from "../../game/environments";
 import { fallPosition, planFall, type Fall } from "../../game/fall";
-import { solidOf } from "../../game/keepOut";
+import { solidOf, type Box } from "../../game/keepOut";
 import { gridBox, type Piece } from "../../game/pieces";
 import { distanceToPiece, positionAt, type Flight, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
 import {
+  partSpace,
   cannotPlace,
   crowded,
   cutsInto,
@@ -217,6 +218,11 @@ export function gunsBlock(room: Room, piece: Piece): boolean {
   if (list.length === 0) return false;
   const box = solidOf(piece, room.env);
   return list.some((gun) => cutsInto(gun, box));
+}
+
+/** The space every part of every rail gun fills (for a ship coming down, say). */
+export function gunsSolid(room: Room): Box[] {
+  return mem(room).list.flatMap((gun) => gun.parts.flatMap((n) => partSpace(gun, n)));
 }
 
 /** Pieces went: any part that stood on one of them comes off. */

@@ -14,6 +14,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
 import { overlaps, solidOf } from "../../../game/keepOut";
 import type { PieceSpec } from "../../../game/pieces";
+import { outOfReach } from "../../../game/reach";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature, WorldTool } from "../../pageDoors";
 import {
@@ -320,7 +321,7 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
   const send = (msg: StarToServer) => game.send(msg);
   let asked = 0;
   let aimed = false;
-  let preview: { pad: number | null; part: number; ok: boolean; site?: { x: number; z: number; dir: number } } | null = null;
+  let preview: { pad: number | null; part: number; ok: boolean; why?: string; site?: { x: number; z: number; dir: number } } | null = null;
   const planMeshes: Mesh[] = [];
   /** What this player was riding last frame, to notice getting out. */
   let was: { pad: number } | { trip: string } | null = null;
@@ -760,14 +761,14 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         asked = 0;
         const why: Record<string, string> = {
           have: "That part is already on",
-          needs: "That part has nothing to go on yet",
+          needs: "Another part has to go on before that one",
           away: "Not while the rocket is counting down or away",
           room: "No room: the whole site must fit inside the building area",
-          far: "Get closer: build up beside it, to within reach of where it goes",
+          far: `Too far: build up beside where it goes, to within ${STARSHIP.placeReach} m`,
           locked: "Starships come with the Full Game",
           full: "This world has as many launch sites as it can hold",
           overlap: "Another launch site is in the way",
-          crowded: "Something is built in the way",
+          crowded: "Something is built where it goes: remove it first",
           holds: "Take off what stands on it or hangs from it first",
           busy: "Every seat is taken",
           fuelling: "Still fuelling",
@@ -965,15 +966,17 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         // Of the parts that can go on now: one on the side being aimed at (the tower's, or the rocket's), the lowest number first.
         const a = towerFoot(pad), b = mountFoot(pad);
         const rocketSide = Math.hypot(spot[0] - b[0], spot[2] - b[2]) < Math.hypot(spot[0] - a[0], spot[2] - a[2]);
-        const pick = can.find((n) => (n === 10 || isRocket(n)) === rocketSide) ?? can[0] ?? missing[0]!;
+        // Failing that, the next part of that side, to say what it waits for (aiming at the mount: the rocket needs both arms first).
+        const onSide = (n: number) => (n === 10 || isRocket(n)) === rocketSide;
+        const pick = can.find(onSide) ?? missing.find(onSide) ?? can[0] ?? missing[0]!;
         // (As near as for a wall, in height too: the tower and the rocket are climbed with scaffolding as they go up.)
         const away = reachTo(pad, pick, [p.x, p.y, p.z]);
         const why = cannotPlace(pad, pick) ?? (crowded(game.build, pad, pick, game.env) ? "crowded" : away > STARSHIP.placeReach ? "far" : null);
         for (const n of missing) if (n !== pick) ghost(used++, pad, n, ghosts.plan);
         ghost(used++, pad, pick, why ? ghosts.bad : ghosts.ok);
-        preview = { pad: pad.id, part: pick, ok: why === null };
         const lacks = needsOf(pick).filter((n) => !pad.parts.includes(n));
-        const reason = why === "needs" ? `needs ${lacks.map((n) => `${n} · ${nameOf(n)}`).join(" and ")} first` : why === "away" ? "not while the rocket is counting down or away" : why === "crowded" ? "something is built where it goes: clear it first" : why === "far" ? `${Math.ceil(away - STARSHIP.placeReach)} m too far: build up beside it, to within ${STARSHIP.placeReach} m of where it goes` : "";
+        const reason = why === "needs" ? `put on ${lacks.map((n) => `${n} · ${nameOf(n)}`).join(" and ")} first` : why === "away" ? "not while the rocket is counting down or away" : why === "crowded" ? "something is built where it goes: remove it first" : why === "far" ? outOfReach([boxOf(pad, pick)], [p.x, p.y, p.z], STARSHIP.placeReach) : "";
+        preview = { pad: pad.id, part: pick, ok: why === null, why: `${pick} · ${nameOf(pick)}: ${reason}` };
         panel(`${statusOf(s)}<small>${why ? `<span class="bad">${pick} · ${nameOf(pick)}: ${reason}</span>` : `<span class="ok">${pick} · ${nameOf(pick)}</span> · ${tap} to put it on`}</small>`);
       } else if (s) {
         preview = null;
@@ -983,10 +986,10 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
         const dir = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
         const site = { x: Math.floor(spot[0] / CELL), z: Math.floor(spot[2] / CELL), dir };
         const clash = [...pads.values()].some((other) => overlap(other.pad, site));
-        const problem = !fits(site) ? "no room: the tower and the mount must fit inside the building area" : clash ? "another launch site is in the way" : !clear(game.build, site) ? "something is built in the way" : reachTo(site, 1, [p.x, p.y, p.z]) > STARSHIP.placeReach ? "get closer" : null;
+        const problem = !fits(site) ? "no room: the tower and the mount must fit inside the building area" : clash ? "another launch site is in the way" : !clear(game.build, site) ? "something is built in the way" : reachTo(site, 1, [p.x, p.y, p.z]) > STARSHIP.placeReach ? outOfReach([boxOf(site, 1)], [p.x, p.y, p.z], STARSHIP.placeReach) : null;
         for (let n = 2; n <= PARTS; n++) ghost(used++, site, n, ghosts.plan);
         ghost(used++, site, 1, problem ? ghosts.bad : ghosts.ok);
-        preview = { pad: null, part: 1, ok: problem === null, site };
+        preview = { pad: null, part: 1, ok: problem === null, why: problem ?? "", site };
         panel(`<b>New Starship launch site</b><small>${problem ? `<span class="bad">${problem}</span>` : `<span class="ok">1 · ${nameOf(1)}</span> · ${tap} to start the tower here, the rocket this way`}</small>`);
       }
       for (let i = used; i < planMeshes.length; i++) planMeshes[i]!.setEnabled(false);
@@ -1043,6 +1046,8 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     useTool(id: string) {
       if (id !== STARSHIP_TOOL.id || !preview || asked) return;
       if (!preview.ok) {
+        // A click that does nothing says why.
+        if (preview.why) game.toast(preview.why[0]!.toUpperCase() + preview.why.slice(1), 3500);
         game.sound.tone("square", 150, 150, 0.07, 0.07);
         return;
       }

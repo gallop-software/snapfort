@@ -158,7 +158,9 @@ export class PlayersView {
   private row(p: WirePlayer): string {
     const blocked = this.blocks.has(p.id, p.uid);
     const report = this.reports.get(p.id);
-    const name = `<i class="dot" style="background:${p.color}"></i><b>${escape(p.name)}</b>${blocked ? `<span class="tag">Blocked</span>` : ""}`;
+    // Their jacket colour, as a little figure (a plain dot read as a radio button).
+    const figure = `<svg class="figure" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="6" r="3.6" fill="${p.color}"/><path d="M3.2 18.5c0-4.2 3-6.9 6.8-6.9s6.8 2.7 6.8 6.9z" fill="${p.color}"/></svg>`;
+    const name = `${figure}<b>${escape(p.name)}</b>${blocked ? `<span class="tag">Blocked</span>` : ""}`;
     if (this.asking === p.id) {
       const reasons = REPORT_REASONS.map((why) => `<button type="button" class="small ghost" data-act="why" data-why="${why}">${REPORT_LABELS[why]}</button>`).join("");
       return `<div class="player asking" data-id="${p.id}"><div class="who">${name}</div><div class="why"><span>Why are you reporting them?</span>${reasons}<button type="button" class="link" data-act="cancel">Cancel</button></div></div>`;

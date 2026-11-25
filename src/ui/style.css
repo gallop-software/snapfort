@@ -1018,7 +1018,8 @@ body.paid-world:not(.owned) #view-menu .buttons .primary { background: var(--tea
 #players-list .player.asking { display: grid; justify-content: stretch; }
 #players-list .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
 #players-list .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
-#players-list .dot { flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(31, 42, 55, 0.2); }
+#players-list .figure { flex: none; width: 20px; height: 20px; }
+#players-list .figure > * { stroke: rgba(31, 42, 55, 0.55); stroke-width: 1.2; }
 #players-list .tag { flex: none; padding: 1px 7px; border-radius: 6px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; }
 #players-list .acts { display: flex; align-items: center; gap: 6px; flex: none; }
 #players-list .acts .note { max-width: 210px; font-size: 12px; font-weight: 700; color: var(--teal); text-align: right; }

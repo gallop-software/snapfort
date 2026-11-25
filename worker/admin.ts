@@ -3,6 +3,8 @@ import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
 import { WORLDS } from "../src/worlds";
 import type { KeyRecord } from "./ledger";
+import type { Ban, Report } from "./moderation";
+import { cleanUid } from "../src/net/moderation";
 import { looksLikeEmail, sendKeyEmail } from "./mail";
 import { cleanSeats } from "./seats";
 import { stripeLive } from "./stripe";
@@ -13,6 +15,8 @@ export interface AdminPlayer {
   id: string;
   name: string;
   color: string;
+  /** Their device's public id (null: an old page that sent none): what a ban is made on. */
+  uid: string | null;
   /** When they joined (ms). */
   joined: number | null;
   /** "paid": on a seat of a Full Game key; "waiting": has a good key, every seat of it in use; "free": no key. */
@@ -52,16 +56,45 @@ export interface AdminOverview {
   worlds: AdminWorld[];
   /** The newest paid keys, newest first. */
   recent: KeyRecord[];
+  /** Reports from players waiting to be looked at. */
+  openReports: number;
 }
 
 const ledger = (env: Env) => env.LEDGER.get(env.LEDGER.idFromName("keys"));
+const moderation = (env: Env) => env.MODERATION.get(env.MODERATION.idFromName("moderation"));
+
+/** Every world's own room, and any other with someone in it (a dev server's test worlds). */
+async function allRooms(env: Env): Promise<string[]> {
+  return [...new Set([...WORLDS.map((w) => w.room), ...(await ledger(env).rooms())])];
+}
+
+/**
+ * Bans a device by its public id, and lets go of whoever is playing from it
+ * now, in every world. `name` is only for the list of bans (the name it last
+ * had in a report when not given).
+ */
+export async function ban(env: Env, rawUid: string, why: string, name = ""): Promise<{ ban: Ban; kicked: number } | { error: string }> {
+  const uid = cleanUid(rawUid);
+  if (!uid) return { error: "That is not a player id (12 letters and digits, from a report or the list of who is here)." };
+  const book = moderation(env);
+  const done = await book.ban(uid, name || (await book.nameOf(uid)), why || "");
+  const kicked = await Promise.all(
+    (await allRooms(env)).map(async (room) => {
+      try {
+        return await env.WORLD.get(env.WORLD.idFromName(room)).kick(uid);
+      } catch {
+        return 0;
+      }
+    }),
+  );
+  return { ban: done, kicked: kicked.reduce((a, b) => a + b, 0) };
+}
 
 /** Who is where, who is paid, and the totals. Light on every world: one short question each. */
 export async function overview(env: Env): Promise<AdminOverview> {
   const live = stripeLive(env);
   const book = ledger(env);
-  // Every world's own room, and any other with someone in it (a dev server's test worlds).
-  const rooms = [...new Set([...WORLDS.map((w) => w.room), ...(await book.rooms())])];
+  const rooms = await allRooms(env);
   const rosters = await Promise.all(
     rooms.map(async (room) => {
       try {
@@ -73,7 +106,7 @@ export async function overview(env: Env): Promise<AdminOverview> {
   );
   const found = rosters.filter((r) => r !== null);
   const keys = [...new Set(found.flatMap((r) => r.players.flatMap((p) => p.key ?? p.spare ?? [])))];
-  const [owners, summary] = await Promise.all([book.owners(keys), book.summary(live, 25)]);
+  const [owners, summary, openReports] = await Promise.all([book.owners(keys), book.summary(live, 25), moderation(env).openCount().catch(() => 0)]);
   const worlds = found.map((r): AdminWorld => {
     const known = WORLDS.find((w) => w.room === r.room) ?? WORLDS.find((w) => w.id === r.env);
     return {
@@ -86,7 +119,7 @@ export async function overview(env: Env): Promise<AdminOverview> {
       players: r.players.map((p): AdminPlayer => {
         const key = p.key ?? p.spare;
         const owner = key ? owners[key] : undefined;
-        return { id: p.id, name: p.name, color: p.color, joined: p.joined, status: p.key ? "paid" : p.spare ? "waiting" : "free", key, email: owner?.email ?? null, seats: owner?.seats ?? null, builder: p.builder, outdated: p.outdated };
+        return { id: p.id, name: p.name, color: p.color, uid: p.uid ?? null, joined: p.joined, status: p.key ? "paid" : p.spare ? "waiting" : "free", key, email: owner?.email ?? null, seats: owner?.seats ?? null, builder: p.builder, outdated: p.outdated };
       }),
     };
   });
@@ -99,6 +132,7 @@ export async function overview(env: Env): Promise<AdminOverview> {
     totals: { keys: summary.keys, seats: summary.seats, players: everyone.length, paid: count("paid"), waiting: count("waiting"), free: count("free") },
     worlds,
     recent: summary.recent,
+    openReports,
   };
 }
 
@@ -135,6 +169,32 @@ export class AdminApi extends WorkerEntrypoint<Env> {
     const key = await ledger(this.env).grant(to, stripeLive(this.env), n);
     const emailed = send && (await sendKeyEmail(this.env.EMAIL, to, [{ key, seats: n }], "given", "https://snapfort.io"));
     return { key, email: to, seats: n, emailed };
+  }
+
+  /** Reports from players, newest first: the ones waiting to be looked at ("open"), or all of them. */
+  reports(which: "open" | "all" = "open", limit = 100): Promise<Report[]> {
+    return moderation(this.env).reports(which === "all" ? "all" : "open", limit);
+  }
+
+  /** Closes a report without doing anything about it. */
+  async dismiss(id: number): Promise<{ ok: boolean }> {
+    return { ok: Number.isInteger(id) && (await moderation(this.env).dismiss(id)) };
+  }
+
+  /** Bans a device by its public id (from a report, or the list of who is here): it is let go now, and can no longer join. */
+  ban(uid: string, why = "", name = ""): Promise<{ ban: Ban; kicked: number } | { error: string }> {
+    return ban(this.env, uid, why, name);
+  }
+
+  /** Lifts a ban. */
+  async unban(uid: string): Promise<{ ok: boolean }> {
+    const clean = cleanUid(uid);
+    return { ok: !!clean && (await moderation(this.env).unban(clean)) };
+  }
+
+  /** Every banned device, newest first. */
+  bans(): Promise<Ban[]> {
+    return moderation(this.env).bans();
   }
 
   /** Sets a key's seats (after a refund, or as a gift). Fewer: whoever has played longest loses their seat. */

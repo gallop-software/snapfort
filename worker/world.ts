@@ -10,11 +10,13 @@ import { saidName, type Environment } from "../src/game/environments";
 import { DEFAULT_WORLD, serverOf, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import type { Ledger } from "./ledger";
+import type { Moderation, SaidLine } from "./moderation";
 import { stripeLive, type StripeEnv } from "./stripe";
 import type { MailBinding } from "./mail";
 import { applyAction } from "../src/net/authority";
 import { engineInTheWay } from "../src/game/keepOut";
-import { cleanChat, FEED_LINES, FLOOD_MS, flooding, NEAR_RANGE, PIN_RANGE, RECENT_MS } from "../src/net/chat";
+import { cleanChat, cleanEnoughName, FEED_LINES, FLOOD_MS, flooding, NEAR_RANGE, PIN_RANGE, RECENT_MS } from "../src/net/chat";
+import { cleanDevice, cleanReason, SAID_KEPT, SAID_KEPT_MS, uidOf } from "../src/net/moderation";
 import {
   chunkOf,
   cleanColor,
@@ -37,6 +39,8 @@ import {
 export interface Env extends StripeEnv {
   WORLD: DurableObjectNamespace<World>;
   LEDGER: DurableObjectNamespace<Ledger>;
+  /** Reports and bans (see worker/moderation.ts). */
+  MODERATION: DurableObjectNamespace<Moderation>;
   ASSETS: Fetcher;
   ADMIN_SECRET?: string;
   /** Cloudflare Email Service: sends buyers their keys. */
@@ -57,6 +61,8 @@ interface Attachment extends WirePlayer {
   spare?: string;
   /** The browser tab (the same across reloads): joining again from it replaces this connection. */
   tab?: string;
+  /** Their device's public id (see moderation.ts), when their page sent a device id. */
+  uid?: string;
   /** The page's build; when it is not this server's, the page is "outdated": it can watch, not move or build. */
   build?: string;
   outdated?: boolean;
@@ -121,7 +127,7 @@ export interface Roster {
   pieces: number;
   /** How many times anyone has ever joined. */
   joins: number;
-  players: { id: string; name: string; color: string; joined: number | null; builder: boolean; key: string | null; spare: string | null; outdated: boolean }[];
+  players: { id: string; name: string; color: string; uid: string | null; joined: number | null; builder: boolean; key: string | null; spare: string | null; outdated: boolean }[];
 }
 
 /**
@@ -168,6 +174,12 @@ export class World extends DurableObject<Env> {
    */
   private readonly talk = new Map<string, number[]>();
   private recentLines: { at: number; said: WireSaid }[] = [];
+  /**
+   * The last few things each builder here said (SAID_KEPT, for SAID_KEPT_MS),
+   * in memory only and forgotten when they leave: when someone reports them,
+   * the report shows the owner what was said.
+   */
+  private readonly saidBy = new Map<string, SaidLine[]>();
 
   /** Which world this is: set once, by the Worker, and saved. Until then, the first world. */
   private environment: Environment = DEFAULT_WORLD;
@@ -286,7 +298,8 @@ export class World extends DurableObject<Env> {
         if (player.outdated) return;
         return this.move(player, msg.m);
       case "name": {
-        player.name = cleanName(msg.name) || player.name;
+        // (A name the chat filter would mask is not taken: they keep the one they had.)
+        player.name = cleanEnoughName(cleanName(msg.name)) || player.name;
         player.color = cleanColor(msg.color);
         ws.serializeAttachment(player);
         return this.broadcast({ t: "join", player: publicPlayer(player) }, ws);
@@ -305,6 +318,8 @@ export class World extends DurableObject<Env> {
         return this.fire(ws, player, msg.id, msg.to);
       case "say":
         return this.say(ws, player, msg.text, msg.to, msg.at);
+      case "report":
+        return this.report(ws, player, msg.who, msg.why);
       case "w":
         // A message of the world's own: its server half deals with it.
         if (player.outdated) return;
@@ -335,11 +350,19 @@ export class World extends DurableObject<Env> {
     ).one().value;
     const id = `p${n.toString(36)}`;
     const tab = typeof msg.tab === "string" && /^[a-z0-9]{8,32}$/.test(msg.tab) ? msg.tab : undefined;
+    const device = cleanDevice(msg.device);
+    const uid = device ? await uidOf(device) : undefined;
     let access: Access;
+    let banned = false;
     try {
-      access = await this.mayBuild(msg.key, id, tab, false);
+      [access, banned] = await Promise.all([this.mayBuild(msg.key, id, tab, false), uid ? this.isBanned(uid) : false]);
     } finally {
       this.greeting.delete(ws);
+    }
+    if (banned) {
+      if (access.key) this.ledger().release(access.key, this.name, id).catch(() => {});
+      send(ws, { t: "error", reason: "banned" });
+      return ws.close(4003, "Removed by the owner");
     }
     const builder = access.builder;
     if (this.players.has(ws) || ws.readyState !== WebSocket.OPEN) {
@@ -361,7 +384,8 @@ export class World extends DurableObject<Env> {
     }
     const build = typeof msg.build === "string" ? msg.build.slice(0, 40) : undefined;
     const outdated = !!build && olderBuild(build, BUILD_ID);
-    const player: Attachment = { id, name: cleanName(msg.name) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
+    const player: Attachment = { id, name: cleanEnoughName(cleanName(msg.name)) || "Builder", color: cleanColor(msg.color), builder, tab, build, outdated, joined: Date.now() };
+    if (uid) player.uid = uid;
     if (access.key) player.key = access.key;
     if (access.spare) player.spare = access.spare;
     ws.serializeAttachment(player);
@@ -398,6 +422,7 @@ export class World extends DurableObject<Env> {
     this.moves.delete(player.id);
     this.downUntil.delete(player.id);
     this.talk.delete(player.id);
+    this.saidBy.delete(player.id);
     // Their key is free for their other devices.
     if (player.key) this.ledger().release(player.key, this.name, player.id).catch(() => {});
     this.release(player.id);
@@ -558,7 +583,7 @@ export class World extends DurableObject<Env> {
       env: this.environment.id,
       pieces: this.build.size,
       joins,
-      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, joined: p.joined ?? null, builder: p.builder === true, key: p.key ?? null, spare: p.spare ?? null, outdated: p.outdated === true })),
+      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, uid: p.uid ?? null, joined: p.joined ?? null, builder: p.builder === true, key: p.key ?? null, spare: p.spare ?? null, outdated: p.outdated === true })),
     };
   }
 
@@ -653,7 +678,13 @@ export class World extends DurableObject<Env> {
     times.push(now);
 
     const said: WireSaid = { by: player.id, name: player.name, color: player.color, text, to };
+    if (player.uid) said.uid = player.uid;
     if (at) said.at = round(at);
+    if (text) {
+      const kept = (this.saidBy.get(player.id) ?? []).filter((l) => now - l.at < SAID_KEPT_MS);
+      kept.push({ at: now, text, to });
+      this.saidBy.set(player.id, kept.slice(-SAID_KEPT));
+    }
     const message = JSON.stringify({ t: "said", ...said } satisfies ServerMessage);
     if (to === "all") {
       this.recentLines = [...this.recentLines.filter((l) => now - l.at < RECENT_MS), { at: now, said }].slice(-FEED_LINES);
@@ -669,6 +700,59 @@ export class World extends DurableObject<Env> {
         // Closing; webSocketClose tidies up.
       }
     }
+  }
+
+  // ── Reports and bans ───────────────────────────────────────────────────
+
+  private moderation() {
+    return this.env.MODERATION.get(this.env.MODERATION.idFromName("moderation"));
+  }
+
+  /** Whether a device is banned. If the answer cannot be had, it is not: a hiccup never keeps anyone out. */
+  private async isBanned(uid: string): Promise<boolean> {
+    try {
+      return await this.moderation().banned(uid);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A builder reports another who is here: the report goes to the owner with
+   * both public ids and names, the reason, and what the reported builder said
+   * in the last few minutes. The reporter is told whether it went.
+   */
+  private async report(ws: WebSocket, player: Attachment, rawWho: unknown, rawWhy: unknown): Promise<void> {
+    const why = cleanReason(rawWhy);
+    const who = typeof rawWho === "string" ? rawWho : "";
+    const target = [...this.players.values()].find((p) => p.id === who);
+    if (!why || !target || target === player || !target.uid || !player.uid) return send(ws, { t: "reported", who, ok: false });
+    const now = Date.now();
+    const said = (this.saidBy.get(target.id) ?? []).filter((l) => now - l.at < SAID_KEPT_MS);
+    let ok = false;
+    try {
+      ok = await this.moderation().report({ at: now, room: this.name, byUid: player.uid, byName: player.name, uid: target.uid, name: target.name, player: target.id, why, said });
+    } catch {
+      ok = false;
+    }
+    send(ws, { t: "reported", who, ok });
+  }
+
+  /** The owner banned a device: whoever is here from it is shown why and let go. Returns how many were. */
+  kick(uid: string): number {
+    let n = 0;
+    for (const [ws, player] of [...this.players]) {
+      if (player.uid !== uid) continue;
+      send(ws, { t: "error", reason: "banned" });
+      try {
+        ws.close(4003, "Removed by the owner");
+      } catch {
+        // Already closing.
+      }
+      this.drop(ws);
+      n++;
+    }
+    return n;
   }
 
   /** World-wide lines from the last RECENT_MS, oldest first. */
@@ -1067,7 +1151,7 @@ function send(ws: WebSocket, msg: ServerMessage): void {
   }
 }
 
-const publicPlayer = (p: Attachment): WirePlayer => ({ id: p.id, name: p.name, color: p.color });
+const publicPlayer = (p: Attachment): WirePlayer => ({ id: p.id, name: p.name, color: p.color, ...(p.uid ? { uid: p.uid } : {}) });
 
 /** True when a builder with body centre `c` was standing on, or right at the edge of, piece `p`. */
 function wasStandingOn(p: Piece, c: Vec, env: Environment): boolean {

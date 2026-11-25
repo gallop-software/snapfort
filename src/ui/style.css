@@ -1008,7 +1008,31 @@ body.paid-world:not(.owned) #view-menu .buttons .primary { background: var(--tea
 #playing-as b { font-weight: 800; }
 #me-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(31, 42, 55, 0.2); }
 .panel h2 { margin: 14px 0 12px; font-size: 24px; font-weight: 900; }
-.paused-links { margin: 10px 0 0; }
+.paused-links { margin: 10px 0 0; display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 18px; }
+
+/* ───────────── Players here: block and report ───────────── */
+.panel:has(#view-players:not([hidden])) { width: min(560px, calc(100vw - 32px)); }
+#view-players .players-intro { margin: 0 0 12px; font-size: 14px; }
+#players-list { display: grid; gap: 6px; max-height: min(46vh, 360px); overflow-y: auto; text-align: left; }
+#players-list .player { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 12px; background: rgba(31, 42, 55, 0.05); }
+#players-list .player.asking { display: grid; justify-content: stretch; }
+#players-list .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#players-list .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+#players-list .dot { flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(31, 42, 55, 0.2); }
+#players-list .tag { flex: none; padding: 1px 7px; border-radius: 6px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; }
+#players-list .acts { display: flex; align-items: center; gap: 6px; flex: none; }
+#players-list .acts .note { max-width: 210px; font-size: 12px; font-weight: 700; color: var(--teal); text-align: right; }
+#players-list .why { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#players-list .why > span { flex-basis: 100%; font-size: 13px; font-weight: 700; }
+#players-list .players-empty { margin: 8px 0; text-align: center; }
+#players-blocked { margin: 10px 0 0; font-size: 13px; }
+#view-players .buttons { margin-top: 14px; }
+#players-blocked[hidden] { display: none; }
+@media (max-width: 520px) {
+  #players-list .player:not(.asking) { flex-wrap: wrap; }
+}
+body.touch #players-list { max-height: 42vh; }
+body.touch #view-players .players-intro { font-size: 12px; }
 
 /* ───────────── Unlock the Moon ───────────── */
 #view-unlock { display: grid; justify-items: center; }

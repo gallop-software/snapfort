@@ -131,7 +131,15 @@
             <button id="resume" class="primary" type="button">Back to building</button>
           </div>
           <div class="mini-worlds" id="mini-worlds" aria-label="Switch world"></div>
-          <p class="paused-links"><button type="button" class="link" id="paused-controls">Controls</button></p>
+          <p class="paused-links"><button type="button" class="link" id="paused-controls">Controls</button><button type="button" class="link" id="paused-players">Players · Block or report</button></p>
+        </div>
+
+        <div id="view-players" hidden>
+          <h2>Players here</h2>
+          <p class="players-intro">Block someone to hide their chat on this device. Report them and we'll take a look.</p>
+          <div id="players-list"></div>
+          <p id="players-blocked" hidden><span></span> · <button type="button" class="link" id="players-unblock-all">Unblock everyone</button></p>
+          <div class="buttons"><button id="players-back" class="primary" type="button">Back</button></div>
         </div>
 
         <div id="view-settings" hidden>

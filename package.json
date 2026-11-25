@@ -17,6 +17,7 @@
     "qa:chaos": "node qa/chaos.mjs",
     "qa:mobile": "node qa/mobile.mjs",
     "qa:chat": "node qa/chat.mjs",
+    "qa:moderation": "node qa/moderation.mjs",
     "qa:pay": "node qa/pay.mjs",
     "qa:moon": "node qa/moon.mjs",
     "qa:mars": "node qa/mars.mjs",

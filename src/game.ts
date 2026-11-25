@@ -37,6 +37,7 @@ import { NetClient, pageBuild, worldUrl } from "./net/client";
 import { olderBuild, type SeatReason } from "./net/protocol";
 import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
+import { Blocks, PlayersView } from "./ui/players";
 import { PRICE, Store } from "./ui/store";
 import { Tips } from "./ui/tips";
 import { pieceLabel, saidName, type Environment } from "./game/environments";
@@ -251,6 +252,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       saveSettings(settings);
       graphics.apply(mode);
       debris.limit = graphics.effective === "saver" ? 40 : 140;
+    },
+    players() {
+      playersView.show(remotes.list());
     },
     setIdentity(next) {
       identity.name = next.name;
@@ -707,7 +711,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (away) {
       away = false;
       hud.show("paused");
-    } else if (hud.view === "paused" || hud.view === "unlock") backToBuilding();
+    } else if (hud.view === "players") hud.show("paused");
+    else if (hud.view === "paused" || hud.view === "unlock") backToBuilding();
   });
   // Stepped away (Esc out of the chat line, another window): any key carries on, not only a
   // click. Browsers never let Esc itself take the mouse back, but any other key may.
@@ -967,6 +972,17 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   // ── Chat ─────────────────────────────────────────────────────────────
   const chat = new ChatView(scene, input.touch, (id) => remotes.positionOf(id));
+  // Blocking and reporting (the Players panel, from the settings while playing): a blocked
+  // builder's chat is not shown on this device, from now on and on every visit.
+  const blocks = new Blocks();
+  const playersView = new PlayersView(blocks);
+  const isBlocked = (by: string, uid: string | undefined) => by !== myId && blocks.has(by, uid);
+  playersView.onReport = (id, why) => net.report(id, why);
+  playersView.onBlocksChange = () => chat.hide(isBlocked);
+  /** Keeps the Players panel up to date while it is open. */
+  const refreshPlayers = () => {
+    if (hud.view === "players") playersView.show(remotes.list());
+  };
   const here = (): Vec => [player.position.x, player.position.y, player.position.z];
   /** When this builder sent their last few messages and pings (performance.now() ms), for the flood guard. */
   const sentTimes: number[] = [];
@@ -1093,7 +1109,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       // (Joining again, after a dropped connection, does not say it twice.)
       if (waiting && extras.builder && !waited) playingFree();
       chat.clear();
-      for (const said of extras.chat) chat.show(said, myId, now);
+      for (const said of extras.chat) if (!isBlocked(said.by, said.uid)) chat.show(said, myId, now);
+      playersView.reset();
+      refreshPlayers();
       feature?.joined?.();
       // The world cards' counts now include this builder (asked a moment later: the world tells
       // the count's keeper as it welcomes us, and that word may still be on its way).
@@ -1123,10 +1141,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       if (p.id === myId) return;
       remotes.join(p);
       showOnline();
+      refreshPlayers();
     },
     leave(id) {
       remotes.leave(id);
       showOnline();
+      refreshPlayers();
     },
     moves(list) {
       const now = performance.now();
@@ -1206,6 +1226,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       sfx.deny();
     },
     said(said) {
+      if (isBlocked(said.by, said.uid)) return;
       chat.show(said, myId, performance.now());
       if (said.at && !said.text) sfx.ping();
       else if (said.by !== myId) {
@@ -1231,6 +1252,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       const storeSpoke = performance.now() - noticeAt < 4000;
       if (waiting && waiting !== before) on ? playingFree() : hud.toast(seatsTaken(), 4000);
       else if (on && env.paid && !storeSpoke) hud.toast(before ? `Building here again: you have a seat` : `Unlocked: build anywhere on ${saidName(env)}!`, 3000);
+    },
+    reported(who, ok) {
+      playersView.reported(who, ok);
     },
     hush() {
       hud.toast(SLOW_DOWN);

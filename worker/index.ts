@@ -2,7 +2,8 @@ import type { Environment } from "../src/game/environments";
 import { DEFAULT_WORLD, worldAtPath, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import { BUILD_ID } from "../src/net/protocol";
-import { overview } from "./admin";
+import { ban, overview } from "./admin";
+import { cleanUid } from "../src/net/moderation";
 import type { Paid } from "./ledger";
 import { cleanSeats, MOST_SEATS } from "./seats";
 import { looksLikeEmail, maskEmail, sendKeyEmail, sendReplaceEmail, sendSeatsEmail } from "./mail";
@@ -11,6 +12,7 @@ import type { Env } from "./world";
 
 export { AdminApi } from "./admin";
 export { Ledger } from "./ledger";
+export { Moderation } from "./moderation";
 export { World } from "./world";
 
 /**
@@ -66,6 +68,20 @@ export default {
         const record = await ledger(env).setSeats(key, seats);
         return record ? Response.json(record) : Response.json({ error: "No such key." }, { status: 404 });
       }
+      // Reports from players: GET /admin/reports (&all=1 for closed ones too). Dealt with:
+      // POST /admin/dismiss?id=…, POST /admin/ban?uid=…&why=…, POST /admin/unban?uid=…, GET /admin/bans.
+      if (url.pathname === "/admin/reports") return Response.json(await moderation(env).reports(url.searchParams.get("all") === "1" ? "all" : "open", 200));
+      if (url.pathname === "/admin/bans") return Response.json(await moderation(env).bans());
+      if (url.pathname === "/admin/dismiss" || url.pathname === "/admin/ban" || url.pathname === "/admin/unban") {
+        if (request.method !== "POST") return new Response("Use POST", { status: 405 });
+        if (url.pathname === "/admin/dismiss") return Response.json({ ok: await moderation(env).dismiss(Number(url.searchParams.get("id"))) });
+        if (url.pathname === "/admin/ban") {
+          const done = await ban(env, url.searchParams.get("uid") ?? "", url.searchParams.get("why") ?? "");
+          return Response.json(done, { status: "error" in done ? 400 : 200 });
+        }
+        const uid = cleanUid(url.searchParams.get("uid"));
+        return Response.json({ ok: !!uid && (await moderation(env).unban(uid)) });
+      }
       return forward(world(env, request), request);
     }
     return env.ASSETS.fetch(request);
@@ -73,6 +89,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 const ledger = (env: Env) => env.LEDGER.get(env.LEDGER.idFromName("keys"));
+const moderation = (env: Env) => env.MODERATION.get(env.MODERATION.idFromName("moderation"));
 
 /** Passes a request on to a world, telling it which environment it is. */
 function forward(target: { stub: DurableObjectStub; name: string }, request: Request): Promise<Response> {

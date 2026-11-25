@@ -3,6 +3,7 @@ import type { Fall } from "../game/fall";
 import type { Piece } from "../game/pieces";
 import type { Identity } from "../identity";
 import type { ChatTo } from "./chat";
+import type { ReportReason } from "./moderation";
 import {
   BUILD_ID,
   decodeOps,
@@ -31,7 +32,8 @@ export interface WelcomeExtras {
   seats: number | undefined;
 }
 
-export type NetStatus = "connecting" | "online" | "offline" | "full" | "outdated";
+/** "banned": the owner removed this device; it does not try again. */
+export type NetStatus = "connecting" | "online" | "offline" | "full" | "outdated" | "banned";
 
 export interface NetHandlers {
   status(status: NetStatus): void;
@@ -55,6 +57,8 @@ export interface NetHandlers {
   said(said: WireSaid): void;
   /** Your message was not passed on. */
   hush(reason: "flood", wait: number): void;
+  /** Your report of builder `who` was received (`ok` false: not taken, too many just now). */
+  reported(who: string, ok: boolean): void;
   /** Whether you may build here, after sending a key ("elsewhere": your key is now played on another device). */
   access(builder: boolean, reason?: SeatReason, seats?: number): void;
   /** A newer version of SnapFort is live: this page should restart. */
@@ -110,7 +114,7 @@ export class NetClient {
     this.ws = ws;
     ws.onopen = () => {
       this.heardAt = performance.now();
-      this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color, build: pageBuild(), tab: tabId(), ...(this.key ? { key: this.key } : {}) });
+      this.raw({ t: "hello", v: PROTOCOL_VERSION, name: this.identity.name, color: this.identity.color, build: pageBuild(), tab: tabId(), device: deviceId(), ...(this.key ? { key: this.key } : {}) });
     };
     ws.onmessage = (event) => {
       this.heardAt = performance.now();
@@ -120,9 +124,9 @@ export class NetClient {
       if (this.ws !== ws) return;
       this.ws = null;
       if (this.stopped) return;
-      if (this.status !== "full" && this.status !== "outdated") this.setStatus("offline");
-      // A full world is worth trying again later; an outdated page needs a reload.
-      if (this.status === "outdated") return;
+      if (this.status !== "full" && this.status !== "outdated" && this.status !== "banned") this.setStatus("offline");
+      // A full world is worth trying again later; an outdated page needs a reload; a banned device stays out.
+      if (this.status === "outdated" || this.status === "banned") return;
       const wait = this.status === "full" ? 15_000 : this.retry;
       this.retry = Math.min(10_000, this.retry * 2);
       setTimeout(() => this.connect(), wait);
@@ -205,6 +209,11 @@ export class NetClient {
     this.raw(at ? { t: "say", text, to, at } : { t: "say", text, to });
   }
 
+  /** Reports builder `who` (their player id) to the owner; the answer comes back as `reported`. */
+  report(who: string, why: ReportReason): void {
+    this.raw({ t: "report", who, why });
+  }
+
   /**
    * A key bought or typed in: remembered for joining, and sent now so building
    * opens at once. `take`: with every seat of the key in use, take one.
@@ -275,6 +284,8 @@ export class NetClient {
       }
       case "hush":
         return h.hush(msg.reason, msg.wait ?? 0);
+      case "reported":
+        return h.reported(msg.who, msg.ok);
       case "access":
         return h.access(msg.builder, msg.reason, msg.seats);
       case "update":
@@ -283,6 +294,7 @@ export class NetClient {
         return h.world(msg.d);
       case "error":
         if (msg.reason === "full") this.setStatus("full");
+        else if (msg.reason === "banned") this.setStatus("banned");
         // The server is on an older protocol than this page: it is about to be updated (a deploy
         // takes a minute to reach every world). Keep trying instead of asking for a restart.
         else if (msg.reason === "version" && (msg.v ?? 0) < PROTOCOL_VERSION) this.retry = 3_000;
@@ -315,6 +327,28 @@ export function tabId(): string {
     sessionStorage.setItem("snapfort.tab", id);
   }
   return id;
+}
+
+/**
+ * This browser's device id: the same every visit (it lives in localStorage),
+ * so a block or a ban lasts (see moderation.ts). Where storage is blocked, one
+ * for this visit.
+ */
+let visitDevice = "";
+export function deviceId(): string {
+  try {
+    const saved = localStorage.getItem("snapfort.device");
+    if (saved && /^[a-z0-9]{16,40}$/.test(saved)) return saved;
+  } catch {
+    // Storage blocked: one for this visit.
+  }
+  visitDevice ||= Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => (b % 36).toString(36)).join("");
+  try {
+    localStorage.setItem("snapfort.device", visitDevice);
+  } catch {
+    // Kept for this visit only.
+  }
+  return visitDevice;
 }
 
 /** The shared world's address on this site. */

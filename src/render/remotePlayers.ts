@@ -103,6 +103,11 @@ export class RemotePlayers {
     return r && r.y > -50 ? [r.x, r.y, r.z] : null;
   }
 
+  /** Everyone here (but this builder), as they introduced themselves. */
+  list(): WirePlayer[] {
+    return [...this.remotes.values()].map((r) => r.player);
+  }
+
   /** Adds a builder, or updates their name and colour. */
   join(player: WirePlayer): void {
     const remote = this.remotes.get(player.id);

@@ -19,12 +19,14 @@
     "bindings": [
       { "name": "WORLD", "class_name": "World" },
       // Who owns the Full Game: one instance holding every SnapFort key.
-      { "name": "LEDGER", "class_name": "Ledger" }
+      { "name": "LEDGER", "class_name": "Ledger" },
+      { "name": "MODERATION", "class_name": "Moderation" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["World"] },
-    { "tag": "v2", "new_sqlite_classes": ["Ledger"] }
+    { "tag": "v2", "new_sqlite_classes": ["Ledger"] },
+    { "tag": "v3", "new_sqlite_classes": ["Moderation"] }
   ],
   // Cloudflare Email Service: buyers' keys, from keys@snapfort.io (snapfort.io is onboarded for Email Sending).
   "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["keys@snapfort.io"] }],

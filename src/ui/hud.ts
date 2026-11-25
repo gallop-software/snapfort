@@ -24,6 +24,8 @@ export interface HudActions {
   setGraphics(mode: GraphicsMode): void;
   /** The name or colour was changed on the menu. */
   setIdentity(identity: Identity): void;
+  /** The Players panel was opened (from the settings while playing): it should show who is here. */
+  players(): void;
 }
 
 export interface CapturedStats {
@@ -53,7 +55,7 @@ export function clock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-type View = "menu" | "paused" | "captured" | "controls" | "settings" | "unlock" | "update";
+type View = "menu" | "paused" | "captured" | "controls" | "settings" | "unlock" | "update" | "players";
 
 /** The plain HTML overlay: hotbar, crosshair, readouts, messages and the menu panel. */
 export class Hud {
@@ -71,6 +73,7 @@ export class Hud {
     settings: el("view-settings"),
     unlock: el("view-unlock"),
     update: el("view-update"),
+    players: el("view-players"),
   };
   /** Where Back goes from Controls (the menu, or the settings while playing). */
   private controlsFrom: View = "menu";
@@ -97,13 +100,18 @@ export class Hud {
     el("resume").addEventListener("click", () => actions.resume());
     // A click beside the settings panel (on the dimmed world) also goes back to building.
     this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay && (this.view === "paused" || this.view === "unlock")) actions.resume();
+      if (e.target === this.overlay && (this.view === "paused" || this.view === "unlock" || this.view === "players")) actions.resume();
     });
     el("captured-menu").addEventListener("click", () => actions.menu());
     // The menu's links: Controls and Settings are panels of their own, with a way back.
     el("open-controls").addEventListener("click", () => this.openControls("menu"));
     el("paused-controls").addEventListener("click", () => this.openControls("paused"));
     el("controls-back").addEventListener("click", () => this.show(this.controlsFrom));
+    el("paused-players").addEventListener("click", () => {
+      actions.players();
+      this.show("players");
+    });
+    el("players-back").addEventListener("click", () => this.show("paused"));
     el("open-settings").addEventListener("click", () => this.show("settings"));
     el("playing-as").addEventListener("click", () => this.show("settings"));
     el("settings-back").addEventListener("click", () => this.show("menu"));
@@ -248,6 +256,7 @@ export class Hud {
       offline: "Reconnecting… changes made now may be lost",
       full: "The world is full. Waiting for a spot…",
       outdated: "SnapFort was updated. Reload the page to keep building.",
+      banned: "You've been removed from SnapFort's shared worlds for breaking the rules.",
     };
     node.hidden = !text[status];
     node.textContent = text[status] ?? "";

@@ -9,7 +9,7 @@ Build and explore in one shared world: castles and trebuchets in the Meadow, rai
 - **Starship**, in both worlds: a kit of 21 numbered parts, full size (a 146 m launch tower with its two catch arms, a mount, a 71 m booster and a 52 m ship), put together with the Starship tool, each part from within 12 m of where it goes, so the tower and rocket are climbed with scaffolding as they rise. Up to seven ride. The booster flies back and is caught by the tower's arms, to be used again; the ship flies on to the other world and lands there with its passengers, so it has to be built again for the next trip. Anything the rocket hits, and any shot that hits the rocket, blows it up and throws everyone in it clear.
 - Nothing can be built into a trebuchet or launcher (they are nearly two storeys tall: no ceiling one storey over them), a rail gun or a Starship launch site, and none of them can be put where something is already built.
 - Phones and tablets work too, in landscape, with Fortnite-style touch controls (joystick, drag to look, build buttons).
-- Chat like building: press Enter to say something to everyone (a line at the top) or to builders nearby (a bubble over your head), and middle-click to ping a spot. Nothing scrolls and nothing is saved.
+- Chat like building: press Enter to say something to everyone (a line at the top) or to builders nearby (a bubble over your head), and middle-click to ping a spot. Nothing scrolls and nothing is saved, except what a reported builder said. Settings while playing has **Players**: block someone (their chat is hidden on your device, every visit) or report them to the owner, who can ban a device.
 - Trebuchets: build one on a floor, get on with H, aim through the scope, fire. Stones fly an exact arc and hit the first thing in their way; whatever loses its support falls as rubble, and anyone standing near the impact goes flying.
 
 ## How it is built
@@ -20,7 +20,7 @@ Build and explore in one shared world: castles and trebuchets in the Meadow, rai
 | Worlds | `src/worlds/<id>/` | One folder per world, sharing no code with the others: `world.ts` (its numbers and names), `server.ts` (its own rules), `page/` (everything it draws and plays), its tests. `src/worlds/index.ts` lists them. |
 | Page | `src/` | Babylon.js (WebGPU, WebGL fallback) with Havok physics; plain HTML/CSS overlay. |
 | Networking | `src/net/` | One WebSocket; own changes apply at once and are reconciled with the server's order. |
-| Server | `worker/` | A Cloudflare Worker serving the files; a Durable Object (`World`) per world that holds it, checks every change, decides every shot and fall, and saves to its SQLite database; the `Ledger` Durable Object holding SnapFort keys; `/api/*` for buying (Stripe Checkout, webhook) and checking keys. |
+| Server | `worker/` | A Cloudflare Worker serving the files; a Durable Object (`World`) per world that holds it, checks every change, decides every shot and fall, and saves to its SQLite database; the `Ledger` Durable Object holding SnapFort keys; the `Moderation` Durable Object holding reports and bans; `/api/*` for buying (Stripe Checkout, webhook) and checking keys. |
 
 `PLAN.md` has the design decisions and their history in detail.
 
@@ -45,6 +45,7 @@ npm run qa:chaos -- 180 # random input from two players
 npm run qa:load -- 100  # 100 bot builders and a real page
 npm run qa:mobile       # phones and tablets: fit on screen, and every touch control
 npm run qa:chat         # chat: nearby, everyone, pings, limits, the filter
+npm run qa:moderation   # block, report and ban: the Players panel, blocks that last, reports with what was said, a banned device refused
 npm run qa:moon         # the Moon: look, visitors, low gravity, the launcher, thrown into space and back
 npm run qa:rover        # the Moon's rovers: driving, lift-off, thrown clear, rockets back
 npm run qa:railgun      # the Moon's rail gun: the 22-part kit, damage, the launch and flying down

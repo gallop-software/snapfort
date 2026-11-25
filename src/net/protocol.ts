@@ -1,6 +1,7 @@
 import type { BuildOp } from "../game/buildState";
 import { MATERIALS, PIECE_TYPES, type Piece, type Rot } from "../game/pieces";
 import type { ChatTo } from "./chat";
+import type { ReportReason } from "./moderation";
 
 /**
  * Messages between the game and the shared world (the World Durable Object).
@@ -46,11 +47,12 @@ export type WireOp = ["p", WirePiece] | ["r", string] | ["e", string, number];
  */
 export type SeatReason = "elsewhere" | "full";
 
-/** A builder: id, name and colour ("#rrggbb"). */
+/** A builder: id, name and colour ("#rrggbb"); `uid`, the same every visit from their device (see moderation.ts), to block or report them by. */
 export interface WirePlayer {
   id: string;
   name: string;
   color: string;
+  uid?: string;
 }
 
 /** Where a builder is: [id, x, y, z, yaw, flags]. Positions in centimetres, yaw in milliradians. Flags: 1 = on the ground, 2 = thrown (tumbling), 4 = flying under their own control (a world's rockets, say). */
@@ -67,6 +69,8 @@ export type WireVec = [number, number, number];
  */
 export interface WireSaid {
   by: string;
+  /** The speaker's public id (see WirePlayer), so a blocked builder stays hidden after they leave or come back. */
+  uid?: string;
   name: string;
   color: string;
   text: string;
@@ -91,6 +95,8 @@ export type ClientMessage =
       build?: string;
       /** This browser tab, the same across reloads and world switches: joining again replaces its old connection. */
       tab?: string;
+      /** This browser, the same every visit (see moderation.ts). Never passed on: the server shows others a public id made from it. */
+      device?: string;
     }
   /**
    * A key bought or typed in while here: asks again whether building is open.
@@ -107,6 +113,8 @@ export type ClientMessage =
   | { t: "sync" }
   /** Says something (see WireSaid); an empty text with a spot `at` is a ping. */
   | { t: "say"; text: string; to: ChatTo; at?: WireVec }
+  /** Reports builder `who` (their player id here) to the owner. */
+  | { t: "report"; who: string; why: ReportReason }
   /** A world's own message, from its page half to its server half: the shared code only carries it. */
   | { t: "w"; d: unknown };
 
@@ -169,11 +177,13 @@ export type ServerMessage =
   | ({ t: "said" } & WireSaid)
   /** Your message was not passed on: too many in a few seconds (try again in `wait` seconds). */
   | { t: "hush"; reason: "flood"; wait?: number }
+  /** Your report of `who` was received (`ok` false: too many reports just now, or they had gone). */
+  | { t: "reported"; who: string; ok: boolean }
   | { t: "join"; player: WirePlayer }
   | { t: "leave"; id: string }
   | { t: "moves"; m: WireMove[] }
-  /** `v`: the server's protocol version (with "version"); older servers did not send it. */
-  | { t: "error"; reason: "full" | "version" | "bad"; v?: number };
+  /** `v`: the server's protocol version (with "version"); older servers did not send it. "banned": this device was removed by the owner. */
+  | { t: "error"; reason: "full" | "version" | "bad" | "banned"; v?: number };
 
 export function encodePiece(p: Piece): WirePiece {
   return [p.id, PIECE_TYPES.indexOf(p.type), p.x, p.y, p.z, p.rot, MATERIALS.indexOf(p.material), p.edit];

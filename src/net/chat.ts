@@ -94,6 +94,15 @@ export function cleanChat(value: unknown): string {
   return maskWords(text);
 }
 
+/**
+ * A display name others may see: "" when the chat filter would mask any of it
+ * (a swear word, a slur, a link or a phone number in a name), so the server
+ * shows "Builder" instead.
+ */
+export function cleanEnoughName(name: string): string {
+  return name && cleanChat(name) === name ? name : "";
+}
+
 /** Masks filtered words, matching on a folded copy of the text that lines up with it character for character. */
 function maskWords(text: string): string {
   const chars = [...text];

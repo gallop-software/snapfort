@@ -10,6 +10,8 @@ type Vec = [number, number, number];
 interface Marker {
   el: HTMLElement;
   by: string;
+  /** The speaker's public id, when known (to hide them if they are blocked). */
+  uid?: string;
   until: number;
   /** Where it is in the world now, or null while unknown (a builder not seen yet). */
   where: () => Vec | null;
@@ -49,7 +51,7 @@ export class ChatView {
   private readonly note: HTMLElement;
   private readonly bubbles: Marker[] = [];
   private readonly pins: Marker[] = [];
-  private readonly lines: { el: HTMLElement; until: number }[] = [];
+  private readonly lines: { el: HTMLElement; until: number; by: string; uid?: string }[] = [];
   /** Who the line talks to: everyone at first, then whichever was picked last, for the rest of the visit. */
   private to: ChatTo = "all";
   private draft = "";
@@ -187,6 +189,18 @@ export class ChatView {
     }
   }
 
+  /** Takes away whatever is on screen from builders `blocked` says to hide (someone was just blocked). */
+  hide(blocked: (by: string, uid: string | undefined) => boolean): void {
+    for (const list of [this.bubbles, this.pins, this.lines]) {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const m = list[i]!;
+        if (!blocked(m.by, m.uid)) continue;
+        m.el.remove();
+        list.splice(i, 1);
+      }
+    }
+  }
+
   /** Clears everything shown (joining the world again). */
   clear(): void {
     for (const m of [...this.bubbles, ...this.pins, ...this.lines]) m.el.remove();
@@ -252,6 +266,7 @@ export class ChatView {
     this.bubbles.push({
       el: node,
       by,
+      ...(said.uid ? { uid: said.uid } : {}),
       until: now + CHAT_SHOW_MS,
       where: () => {
         const p = by === me ? this.mePosition : this.positionOf(by);
@@ -276,7 +291,7 @@ export class ChatView {
     node.style.setProperty("--who", said.color);
     this.layer.appendChild(node);
     const at = said.at!;
-    this.pins.push({ el: node, by: said.by, until: now + CHAT_SHOW_MS, where: () => at, distance: node.querySelector("em") });
+    this.pins.push({ el: node, by: said.by, ...(said.uid ? { uid: said.uid } : {}), until: now + CHAT_SHOW_MS, where: () => at, distance: node.querySelector("em") });
     if (this.pins.length > MOST_SHOWN) this.pins.shift()!.el.remove();
     this.place(this.pins[this.pins.length - 1]!, this.mePosition);
   }
@@ -289,7 +304,7 @@ export class ChatView {
     (node.firstChild as HTMLElement).style.color = readable(said.color);
     node.lastChild!.textContent = said.text;
     this.feed.appendChild(node);
-    this.lines.push({ el: node, until: now + CHAT_SHOW_MS });
+    this.lines.push({ el: node, until: now + CHAT_SHOW_MS, by: said.by, ...(said.uid ? { uid: said.uid } : {}) });
     while (this.lines.length > FEED_LINES) this.lines.shift()!.el.remove();
   }
 

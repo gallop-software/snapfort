@@ -54,8 +54,8 @@ export const HELI = {
 
 const lerp = (a: number, b: number, k: number) => a + (b - a) * Math.max(0, Math.min(1, k));
 
-/** Top speed in air this thick (0..1), m/s. */
-export const speedIn = (air: number) => lerp(15, 34, air);
+/** Top speed in air this thick (0..1), m/s. Twice what they first were (user, 2026-11-24). */
+export const speedIn = (air: number) => lerp(30, 68, air);
 /** How fast it climbs, m/s. */
 export const climbIn = (air: number) => lerp(4, 10, air);
 /** How high above the ground it can fly, m: a hop over a wall on red Mars, over anything built in thick air. */

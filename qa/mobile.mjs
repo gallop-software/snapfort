@@ -71,7 +71,7 @@ for (const [name, device] of screens) {
   const menuFits = await p.evaluate(() => { const o = document.getElementById("overlay"); return o.scrollHeight <= o.clientHeight + 1; });
   check(`${name} ${size}: the menu fits, nothing off screen`, menu.length === 0 && menuFits, [...menu, menuFits ? "" : "menu needs scrolling"].filter(Boolean).slice(0, 4).join("; "));
   await p.tap("#play-free"); await wait(800);
-  // A tower in the world, so its flag is up too.
+  // Something built in the world.
   await p.evaluate(() => { const s = window.snapfort; for (let y = 0; y < 4; y++) s.history.do({ kind: "place", piece: { type: "wall", x: 8, y, z: 8, rot: 0, id: s.nextId(), material: "wood", edit: 0 } }); });
   await wait(2200);
   const play = await layoutProblems(p, controlIds);

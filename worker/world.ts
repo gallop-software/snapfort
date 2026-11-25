@@ -2,7 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 import { BuildState, type BuildOp } from "../src/game/buildState";
 import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
-import { measureTowers } from "../src/game/towers";
 import { fallEnd, planFall, type Fall } from "../src/game/fall";
 import type { Room } from "../src/worlds/serverDoors";
 import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
@@ -33,7 +32,6 @@ import {
   type WirePiece,
   type WirePlayer,
   type WireSaid,
-  type WireTower,
 } from "../src/net/protocol";
 
 export interface Env extends StripeEnv {
@@ -104,9 +102,6 @@ const LOG_MS = 7 * 24 * 3600_000;
 const MAX_COORD = 60_000;
 const MAX_HEIGHT = 150_000;
 
-/** Tower heights go out this long after the build changes (they take a full search to work out). */
-const TOWERS_MS = 1_500;
-
 /** One logged change: time, who, the operation and what undoes it. */
 type LogEntry = [number, string, WireOp, WireOp];
 
@@ -165,10 +160,6 @@ export class World extends DurableObject<Env> {
   private nextShot = 1;
   /** Builders in the air or getting up, until when (ms). */
   private readonly downUntil = new Map<string, number>();
-  private towers: WireTower[] = [];
-  private towersTimer: ReturnType<typeof setTimeout> | null = null;
-  /** How long the last tower measurement took (ms). */
-  private towersCost = 0;
 
   /**
    * Chat, in memory only (nothing said is ever saved): when each builder sent
@@ -384,7 +375,6 @@ export class World extends DurableObject<Env> {
       moves: others.map((p) => this.moves.get(p.id) ?? p.move).filter((m): m is WireMove => m !== undefined),
       crews: [...this.crews],
       damage: [...this.damage],
-      towers: this.towers,
       chat: this.recent(),
       env: this.environment.id,
       builder,
@@ -436,7 +426,6 @@ export class World extends DurableObject<Env> {
     if (done.length + extra.length > 0) {
       this.broadcast({ t: "ops", by: player.id, ops: [...done.map((d) => encodeOp(d.op)), ...extraWire] }, ws);
       this.scheduleFlush();
-      this.scheduleTowers();
       const gone = [...done, ...extra].flatMap((d) => (d.inverse.kind === "place" ? [d.inverse.piece] : []));
       if (gone.length > 0) this.knock(null, gone);
     }
@@ -489,7 +478,6 @@ export class World extends DurableObject<Env> {
     }
     this.flush();
     this.broadcast({ t: "snap", pieces: this.allPieces() });
-    this.scheduleTowers();
     this.knock(null, removed);
     return count;
   }
@@ -791,10 +779,7 @@ export class World extends DurableObject<Env> {
     this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
     this.knock(point, [...gone, ...fallen]);
     serverOf(this.environment).struck?.(this.room(), point);
-    if (ops.length > 0) {
-      this.scheduleFlush();
-      this.scheduleTowers();
-    }
+    if (ops.length > 0) this.scheduleFlush();
   }
 
   /**
@@ -936,31 +921,6 @@ export class World extends DurableObject<Env> {
     return answer === undefined ? undefined : JSON.parse(JSON.stringify(answer));
   }
 
-  // ── Towers ─────────────────────────────────────────────────────────────
-
-  /**
-   * Measures the towers a moment after the build changes. Measuring searches
-   * the whole world, so in a huge world it waits longer between measurements
-   * (about 20 times as long as the last one took): the tower board then
-   * updates less often instead of slowing everything else down.
-   */
-  private scheduleTowers(): void {
-    this.towersTimer ??= setTimeout(() => {
-      this.towersTimer = null;
-      const started = Date.now();
-      const next = this.measure();
-      this.towersCost = Date.now() - started;
-      if (JSON.stringify(next) === JSON.stringify(this.towers)) return;
-      this.towers = next;
-      this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('towers', ?)", JSON.stringify(next));
-      this.broadcast({ t: "towers", list: next });
-    }, Math.max(TOWERS_MS, this.towersCost * 20));
-  }
-
-  private measure(): WireTower[] {
-    return measureTowers(this.build, 5).map((t) => [Math.round(t.height * 100) / 100, ...round(t.top), t.pieces]);
-  }
-
   // ── Movement ───────────────────────────────────────────────────────────
 
   private move(player: Attachment, m: unknown): void {
@@ -1012,23 +972,15 @@ export class World extends DurableObject<Env> {
     // Building rules change now and then: whatever no longer stands under the
     // current ones comes down when the world loads (and is saved that way).
     const now = Date.now();
-    let cleaned = 0;
     for (const piece of findUnsupported(this.build)) {
       const op: BuildOp = { kind: "remove", id: piece.id };
       const inverse = this.build.apply(op);
       if (!inverse) continue;
       this.unsavedLog.push([now, "rules", encodeOp(op), encodeOp(inverse)]);
-      cleaned++;
     }
     this.flush();
-    // The last tower list saved, so waking up does not mean searching the whole world
-    // (unless the clean-up just changed it, or there is none yet).
-    const savedTowers = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'towers'").toArray()[0];
-    if (savedTowers && cleaned === 0) this.towers = JSON.parse(savedTowers.value) as WireTower[];
-    else {
-      this.towers = this.measure();
-      sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('towers', ?)", JSON.stringify(this.towers));
-    }
+    // Left from when the tallest structure was measured and flew a flag.
+    sql.exec("DELETE FROM state WHERE key = 'towers'");
   }
 
   /** Keeps the chunk index up to date and marks the chunk as needing a save. */

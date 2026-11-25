@@ -12,7 +12,7 @@ export const world: Environment = {
   room: "main",
   paid: false,
   card: {
-    blurb: "Build the tallest tower. Knock rivals down with trebuchets.",
+    blurb: "Build castles, fire trebuchets, and fly a Starship to the Moon.",
     picture: "/worlds/meadow.jpg",
     perks: [],
   },

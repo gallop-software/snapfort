@@ -677,7 +677,7 @@ body.touch #hotbar:has(.slot:nth-child(8)) .slot .label { font-size: 7px; }
   body.touch #hotbar:has(.slot:nth-child(8)) .slot .label { font-size: 6.5px; }
 }
 body.touch #online { top: calc(env(safe-area-inset-top, 0px) + 8px); right: var(--r, 14px); font-size: 11px; padding: 4px 8px; }
-/* Tower heights on one line, title dropped: the hotbar needs the width. */
+/* The frame-rate readout, out of the hotbar's way. */
 body.touch #stats { top: auto; bottom: 4px; left: 50%; transform: translateX(-50%); font-size: 10px; }
 body.touch #net { top: calc(env(safe-area-inset-top, 0px) + 72px); white-space: normal; max-width: 70vw; text-align: center; }
 body.touch #edit-hint { top: calc(env(safe-area-inset-top, 0px) + 72px); bottom: auto; white-space: normal; max-width: 60vw; text-align: center; }

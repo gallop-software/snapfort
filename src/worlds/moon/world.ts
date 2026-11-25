@@ -22,7 +22,7 @@ export const world: Environment = {
   card: {
     blurb: "Low gravity, space suits and rovers. Get hit and you are thrown into space.",
     picture: "/worlds/moon.jpg",
-    perks: ["Build in lattice, regolith and titanium", "Launchers reach 1.6× further", "Blast rivals into space"],
+    perks: ["Build in lattice, regolith and titanium", "Launchers reach 1.6× further", "Blast each other into space"],
   },
 
   gravity: 26 / 3,

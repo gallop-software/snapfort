@@ -9,7 +9,7 @@ await new Promise((r) => setTimeout(r, 1500)); ws.close();
 const w = inbox.find((m) => m.t === "welcome");
 const state = new BuildState();
 for (const p of decodePieces(w.pieces)) state.apply({ kind: "place", piece: p });
-// Components by touching (as measureTowers does), grounded or not.
+// Components by touching, grounded or not.
 const comp = new Map<string, number>(); let n = 0; const groups: Piece[][] = [];
 for (const s of state.all()) { if (comp.has(s.id) || s.type === "trebuchet") continue; const g: Piece[] = []; const q = [s]; comp.set(s.id, n);
   for (let p = q.pop(); p; p = q.pop()) { g.push(p); for (const o of state.touching(p)) if (o.type !== "trebuchet" && !comp.has(o.id)) { comp.set(o.id, n); q.push(o); } }

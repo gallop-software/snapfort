@@ -3,7 +3,6 @@ import { BuildState, type BuildOp } from "../src/game/buildState";
 import { CELL, LEVEL } from "../src/game/constants";
 import type { Piece, PieceSpec } from "../src/game/pieces";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
-import { measureTowers } from "../src/game/towers";
 import { checkRange, findImpact, launchPoint, maxRange, openAirTarget, planFlight, positionAt, strike, throwVelocity, type Vec } from "../src/game/trebuchet";
 import { PLAIN } from "./plain";
 
@@ -229,41 +228,5 @@ describe("trebuchets and collapse", () => {
     const wall = state.get("w0")!;
     remove(state, "w0");
     expect(findLooseAfterRemoval(state, [wall])).toHaveLength(0);
-  });
-});
-
-describe("tallest towers", () => {
-  it("counts walls standing inside a fort, a cell from its walls, as part of it", () => {
-    const state = new BuildState();
-    // A fort: a ring of walls around cells 0..3, roofed on one side.
-    for (let i = 0; i < 4; i++) {
-      for (const [x, z, rot] of [[i, 0, 0], [i, 4, 0], [0, i, 1], [4, i, 1]] as const) place(state, piece({ type: "wall", x, y: 0, z, rot }, `f${x},${z},${rot}`));
-    }
-    place(state, piece({ type: "roof", x: 0, y: 1, z: 0, rot: 0 }, "roof"));
-    // Two storeys of walls in the middle, touching nothing of the fort.
-    tower(state, "inner", 2, 2, 2);
-    const towers = measureTowers(state);
-    expect(towers).toHaveLength(1);
-    expect(towers[0]!.pieces).toBe(16 + 1 + 2);
-    expect(towers[0]!.height).toBe(2 * LEVEL);
-  });
-
-  it("keeps towers two cells apart separate", () => {
-    const state = new BuildState();
-    tower(state, "a", 0, 0, 4);
-    tower(state, "b", 2, 2, 3);
-    expect(measureTowers(state).map((t) => t.pieces)).toEqual([4, 3]);
-  });
-
-  it("measures each standing structure, tallest first, without trebuchets or huts", () => {
-    const state = new BuildState();
-    tower(state, "a", 0, 0, 6);
-    tower(state, "b", 10, 10, 3);
-    tower(state, "c", -10, -10, 2);
-    place(state, piece({ type: "trebuchet", x: 20, y: 0, z: 20, rot: 0 }, "t"));
-    const towers = measureTowers(state);
-    expect(towers.map((t) => t.height)).toEqual([6 * LEVEL, 3 * LEVEL]);
-    expect(towers[0]!.top[1]).toBe(6 * LEVEL);
-    expect(towers[0]!.pieces).toBe(6);
   });
 });

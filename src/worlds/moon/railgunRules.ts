@@ -13,7 +13,7 @@ import { world } from "./world";
  * three rising one storey each, about 20 degrees), a muzzle, and the capsule a
  * builder rides. Assembled right, it powers up, and whoever sits in the capsule
  * is thrown high above the Moon, to fly down on their rockets to anywhere on it:
- * the top of the tallest tower, or the farthest corner.
+ * the top of a tower, or the farthest corner.
  *
  * Its parts are not building pieces (the building core knows nothing of them):
  * they are the Moon's own things, like the rovers. A part needs the ground or

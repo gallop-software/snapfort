@@ -1,10 +1,10 @@
 # SnapFort.io
 
-Build the tallest tower in one shared world, and knock the competition down with trebuchets. Free, in the browser: **https://snapfort.io**
+Build and explore in one shared world: castles and trebuchets in the Meadow, rail guns and rovers on the Moon, a Starship between them. Free, in the browser: **https://snapfort.io**
 
 - Snap big pieces together (walls, floors, ramps, roofs) with Fortnite-style building: aim with the crosshair, hold the mouse to keep placing, cut doors and windows, undo and redo.
 - Everyone builds in one persistent world. What is built stays, for anyone who comes later.
-- Metal builds up to storey 10, brick to 30, wood all the way to storey 80 (about 300 m), so the tallest towers have a strong base and a fragile top.
+- Metal builds up to storey 10, brick to 30, wood all the way to storey 80 (about 300 m), so tall towers have a strong base and a fragile top.
 - Two worlds: the free **Meadow**, and **the Moon** (snapfort.io/moon): low gravity, space suits, domes, and building in lattice, regolith and titanium. The launcher fires big chunks of moon rock that arrive in under a second; a hit throws you into space and your rocket pack flies you back. There are rovers to sit in and drive, and off a ramp at speed a rover floats away turning over until its seat throws you clear. And there is a rail gun to build: a kit of 22 numbered parts, 175 m long, put together with the Railgun tool; whole, it throws whoever sits in its capsule 650 m above the Moon, to fly down on their rockets and land anywhere. Anyone can visit the Moon (and drive); building there comes with the **Full Game**, a one-time $7 unlock (Stripe Checkout; you get a SnapFort key that unlocks your other devices too, no account needed).
 - **Starship**, in both worlds: a kit of 21 numbered parts, full size (a 146 m launch tower with its two catch arms, a mount, a 71 m booster and a 52 m ship), put together with the Starship tool, each part from within 12 m of where it goes, so the tower and rocket are climbed with scaffolding as they rise. Up to seven ride. The booster flies back and is caught by the tower's arms, to be used again; the ship flies on to the other world and lands there with its passengers, so it has to be built again for the next trip. Anything the rocket hits, and any shot that hits the rocket, blows it up and throws everyone in it clear.
 - Nothing can be built into a trebuchet or launcher (they are nearly two storeys tall: no ceiling one storey over them), a rail gun or a Starship launch site, and none of them can be put where something is already built.
@@ -16,7 +16,7 @@ Build the tallest tower in one shared world, and knock the competition down with
 
 | Part | Where | What |
 |---|---|---|
-| Game rules | `src/game/` | Pieces, contact and collapse, materials, siege engine ballistics and damage, falls, towers. Plain TypeScript, shared by the page and the server, unit tested. The same in every world, and frozen: add to it, never change it. |
+| Game rules | `src/game/` | Pieces, contact and collapse, materials, siege engine ballistics and damage, falls. Plain TypeScript, shared by the page and the server, unit tested. The same in every world, and frozen: add to it, never change it. |
 | Worlds | `src/worlds/<id>/` | One folder per world, sharing no code with the others: `world.ts` (its numbers and names), `server.ts` (its own rules), `page/` (everything it draws and plays), its tests. `src/worlds/index.ts` lists them. |
 | Page | `src/` | Babylon.js (WebGPU, WebGL fallback) with Havok physics; plain HTML/CSS overlay. |
 | Networking | `src/net/` | One WebSocket; own changes apply at once and are reconciled with the server's order. |
@@ -64,7 +64,7 @@ npm run qa:refs         # every world compared with its reference pictures (-- -
 ## Adding a world
 
 1. Copy the folder of the closest world, `src/worlds/<id>/`, under a new id (its folder name, its `id`, and a new `path` and `room`). Say in `world.ts` which world it was copied from.
-2. Add it to the list in `src/worlds/index.ts`, and put its menu picture at `public/worlds/<id>.jpg` (`qa/world-images.mjs` renders one from the game).
+2. Add it to the list in `src/worlds/index.ts`, and put its menu picture at `public/worlds/<id>.jpg` (`qa/world-images.mjs` renders them from the game, and the link preview `public/og.jpg`).
 3. Change anything inside the folder: the numbers in `world.ts`, the look and sound in `page/`, rules of its own in `server.ts`. Nothing outside the folder needs to change, and nothing inside may import from another world.
 4. `npm test` checks the world is complete and keeps to itself. When it is finished, `npm run qa:refs -- --save <id>` saves its reference pictures, so later work elsewhere cannot change it unnoticed.
 

@@ -59,9 +59,6 @@ export type WireMove = [string, number, number, number, number, number];
 /** A point in metres. */
 export type WireVec = [number, number, number];
 
-/** A standing structure: [height m, top x, top y, top z, pieces]. */
-export type WireTower = [number, number, number, number, number];
-
 /**
  * Something a builder said (already filtered by the server): to builders near
  * them or to everyone, and for nearby messages perhaps pinned to a spot `at`.
@@ -125,7 +122,6 @@ export type ServerMessage =
       crews: [string, string][];
       /** Hits taken by damaged pieces: [piece id, hits]. */
       damage: [string, number][];
-      towers: WireTower[];
       /** World-wide lines from the last few seconds, oldest first. */
       chat?: WireSaid[];
       /** Which world this is (its id). */
@@ -153,8 +149,6 @@ export type ServerMessage =
    * gets up. Every page plays it, so it happens even with their tab hidden.
    */
   | { t: "thrown"; id: string; path: WireVec[]; time: number; land: WireVec; /** Flying down under control from this many seconds in (see Fall.glideFrom). */ glide?: number }
-  /** The tallest standing structures, tallest first. */
-  | { t: "towers"; list: WireTower[] }
   /** A board or fire request was turned down ("locked": building here needs the Full Game). */
   | { t: "denied"; reason: "busy" | "far" | "near" | "range" | "reload" | "gone" | "locked" }
   /** Whether you may build here (the answer to a "key" message; or "elsewhere": your seat went to another device). With a reason, you have no seat on your key, building or not. */

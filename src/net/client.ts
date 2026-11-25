@@ -15,14 +15,12 @@ import {
   type WireMove,
   type WirePlayer,
   type WireSaid,
-  type WireTower,
   type WireVec,
 } from "./protocol";
 
 export interface WelcomeExtras {
   crews: [string, string][];
   damage: [string, number][];
-  towers: WireTower[];
   /** World-wide chat lines from the last few seconds. */
   chat: WireSaid[];
   /** May you build here (false: visiting a paid world without the Full Game). */
@@ -50,7 +48,6 @@ export interface NetHandlers {
   shot(shot: number, id: string, by: string, from: WireVec, to: WireVec): void;
   /** `ops` are applied like anyone's changes; this is told which pieces they remove first. */
   impact(shot: number, point: WireVec, ops: BuildOp[], fallen: string[], damage: [string, number][]): void;
-  towers(list: WireTower[]): void;
   /** Builder `id` is thrown or falls along a planned flight. */
   thrown(id: string, fall: Fall): void;
   denied(reason: string): void;
@@ -249,7 +246,7 @@ export class NetClient {
         this.retry = 500;
         this.lastMove = "";
         this.setStatus("online");
-        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], towers: msg.towers ?? [], chat: msg.chat ?? [], builder: msg.builder ?? true, full: msg.full === true, seats: msg.seats });
+        return h.welcome(msg.you, decodePieces(msg.pieces), msg.players, msg.moves, { crews: msg.crews ?? [], damage: msg.damage ?? [], chat: msg.chat ?? [], builder: msg.builder ?? true, full: msg.full === true, seats: msg.seats });
       case "snap":
         return h.snapshot(decodePieces(msg.pieces));
       case "ops":
@@ -268,8 +265,6 @@ export class NetClient {
         return h.shot(msg.shot, msg.id, msg.by, msg.from, msg.to);
       case "impact":
         return h.impact(msg.shot, msg.point, decodeOps(msg.ops), msg.fallen, msg.damage);
-      case "towers":
-        return h.towers(msg.list);
       case "thrown":
         return h.thrown(msg.id, { from: msg.path[0] ?? msg.land, v: [0, 0, 0], time: msg.time, land: msg.land, path: msg.path, ...(typeof msg.glide === "number" ? { glideFrom: msg.glide } : {}) });
       case "denied":

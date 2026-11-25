@@ -1,7 +1,7 @@
 /**
  * Trebuchet QA: two pages in a fresh world. A builds a wooden tower; B builds a
  * trebuchet 60 m away, gets on with H, aims with a right click and fires. Both
- * pages must see the same damage, collapse and tower heights.
+ * pages must see the same damage and collapse.
  * Start the Gallop dev server first, then: npm run qa:trebuchet
  */
 import { mkdirSync } from "node:fs";
@@ -42,11 +42,8 @@ for (let y = 0; y < 6; y++) {
   if (y > 0) towerPieces.push(["floor", 0, y, 12, 0]);
 }
 const built = await put(a, towerPieces);
-await wait(2200); // towers are measured 1.5 s after changes
+await wait(1200);
 check(`A's ${built}-piece tower is on B's page`, (await ids(a)) === (await ids(b)));
-const flagOf = (p) => sf(p, () => ({ text: window.snapfort.flag.text, at: window.snapfort.flag.at, n: window.snapfort.scene.meshes.filter((m) => m.name === "flag-banner").length, board: !!document.getElementById("towers") }));
-const flagA = await flagOf(a), flagB = await flagOf(b);
-check("both see the one flag on it, with its height, and no tower board", flagA.text === "Tallest · 23 m" && flagB.text === flagA.text && flagA.n === 1 && !flagA.board && Math.abs(flagB.at[1] - 23) < 1, JSON.stringify(flagB));
 
 // B: a trebuchet on the ground 60 m south of the tower.
 await sf(b, () => { const s = window.snapfort; s.player.teleport(2.5, 0.95, 12 * 5 - 60 - 4); s.rig.yaw = 0; s.rig.pitch = 0.1; });
@@ -131,8 +128,6 @@ check("rubble falls on the watching page", rubbleOnB > 0, `${rubbleOnB} pieces o
 await a.screenshot({ path: "qa/shots/trebuchet-collapse.png" });
 await wait(6000);
 check("the rubble is gone after a few seconds, also on the page that slept through it", (await sf(a, () => window.snapfort.debris.count)) === 0 && (await sf(b, () => window.snapfort.debris.count)) === 0);
-await wait(1000);
-check("the flag leaves the fallen tower", (await flagOf(a)).text !== "Tallest · 23 m", JSON.stringify(await flagOf(a)));
 
 // B fires at open ground, and their tab sleeps right away; it wakes after the reload.
 await aimAt(-30, 0, 30);

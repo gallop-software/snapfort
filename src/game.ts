@@ -53,7 +53,6 @@ import { IGNORE_BUILDER } from "./render/physicsGroups";
 import { Player } from "./render/player";
 import { Debris } from "./render/debris";
 import { RemotePlayers } from "./render/remotePlayers";
-import { TowerFlag } from "./render/towerFlags";
 import { TrebuchetView } from "./render/trebuchetView";
 import { TREBUCHET_BASE } from "./render/geometry";
 import { checkRange, hitPoints, launchPoint, maxRange, openAirTarget, rangeTo, trebuchetBase, type Vec } from "./game/trebuchet";
@@ -139,7 +138,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const trebuchets = new TrebuchetView(scene, state, world.shadows, env, page.siegeModel(scene));
   // Rubble: a copy of the piece's mesh (a trebuchet with its frame and arm on it).
   const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)), env, page.dust);
-  const flag = new TowerFlag(scene);
   /** What this world has of its own (vehicles, say), started below once the game's parts exist. */
   let feature: WorldFeature | null = null;
   /** Hits taken by damaged pieces (from the server), so their cracks show. */
@@ -161,8 +159,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   sfx.muted = settings.muted;
 
   let mode: Mode = "menu";
-  /** The tallest towers as last heard from the server: [height, x, y, z, pieces]. */
-  let tallest: readonly [number, number, number, number, number][] = [];
   /** Siege (hidden for now) is played alone: the build is local and nothing is sent or received. */
   let solo = false;
   let placedCount = 0;
@@ -292,9 +288,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) if (built.has(`${cx + dx},${cz + dz}`)) return false;
       return true;
     });
-    // Face the tallest tower, so the first thing a builder sees is what to beat.
-    const top = tallest[0];
-    rig.yaw = top ? Math.atan2(top[1] - player.position.x, top[3] - player.position.z) : 0;
+    rig.yaw = 0;
     rig.pitch = 0.22;
     hud.setSiege(null);
     // The first-game tips count walking from where the builder starts.
@@ -1088,7 +1082,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         damage.set(id, hits);
         tint(id);
       }
-      showTowers(extras.towers);
       if (extras.seats) store.learnSeats(extras.seats);
       const waited = waiting;
       waiting = extras.full ? "full" : null;
@@ -1174,9 +1167,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         sfx.boom(near);
         if (pieces.length > 4) sfx.crumble();
       }
-    },
-    towers(list) {
-      showTowers(list);
     },
     thrown(id, fall) {
       if (solo) return;
@@ -1430,10 +1420,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     hud.setHint(busy ? `Someone is on this ${engineName}` : `<kbd>H</kbd> get on the ${engineName}`);
   }
 
-  function showTowers(list: readonly [number, number, number, number, number][]): void {
-    tallest = list;
-    flag.show(list);
-  }
   if (input.touch) {
     // A pretend key event for on-screen buttons that do a key's job.
     const keyEvent = { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, repeat: false } as KeyboardEvent;
@@ -1573,7 +1559,6 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (touch) touch.mode = crewOn ? "crew" : editing ? "edit" : "build";
     trebuchets.update(dt);
     debris.update(dt);
-    flag.update(dt);
     chat.update(now, here());
     tips.update(
       { moved: Math.hypot(player.position.x - tipStart.x, player.position.z - tipStart.z), placed: placedTotal, kinds: placedKinds, chatted },
@@ -1699,7 +1684,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, flag, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
     });
   }
 }

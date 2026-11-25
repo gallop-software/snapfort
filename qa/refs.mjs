@@ -26,6 +26,8 @@ mkdirSync("qa/shots", { recursive: true });
 const WORLDS = [
   ["meadow", "/"],
   ["moon", "/moon"],
+  // Mars has a day that passes: its pictures are taken at a fixed hour, mid-morning.
+  ["mars", "/mars?sol=0.2"],
 ];
 
 /** Where the camera stands and what it looks at, for each picture. */

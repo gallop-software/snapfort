@@ -1,6 +1,6 @@
 import type { Environment } from "../game/environments";
 import { MATERIALS, type MaterialId } from "../game/pieces";
-import { pieceLabel } from "../game/environments";
+import { pieceLabel, saidName } from "../game/environments";
 import { FIRST_PAID_WORLD, WORLDS } from "../worlds";
 
 const escape = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -47,7 +47,7 @@ export function paintWorlds(env: Environment, testWorld: string | null): void {
   const shown = env.paid ? env : FIRST_PAID_WORLD;
   if (shown) {
     (document.getElementById("unlock-pic") as HTMLElement).style.backgroundImage = `url(${shown.card.picture})`;
-    document.getElementById("unlock-title")!.textContent = `Build on the ${shown.name}`;
+    document.getElementById("unlock-title")!.textContent = `Build on ${saidName(shown)}`;
     document.getElementById("unlock-perks")!.innerHTML = [...shown.card.perks, "Every paid world we add, included"].map((p) => `<li>${escape(p)}</li>`).join("");
     const go = document.getElementById("thanks-go") as HTMLAnchorElement;
     go.href = href(shown);

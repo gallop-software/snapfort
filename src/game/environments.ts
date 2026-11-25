@@ -54,6 +54,14 @@ export interface SiegeRules {
    * a high arc, as a trebuchet's are.
    */
   shotSeconds?: number;
+  /**
+   * The shot does not fly at its target at all: it climbs straight up from
+   * the engine to `apex` metres above the higher of the two, crosses level,
+   * and comes straight down on the target, so it meets whatever is highest
+   * above that spot (walls do not shelter from it; a roof does). It takes
+   * `shotSeconds` (3 when that is left out), however far. Left out, shots fly as above.
+   */
+  dive?: { apex: number };
 }
 
 /** The shapes a roof can have: all on the same square base, so they attach, stand and fall alike. New ones go on the end. */
@@ -64,6 +72,8 @@ export interface Environment {
   /** Also the name of its folder in src/worlds/. */
   id: string;
   name: string;
+  /** How the name is said in a sentence, when it is not "the <name>": "Mars", where the Moon is "the Moon". */
+  said?: string;
   /** Its address on the site: "/" or "/<something>". */
   path: string;
   /** The name its shared world is saved under. Never change it: the builds are kept by this name. */
@@ -100,4 +110,9 @@ export interface Environment {
 /** What a piece is called in a world. */
 export function pieceLabel(type: PieceType, env: Environment): string {
   return type === "trebuchet" ? env.siege.name : (env.labels[type] ?? PIECE_DEFS[type].label);
+}
+
+/** A world's name as it goes in a sentence: "the Moon", "Mars". */
+export function saidName(env: Environment): string {
+  return env.said ?? `the ${env.name}`;
 }

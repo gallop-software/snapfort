@@ -39,7 +39,7 @@ import { flooding, PIN_AIM_RANGE, PIN_RANGE, type ChatTo } from "./net/chat";
 import { ChatView } from "./ui/chat";
 import { PRICE, Store } from "./ui/store";
 import { Tips } from "./ui/tips";
-import { pieceLabel, type Environment } from "./game/environments";
+import { pieceLabel, saidName, type Environment } from "./game/environments";
 import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
 import { WORLDS } from "./worlds";
 import { askBuilders, reachOf } from "./ui/worlds";
@@ -369,7 +369,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       what.innerHTML = `<b>${seatsTaken()}</b>`;
       button.innerHTML = `Use it here<kbd class="desk">U</kbd>`;
     } else {
-      what.innerHTML = `<b>Visiting the ${env.name}</b> · building here comes with the Full Game`;
+      what.innerHTML = `<b>Visiting ${saidName(env)}</b> · building here comes with the Full Game`;
       button.innerHTML = `Unlock · ${PRICE}<kbd class="desk">U</kbd>`;
     }
   }
@@ -379,7 +379,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     builder = on;
     document.body.classList.toggle("visiting", !on);
     const play = document.getElementById("play-free") as HTMLButtonElement;
-    if (!play.disabled) play.textContent = on ? "Start building" : `Visit the ${env.name}`;
+    if (!play.disabled) play.textContent = on ? "Start building" : `Visit ${saidName(env)}`;
     if (!on) {
       finishEdit(false);
       toolIndex = -1;
@@ -1197,7 +1197,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         range: "Out of range: build higher or get closer",
         reload: "Still reloading",
         gone: `That ${engineName} is gone`,
-        locked: `Building on the ${env.name} comes with the Full Game`,
+        locked: `Building on ${saidName(env)} comes with the Full Game`,
       };
       hud.toast(text[reason] ?? "Not now");
       sfx.deny();
@@ -1227,7 +1227,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       // (A message the store just showed, like "you have a new key", is not covered up.)
       const storeSpoke = performance.now() - noticeAt < 4000;
       if (waiting && waiting !== before) on ? playingFree() : hud.toast(seatsTaken(), 4000);
-      else if (on && env.paid && !storeSpoke) hud.toast(before ? `Building here again: you have a seat` : `Unlocked: build anywhere on the ${env.name}!`, 3000);
+      else if (on && env.paid && !storeSpoke) hud.toast(before ? `Building here again: you have a seat` : `Unlocked: build anywhere on ${saidName(env)}!`, 3000);
     },
     hush() {
       hud.toast(SLOW_DOWN);
@@ -1681,7 +1681,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
   // Started: the menu is no longer held back (it shows now if the trip or the restart turned out not to count).
   document.documentElement.classList.remove("arriving");
-  if (!builder) (document.getElementById("play-free") as HTMLButtonElement).textContent = `Visit the ${env.name}`;
+  if (!builder) (document.getElementById("play-free") as HTMLButtonElement).textContent = `Visit ${saidName(env)}`;
 
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.

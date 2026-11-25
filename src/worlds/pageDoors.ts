@@ -233,6 +233,14 @@ export interface SiegeModel {
   swing: number;
   /** A new stone (or whatever this engine throws), `radius` metres across the middle. */
   stone(radius: number): Mesh;
+  /**
+   * A shot has just been fired at `to` and arrives in `seconds`: for anything
+   * of the world's own shown at the target meanwhile (a marker everyone sees).
+   * Optional.
+   */
+  mark?(to: readonly [number, number, number], seconds: number): void;
+  /** True when what it throws has a nose: it is turned to point the way it is going (drawn nose toward +z). Optional. */
+  pointed?: boolean;
 }
 
 /** What a world's sounds are made with: the game ships no audio files. */

@@ -78,10 +78,25 @@ export interface Flight {
   time: number;
   /** Pull on the stone, m/s². */
   g: number;
+  /**
+   * Set when the shot climbs, crosses and dives (see SiegeRules.dive) instead
+   * of flying an arc: the height it crosses at, where it comes down, when each
+   * leg ends, and how fast it falls from there on. `v` and `g` are then only
+   * its speed up off the engine and no pull at all.
+   */
+  dive?: { top: number; to: Vec; climbed: number; crossed: number; speed: number };
 }
 
 export function planFlight(from: Vec, to: Vec, env: Environment): Flight {
   const d = Math.hypot(to[0] - from[0], to[2] - from[2]);
+  if (env.siege.dive) {
+    // Up, across, down: the same speed all the way, so each leg takes its share of the time.
+    const time = env.siege.shotSeconds ?? 3;
+    const top = Math.max(from[1], to[1]) + env.siege.dive.apex;
+    const up = top - from[1], down = top - to[1];
+    const speed = (up + d + down) / time;
+    return { from, time, g: 0, v: [0, speed, 0], dive: { top, to, climbed: up / speed, crossed: (up + d) / speed, speed } };
+  }
   // As a real trebuchet throws: at about 45 degrees, so the stone is in the air
   // for sqrt(2d / g) seconds and peaks a quarter of the distance up (300 m: about
   // 8 s and 75 m, under the real pull of 9.81). Never under 1.5 s (longer where the world
@@ -99,6 +114,16 @@ export function planFlight(from: Vec, to: Vec, env: Environment): Flight {
 }
 
 export function positionAt(f: Flight, t: number): Vec {
+  if (f.dive) {
+    const { top, to, climbed, crossed, speed } = f.dive;
+    if (t <= climbed) return [f.from[0], f.from[1] + speed * t, f.from[2]];
+    if (t <= crossed) {
+      const k = (t - climbed) / Math.max(1e-9, crossed - climbed);
+      return [f.from[0] + (to[0] - f.from[0]) * k, top, f.from[2] + (to[2] - f.from[2]) * k];
+    }
+    // Straight down on the target, and on down past it if nothing is there.
+    return [to[0], top - speed * (t - crossed), to[2]];
+  }
   return [f.from[0] + f.v[0] * t, f.from[1] + f.v[1] * t - 0.5 * f.g * t * t, f.from[2] + f.v[2] * t];
 }
 

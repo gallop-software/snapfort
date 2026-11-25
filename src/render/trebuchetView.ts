@@ -147,6 +147,7 @@ export class TrebuchetView {
     const flight = planFlight(from, to, this.environment);
     mesh.position.set(...from);
     this.stones.set(shot, { mesh, flight, start: performance.now() });
+    this.model.mark?.(to, flight.time);
   }
 
   /** Stone `shot` landed: take it away. Returns where it was, if it was in flight. */
@@ -200,6 +201,8 @@ export class TrebuchetView {
         continue;
       }
       stone.mesh.position.set(...positionAt(stone.flight, t));
+      // Something with a nose flies nose first.
+      if (this.model.pointed) stone.mesh.lookAt(new Vector3(...positionAt(stone.flight, t + 0.05)));
     }
 
     // Room for every trebuchet: a world can hold any number of them.

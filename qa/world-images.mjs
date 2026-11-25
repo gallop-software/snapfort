@@ -8,13 +8,15 @@
  * trebuchets before it, and a Starship lifting off its launch tower behind.
  * The Moon: a base of domes and towers, a rail gun running the length of it, a
  * Starship on its mount, launchers, and a rover in front with the Earth above.
+ * Mars: a base of ice, redbrick and iron under greenhouses, on the canyon
+ * floor, as the sun sets blue behind it and the ice begins to glow.
  * Everything is built the way a builder builds it (pieces through the page,
  * parts by the world's own messages from close by), so the server agrees.
  *
  * Needs the Gallop dev server with Stripe test keys in .dev.vars (a paid key
  * is made through the webhook, to build on the Moon). Then:
  *
- *   node qa/world-images.mjs            both worlds
+ *   node qa/world-images.mjs            every world
  *   node qa/world-images.mjs moon       only that one
  *   node qa/world-images.mjs meadow --still     the Meadow without waiting for lift-off
  *
@@ -47,7 +49,7 @@ async function open(path, world, viewport = { width: 1200, height: 675 }) {
   await ctx.addInitScript((k) => { localStorage.setItem("snapfort.key", k); localStorage.setItem("snapfort.tips", "done"); }, key);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("page error:", e.message.slice(0, 200)));
-  await page.goto(`${base}${path}?world=${world}`);
+  await page.goto(`${base}${path}${path.includes("?") ? "&" : "?"}world=${world}`);
   await page.waitForSelector("body.ready", { timeout: 30000 });
   await page.click("#play-free");
   await wait(900);
@@ -296,6 +298,59 @@ async function moon() {
   await shoot(page, "moon-0");
 }
 
+// ── Mars ─────────────────────────────────────────────────────────────────
+
+function marsBase() {
+  const p = new Plan();
+  const win = (y, rows) => () => (rows.includes(y) ? CUT.window : 0);
+  // The hall: three storeys of iron, two cells square, under four greenhouses.
+  for (let y = 0; y < 3; y++) p.ring(-4, -3, 2, 3, y, "metal", win(y, [1]));
+  p.floors(-4, -3, 2, 3, 3, "metal"); p.roofs(-4, -3, 2, 3, 3, "metal");
+  // An ice spire beside it, nine storeys, a greenhouse on top; and a shorter one further off.
+  for (let y = 0; y < 9; y++) p.ring(-6, -6, 3, 3, y, "wood");
+  p.put("roof", -6, 9, 3, 0, "wood");
+  for (let y = 0; y < 5; y++) p.ring(-8, -8, 6, 6, y, y < 3 ? "brick" : "wood");
+  p.put("roof", -8, 5, 6, 0, "wood");
+  // Redbrick wings: one east to the airlock, one north, two storeys.
+  p.ring(-2, 0, 2, 2, 0, "brick", (side) => (side === "e" ? CUT.arch : 0)); p.roofs(-2, 0, 2, 2, 1, "brick");
+  for (let y = 0; y < 2; y++) p.ring(-4, -4, 4, 6, y, "brick", win(y, [1]));
+  p.roofs(-4, -4, 4, 6, 2, "brick");
+  // A row of ice greenhouses out front, and a low iron store.
+  p.ring(-1, 1, 5, 6, 0, "wood"); p.roofs(-1, 1, 5, 6, 1, "wood");
+  p.ring(-7, -6, 0, 0, 0, "metal"); p.roofs(-7, -6, 0, 0, 1, "metal");
+  // Beacons.
+  p.put("trebuchet", 2, 0, 0); p.put("trebuchet", -1, 0, 9);
+  return p;
+}
+
+async function mars() {
+  console.log("Mars");
+  const world = `art-r-${stamp}`;
+  // The hour is held: late in the day, at sunset, and just after it (see ?sol= in the world's scenery).
+  const hours = [["0", 0.56], ["1", 0.625], ["2", 0.64], ["3", 0.658]];
+  let first = true;
+  for (const [n, sol] of hours) {
+    const page = await open(`/mars?sol=${sol}`, world);
+    if (first) await build(page, marsBase());
+    first = false;
+    // Builders: one on a beacon, one walking in from the east.
+    const crew = await open(`/mars?sol=${sol}`, world, { width: 600, height: 400 });
+    await hover(crew, 12.5, 0.95, -1.5);
+    await crew.keyboard.press("KeyH");
+    const hand = await open(`/mars?sol=${sol}`, world, { width: 600, height: 400 });
+    await hover(hand, 16, 0.95, 20);
+    await hand.evaluate(() => { window.snapfort.rig.yaw = -1.9; });
+    await hover(page, 60, 0.95, 60);
+    await wait(1500);
+    // From the east, looking west past the base to where the sun goes down.
+    await frame(page, [44, 3.4, 30], [-40, 17, 12]);
+    await shoot(page, `mars-${n}`);
+    await closeAll();
+    await wait(1200);
+  }
+}
+
 if (!only || only === "meadow") { await meadow(); await closeAll(); await wait(1500); }
+if (!only || only === "mars") { await mars(); await closeAll(); await wait(1500); }
 if (!only || only === "moon") { await moon(); await closeAll(); }
 await browser.close();

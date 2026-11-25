@@ -271,6 +271,8 @@ html.arriving #overlay { display: none; }
 
 /* The menu is wider, for the two world cards side by side; Controls too, for the key list. */
 .panel:has(#view-menu:not([hidden])), .panel:has(#view-controls:not([hidden])) { width: min(720px, calc(100vw - 32px)); }
+/* Wider again once there are three worlds or more, so their cards stay a good size in one row. */
+.panel:has(#view-menu:not([hidden]) #worlds > :nth-child(3)) { width: min(960px, calc(100vw - 32px)); }
 .panel:has(#view-unlock:not([hidden])) { width: min(600px, calc(100vw - 32px)); }
 .panel h1 {
   margin: 0;
@@ -919,7 +921,8 @@ body.visiting #hotbar { opacity: 0.45; }
 }
 
 /* ───────────── The menu: world cards, one button, links ───────────── */
-#worlds { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0 16px; }
+/* As many across as fit: two on a narrow phone, three or more on anything wider. */
+#worlds { display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 14px; margin: 18px 0 16px; }
 .world {
   position: relative;
   display: flex;

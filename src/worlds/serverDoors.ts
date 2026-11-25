@@ -46,6 +46,16 @@ export interface WorldServer {
    */
   blocks?(room: Room, piece: Piece): boolean;
   /**
+   * A builder wants to put this piece in the build: false refuses it (as
+   * `blocks` does, but knowing who asks). After the action it came in,
+   * `placed` is always told what really went in (perhaps nothing).
+   */
+  mayPlace?(room: Room, playerId: string, piece: Piece): boolean;
+  /** The pieces a builder's action put in the build, once it is settled (called whenever `mayPlace` was asked, even with none). */
+  placed?(room: Room, playerId: string, pieces: readonly Piece[]): void;
+  /** A builder wants to remove or edit this piece: false refuses it (a world may say whose a piece is). */
+  mayChange?(room: Room, playerId: string, piece: Piece, kind: "remove" | "edit"): boolean;
+  /**
    * Another world's server half sent this world something (see Room.toWorld):
    * anything at all, so check it. What is returned (plain data) is that
    * world's answer.
@@ -98,6 +108,29 @@ export interface Room {
   load(name: string): unknown;
   /** The other worlds there are: somewhere to send things, or people. */
   worlds(): { id: string; name: string; said?: string }[];
+  // The doors below are always there in a real room. They are optional in the type only so
+  // that the stand-in rooms older worlds' tests are written with need not have them.
+  /** A builder's name and colour as they gave them, or null (no such builder). */
+  who?(playerId: string): { name: string; color: string } | null;
+  /**
+   * Something that is the same for a builder's browser tab every time it
+   * joins (a reload, a dropped connection coming back), or null. Never send it
+   * to a page.
+   */
+  tabOf?(playerId: string): string | null;
+  /**
+   * Takes pieces out of the build by this world's own rules; whatever that
+   * leaves unsupported falls. Every page is told, and it is logged as `by`.
+   */
+  remove?(ids: readonly string[], by: string): void;
+  /**
+   * Wears pieces down at `point` with something of this world's own: each
+   * [piece id, hits] adds that many hits (fractions allowed). What runs out of
+   * hits breaks, and what that strands falls, as when a stone lands.
+   */
+  wear?(point: Vec, hits: readonly (readonly [string, number])[], by: string): void;
+  /** True in a test room on a developer's own computer (there are none on the live site): what is only for checks may be allowed there. */
+  test?(): boolean;
   /**
    * Sends plain data to another world's server half (its `fromWorld`), waking
    * that world if it sleeps. Resolves with its answer; undefined when there is

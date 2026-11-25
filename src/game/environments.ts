@@ -1,3 +1,4 @@
+import { WORLD_HALF_CELLS } from "./constants";
 import { PIECE_DEFS, type MaterialId, type PieceType } from "./pieces";
 
 /**
@@ -103,8 +104,25 @@ export interface Environment {
   materials: Readonly<Record<MaterialId, MaterialRules>>;
   siege: SiegeRules;
   roof: RoofShape;
+  /**
+   * A world apart: nothing of another world's travels here or leaves from
+   * here, so it is left out of what the other worlds are told of ("the other
+   * worlds there are": somewhere a ship could go).
+   */
+  apart?: boolean;
+  /**
+   * Half the width of its building area, in cells, when it is not the usual
+   * one (WORLD_HALF_CELLS): cells run from -halfCells to halfCells - 1. Never
+   * make a world smaller once it has builds.
+   */
+  halfCells?: number;
   /** Its own names for pieces ("Dome" for the roof), where they differ. */
   labels: Readonly<Partial<Record<PieceType, string>>>;
+}
+
+/** Half the width of a world's building area, in cells. */
+export function halfCellsOf(env: Environment): number {
+  return env.halfCells ?? WORLD_HALF_CELLS;
 }
 
 /** What a piece is called in a world. */

@@ -1,6 +1,6 @@
 import type { BuildState } from "./buildState";
-import { CELL, LEVEL, THICK, WORLD_HALF_CELLS } from "./constants";
-import type { Environment, RoofShape } from "./environments";
+import { CELL, LEVEL, THICK } from "./constants";
+import { halfCellsOf, type Environment, type RoofShape } from "./environments";
 import { normalizeSpec, type Piece } from "./pieces";
 import { roofHeight } from "./roofs";
 import { TREBUCHET_BASE, type Vec } from "./trebuchet";
@@ -16,7 +16,6 @@ import { TREBUCHET_BASE, type Vec } from "./trebuchet";
 const HALF = 0.9;
 const RADIUS = 0.4;
 const STEP = 1 / 120;
-const LIMIT = WORLD_HALF_CELLS * CELL + 12;
 /** Lying flat after coming down, then getting up (seconds). */
 export const DOWN_TIME = 1.5;
 export const RISE_TIME = 0.7;
@@ -109,6 +108,8 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment)
   let [vx, vy, vz] = v;
   const path: Vec[] = [[x, y, z]];
   let t = 0;
+  // The edge of the world: nobody is thrown past it.
+  const LIMIT = halfCellsOf(env) * CELL + 12;
   // Long enough for the longest throw on the Moon.
   for (; t < 20; t += STEP) {
     const nx = Math.max(-LIMIT, Math.min(LIMIT, x + vx * STEP));

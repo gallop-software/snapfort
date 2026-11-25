@@ -119,14 +119,14 @@ export function slotKey(spec: PieceSpec): string {
   return `${kind}|${s.x}|${s.y}|${s.z}`;
 }
 
-export function inBounds(spec: PieceSpec): boolean {
+export function inBounds(spec: PieceSpec, half: number = WORLD_HALF_CELLS): boolean {
   if (!Number.isInteger(spec.x) || !Number.isInteger(spec.y) || !Number.isInteger(spec.z)) return false;
   if (spec.y < 0 || spec.y > MAX_LEVEL) return false;
   // A wall on the far edge of the last cell is addressed as the low edge of cell + 1.
   const s = normalizeSpec(spec);
-  const maxX = WORLD_HALF_CELLS - 1 + (s.type === "wall" && s.rot === 1 ? 1 : 0);
-  const maxZ = WORLD_HALF_CELLS - 1 + (s.type === "wall" && s.rot === 0 ? 1 : 0);
-  return s.x >= -WORLD_HALF_CELLS && s.x <= maxX && s.z >= -WORLD_HALF_CELLS && s.z <= maxZ;
+  const maxX = half - 1 + (s.type === "wall" && s.rot === 1 ? 1 : 0);
+  const maxZ = half - 1 + (s.type === "wall" && s.rot === 0 ? 1 : 0);
+  return s.x >= -half && s.x <= maxX && s.z >= -half && s.z <= maxZ;
 }
 
 /** Extent of a piece in grid units: [minX, minY, minZ, maxX, maxY, maxZ]. */

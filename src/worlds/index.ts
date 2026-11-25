@@ -3,6 +3,8 @@ import { server as marsServer } from "./mars/server";
 import { world as mars } from "./mars/world";
 import { server as meadowServer } from "./meadow/server";
 import { world as meadow } from "./meadow/world";
+import { server as mojaveServer } from "./mojave/server";
+import { world as mojave } from "./mojave/world";
 import { server as moonServer } from "./moon/server";
 import { world as moon } from "./moon/world";
 import type { WorldServer } from "./serverDoors";
@@ -16,10 +18,10 @@ import type { WorldServer } from "./serverDoors";
  * add it here. Worlds never import from each other (tests/worlds.test.ts fails
  * the build if one does).
  */
-export const WORLDS: readonly Environment[] = [meadow, moon, mars];
+export const WORLDS: readonly Environment[] = [meadow, moon, mars, mojave];
 
 /** Each world's own rules on the server, by world id. */
-const SERVERS: Readonly<Record<string, WorldServer>> = { [meadow.id]: meadowServer, [moon.id]: moonServer, [mars.id]: marsServer };
+const SERVERS: Readonly<Record<string, WorldServer>> = { [meadow.id]: meadowServer, [moon.id]: moonServer, [mars.id]: marsServer, [mojave.id]: mojaveServer };
 
 /** The server half of a world (nothing of its own, for a world without one). */
 export function serverOf(env: Environment): WorldServer {

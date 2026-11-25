@@ -1124,6 +1124,13 @@ body.chatting #tip { display: none; }
   body.touch .world .info small { font-size: 10.5px; }
   body.touch .badge { left: 6px; top: 6px; padding: 2px 7px; font-size: 10px; }
   body.touch .world.current .pic::after { display: none; }
+  /* Four worlds or more: one row of small cards, picture over the name, so the menu still fits without scrolling. */
+  body.touch #worlds:has(> :nth-child(4)) { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 7px; }
+  body.touch #worlds:has(> :nth-child(4)) .world { flex-direction: column; }
+  body.touch #worlds:has(> :nth-child(4)) .world .pic { width: 100%; min-height: 0; aspect-ratio: 16 / 7; }
+  body.touch #worlds:has(> :nth-child(4)) .world .info { padding: 5px 7px 6px; }
+  body.touch #worlds:has(> :nth-child(4)) .world .info b { font-size: 13px; }
+  body.touch #worlds:has(> :nth-child(4)) .world .info small { display: none; }
   body.touch #paid-offer { margin-bottom: 8px; flex-direction: row; justify-content: center; }
   body.touch button.buy-big { height: 42px; padding: 0 20px; font-size: 16px; }
   body.touch #menu-links { margin-top: 10px; font-size: 12px; }

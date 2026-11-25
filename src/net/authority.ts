@@ -23,11 +23,17 @@ export function applyAction(
   state: BuildState,
   ops: readonly (BuildOp | null)[],
   canAdd: (piece: Piece) => boolean = () => true,
+  /** Whether this builder may remove or edit that piece (a world may say whose it is). */
+  canChange: (piece: Piece, kind: "remove" | "edit") => boolean = () => true,
 ): ActionResult {
   const done: ActionResult["done"] = [];
   const rejected: number[] = [];
   ops.forEach((op, index) => {
-    const inverse = op && !(op.kind === "place" && !canAdd(op.piece)) ? state.apply(op) : null;
+    const mine = !op || op.kind === "place" || (() => {
+      const piece = state.get(op.id);
+      return !piece || canChange(piece, op.kind);
+    })();
+    const inverse = op && mine && !(op.kind === "place" && !canAdd(op.piece)) ? state.apply(op) : null;
     if (op && inverse) done.push({ index, op, inverse });
     else rejected.push(index);
   });

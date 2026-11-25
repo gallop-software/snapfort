@@ -287,6 +287,7 @@ All of it is in `src/worlds/moon/` (`railgunRules.ts`, `railguns.ts`, `page/rail
 - [x] Worlds that own their code; the Moon's own look, space throws and rovers (user asked 2026-11-23; built and live 2026-11-23)
 - [x] Mars, the third world: its look and day, the beacon, airbags, the Terraformer and the air, wings, helicopters, Starships with the pilot choosing where (user asked 2026-11-24; built 2026-11-24)
 - [x] Phase 4 — one shared world for up to 100 builders (user asked 2026-11-22; built 2026-11-22, not deployed yet)
+- [x] Mojave, the fourth world: generals, armies, mining, the dark, alliances, computer generals (user asked 2026-11-25; built 2026-11-25: see the end)
 
 ## Notes for whoever picks this up
 
@@ -415,3 +416,75 @@ Everything is in `src/worlds/mars/` (copied from the Moon, 2026-11-24, and chang
 - The terms say that reports keep what was said, that the browser has a random id (others see only a scrambled form), and how to block and report.
 - Not needed after all: "Mechazilla" is only in code comments; players see "Catch arm A/B" and "Launch mount".
 - QA: `npm run qa:moderation` (25 checks: the panel, a filtered name, block and its lasting through a rejoin, unblock, report with what was said, the second report refused, ban, the banned device refused, unban); unit tests in `tests/moderation.test.ts`.
+
+## Mojave, the fourth world (user, 2026-11-25: "you build and create military equipment like in Rusted Warfare"; "each player should be like a general and builder of their army, and they can never die"; "the same strategy and skill requirements as a game like StarCraft back in the early 2000s"; "anyone can join at any time. there is no start or finish"; "the environment should support 8 players max"; "let's do 1700"; "the world should be dark except for the areas that you have explored"; "build the whole game without stopping and asking me to check")
+
+Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-25, and changed from there); the Meadow's, the Moon's and Mars's reference pictures did not change by a pixel. A paid world at `/mojave`, room `mojave`.
+
+**Decided with the user**
+- Earth, about 2080, the Mojave: a proving ground on a dry lakebed. The view is the one every world has: the general runs around and sees for themselves.
+- Eight generals at most. One fixed map, the same every visit, with eight starts (four corners, four sides), each with crystals and a plasma vent; a new general gets a random free one.
+- No matches: anyone joins at any time, there is no start and no finish, no choosing where to land and no protected start.
+- Leaving takes away everything that general built, walls included; coming back starts over.
+- Generals never die: a hit throws them, they get up. Armies can be destroyed; what is destroyed bursts into sparks and is gone (no blood, no wrecks). A blast throws units rolling and tumbling; bullets only stagger them.
+- StarCraft's economy: lithium is mined from crystals by Haulers that carry it to a Core, and pays for everything, pieces included; plasma comes from vents through a Tap and pays for the advanced things. Both run dry and fill again after five minutes.
+- 200 supply a general and 1,700 units in the world (StarCraft's own ceilings).
+- The dark, as in StarCraft: never seen is black, seen before is dimmed (buildings as last seen, no units), in sight is lit. Scouts explore.
+- StarCraft's orders and keys, moved only where they clash with the keys every world shares: a plain order on the ground is Move (ignores the enemy); attack is F and stop is X (A and S walk the general). What the keys mean depends on what is selected: nothing (the building keys), units (orders), a building (what it makes).
+- Alliances with any general or generals, made and left at any moment; allies do not fight each other.
+- A routed general (no Core left) keeps what army they have and may drop a new Core.
+
+**Chosen by me, where the user left it open** (change any of them)
+- A new general starts with a Core standing, four Haulers at work and 50 lithium.
+- The map is 960 m square, twice as wide as the other worlds, so neighbours are a real march apart.
+- A ninth person watches (they see everything) and takes the next place that comes free; so does a visitor without the Full Game, until they have it.
+- A dropped connection or a reload has 60 s to come back as the same general (by its browser tab) before everything goes.
+- Leaving an alliance gives both sides 10 s before they can fire. Allies see what each other sees.
+- The map (Tab) takes orders: right click sends the selected there.
+- Generals can be ordered attacked; thrown, they cannot be thrown again for 5 s after getting up.
+- Upkeep: over 100 supply income is ×0.8, over 150 ×0.6.
+- Standing higher sees further: a general by 1.2 m a metre (up to three times), units and buildings on a floor by 1.3, and they shoot that much further too.
+- Neutral sentries (80 Troopers) guard the five rich fields in the middle, and come back after five minutes to a field nobody holds.
+- A routed general's new Core is free, 20 s after the last one fell.
+- Units fire on what comes in range but do not chase; shot from out of reach while idle, they go for whoever is shooting.
+- Pieces: lattice 4, printcrete 8, steel 14 lithium; a rail battery (the siege slot, worked by the general) 150. Nothing comes back for a piece removed. Only its builder can remove or edit a piece; anyone's army can shoot it down. A straight shot needs a clear line (walls shelter); artillery lobs over.
+- A general starts with nothing picked on the hotbar, since pieces cost lithium and the first clicks are on the army.
+- When a general's colour is too like another's, their army wears the least similar of eight fixed colours.
+- Computer generals (one by default, 0 to 3 from the Generals card, J): they play by the same rules through the same orders, and make way when a person needs the place. They go when the last person does.
+- Dark, as drawn: black ground under the open sky, with banks of darkness 13 m high standing on what has never been seen (so a base in the dark cannot be made out; a tall tower shows above it). Pieces are drawn as they are now, not as last seen: only the world's own buildings are remembered.
+
+**The kit** (`kit.ts`; all numbers there)
+- Units: Hauler, Trooper (through doors), Scout buggy (fast, sees far), Tank (shells throw and break walls), Rail artillery (95 m, lobs, sets up for 2 s, cannot fire within 22 m), Missile truck (air only), Gunship drone, Transport drone (carries 8 supply of ground units), EMP drone (stops what is within 12 m for 6 s), Titan walker.
+- Buildings (one click on clear ground within 45 m of the general; they print themselves and can be shot meanwhile; the Remove tool takes one's own down for half its price): Command Core, Tap, Relay mast (+10 supply), Foundry, Armory (weapons and armour, three levels of a tenth each), Skyport, Titan bay, Sentry turret, Flak turret, Point-defence laser (shoots artillery shells down within 30 m).
+
+**Keys** (also in the Controls panel, from `page/index.ts`)
+- Click a unit or building: select (twice: all of that kind nearby; held and swept: all the crosshair passes; Shift adds). Right click: move, attack what is clicked, gather, load into a transport, or set a rally point.
+- M move, F attack (then click: on the ground it is attack-move), X stop, H hold, P patrol, G gather, C return cargo, U unload, E EMP; Shift queues.
+- N the build menu (B and V with something selected); letters pick the building, a click puts it down.
+- Ctrl (or Alt, or Shift: some browsers keep Ctrl + number) + 1–9 saves a group, the number recalls it, twice faces it. ` the whole army, I the next idle Hauler, Backspace deselects, Tab the map, J the generals.
+- Phones: six buttons by the right thumb (Army, Build, Map, Allies, Select, Order) and the command card's own buttons.
+
+**How it is built**
+- `sim.ts`: the war, plain logic, ten steps a second: economy, orders, movement, fighting, shells, sight, alliances, leaving, and a snapshot to carry it through a sleep. `nav.ts`: where ground units can go (the building grid itself: walls block edges, doors let infantry through, ramps climb to floors) and flow fields, one search for every unit ordered somewhere together; an attack-move breaks through an enemy wall when the way round is much longer. `map.ts`: the starts and fields. `ai.ts`: the computer general.
+- `armies.ts`: runs the war in the room while there is a general, takes orders (everything from a page is checked), and sends each page only what its side can see: an enemy out of sight is never on the wire. Units go out five times a second, only those that changed; a watcher is sent everything. The war is saved every 10 s and taken up again if the room wakes within three minutes.
+- `page/`: `army.ts` draws units and buildings (two thin-instance meshes per kind: body, and trim in the general's colour) and the shots, blasts and sparks; `dark.ts` the dark; `panel.ts` the bank, card, map and notes; `command.ts` selecting and orders; `models.ts` the models; the look in `scenery.ts`, `textures.ts`, `outfit.ts`, `siege.ts`, `sounds.ts`.
+- Shared code gained doors only, all optional (nothing names Mojave): a world's own map size (`Environment.halfCells`); on the server `mayPlace`, `placed`, `mayChange`, and `Room.who`, `tabOf`, `remove`, `wear` (fractions of a hit, sent as a new "worn" message) and `test`; on the page `key`, `mouse`, `wheel`, `look`, `spawn`, `keeps`, `whyBlocked`, `WorldPage.emptyHanded` and `controls`, and `PageGame.player.teleport`, `face`, `held`, `playing`, `sight`, `conceal`, `others`, `me`, `play`.
+- For checks only, in a dev server's test rooms (`Room.test`; there are none on the live site): money, units out of nowhere, a full-size battle, a faster clock.
+
+**Measured** (2026-11-25, on the developer's computer; `npm run qa:mojave-load`): eight generals (one person, seven computers) with about 210 units each, 1,700 in all, sent to fight in the middle.
+- The server: 12 ms on average for each 100 ms step of the war, sending included (the worst single step 88 ms). In the unit test, with no sending, 6 ms.
+- The general's own page (1280×760, WebGPU): 61 frames a second throughout, as with nothing going on.
+- A phone-sized page in battery saver that is watching, so is sent all 1,700 units: its 30 frames a second throughout, with the longest frame taking 14 ms to work out and hand to the graphics chip. This is a phone's screen and settings on a computer's chip, not a real phone: a real one has still to be tried.
+- What a page is sent: 30 to 90 KB a second at the height of the battle.
+- A room with a war in it is light when small (half a percent of one processor for one general and one computer) and stops 60 to 70 s after the last general's page closes.
+- Memory: a room on the live site has 128 MB. The paths worked out are the big thing (a number for every cell of the map, each): at most 48 are kept, storeys above the ground are kept cell by cell, and all are let go when the war stops.
+
+**QA**: unit tests beside the world (`sim.test.ts`, `world.test.ts`, `ai.test.ts`: 41); `npm run qa:mojave` (two generals and a visitor in real pages: 56 checks), `qa:mojave-mobile` (seven phones and tablets, and playing by touch: 26), `qa:mojave-chaos` (two generals pressing random keys and buttons for a minute while a visitor watches: afterwards all pages agree, and neither general was ever sent an enemy out of their sight: 10), `qa:mojave-load` (1,700 units: 9), and Mojave's four reference pictures in `qa:refs` (taken 90 m from the middle, by a general given the money to build with). Every other world's suite was run again after the shared doors went in, and their reference pictures match to the pixel.
+- The other worlds know nothing of Mojave: it is "apart" (`Environment.apart`), so Starships are not offered it as somewhere to go.
+- With four worlds the menu's cards are one row of small ones on short phones (the smallest phone's menu no longer fitted).
+- Marching: units ordered somewhere together keep their places (where each stands from the middle of the group is where it will stand there) and go side by side, each in its own lane, taking of the open ways that lead on the one that points most nearly at its own spot. The first version sent everyone to the one cell: along a grid line a group then walked in single file and took three times as long (found by `qa:mojave`, which starts at a different one of the eight starts each run).
+- A war never runs wild: it stops when no page at all has been connected to the room for a minute and a half, whatever it believes about its generals; and a fault in it ends it and clears it (everyone is told) and never holds the room up. The general's own gun landing before the war's first step used to loop for ever (found by a unit test); who is near whom is now kept right between steps.
+- Twice in the day the dev server stopped answering, its one worker process at 100% of a processor, some minutes after long runs of suites. Never on a server started afresh and left unedited: a reload of the server's code (every edit does one) leaves the old copy of each room running beside the new until its pages close, three copies of a full-size battle were seen at 90% of a processor between them, and the first time it had also grown to 5 GB over four hours of test rooms (a dev server never unloads one). On the live site each room is its own process with its own limits, so one cannot hold up another. Before a long run of suites: restart the dev server, and edit nothing under `src/` or `worker/` until it ends (an edit reloads every open page under the checks).
+
+**Not done**: a second faction; cloaked units, mines and shields (talked of, not in the agreed list of units); the server keeping what each side last saw of pieces (pieces are sent to everyone, as in every world, so a tampered page could read where walls are, though never where units are); a ladder.
+

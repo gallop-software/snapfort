@@ -28,6 +28,9 @@ const WORLDS = [
   ["moon", "/moon"],
   // Mars has a day that passes: its pictures are taken at a fixed hour, mid-morning.
   ["mars", "/mars?sol=0.2"],
+  // Mojave's middle is a crystal field under guard, and pieces cost lithium there: its pictures are
+  // taken on open ground 90 m off (18 cells each way), by a general given the money to build with.
+  ["mojave", "/mojave", [18, 18]],
 ];
 
 /** Where the camera stands and what it looks at, for each picture. */
@@ -73,16 +76,25 @@ async function open(path, world, name, color) {
   return p;
 }
 
-for (const [id, path] of WORLDS) {
+for (const [id, path, shift = [0, 0]] of WORLDS) {
   if (only && only !== id) continue;
   const world = `refs${Date.now().toString(36)}`;
   const p = await open(path, world, "Ada", "#f07356");
+  const [sx, sz] = shift;
+  if (id === "mojave") {
+    // A general, alone (no computer generals), with lithium to spare; then to where the pictures are taken, so it is in sight.
+    await p.waitForFunction(() => window.snapfort.feature.slot >= 0, null, { timeout: 15000 });
+    await p.evaluate(() => { const n = window.snapfort.net; n.sendWorld({ m: "bots", n: 0 }); n.sendWorld({ m: "dev", do: "rich" }); });
+    await p.evaluate(([x, z]) => window.snapfort.player.teleport(12.5 + x * 5, 0.95, 9 + z * 5), shift);
+    await p.waitForFunction(() => window.snapfort.feature.bank.l > 10000, null, { timeout: 15000 });
+    await p.waitForTimeout(600);
+  }
   // The same small build everywhere: every piece, every material, an edited wall, a siege engine.
-  await p.evaluate(() => {
+  await p.evaluate(([sx, sz]) => {
     const s = window.snapfort;
     const put = (type, x, y, z, rot, material, edit = 0) => {
       const id = s.nextId();
-      if (s.history.do({ kind: "place", piece: { type, x, y, z, rot, id, material, edit: 0 } }) && edit) s.history.do({ kind: "edit", id, edit });
+      if (s.history.do({ kind: "place", piece: { type, x: x + sx, y, z: z + sz, rot, id, material, edit: 0 } }) && edit) s.history.do({ kind: "edit", id, edit });
     };
     const box = (x, z, levels, mat) => {
       for (let y = 0; y < levels; y++) {
@@ -102,15 +114,15 @@ for (const [id, path] of WORLDS) {
     put("wall", -2, 0, 2, 0, "metal", 0b000111000);
     put("floor", -4, 0, 4, 0, "wood"); put("trebuchet", -4, 0, 4, 0, "wood");
     put("trebuchet", 5, 0, 5, 0, "wood");
-  });
+  }, shift);
   // A second builder, standing still in view.
   const q = await open(path, world, "Bo", "#3f8fd6");
-  await q.evaluate(() => { const s = window.snapfort; s.player.teleport(14.5, 0.95, 9); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; });
-  await p.evaluate(() => { const s = window.snapfort; s.player.teleport(12.5, 0.95, 9); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; });
+  await q.evaluate(([x, z]) => { const s = window.snapfort; s.player.teleport(14.5 + x * 5, 0.95, 9 + z * 5); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; }, shift);
+  await p.evaluate(([x, z]) => { const s = window.snapfort; s.player.teleport(12.5 + x * 5, 0.95, 9 + z * 5); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; }, shift);
   await p.waitForTimeout(3500);
   await p.addStyleTag({ content: "#hud, #hotbar-wrap, #stats, #online, #crosshair, #visit-bar, #tip, #overlay, .chat-tag { display: none !important; }" });
   for (const [shot, camera, target] of SHOTS) {
-    await p.evaluate(([camera, target]) => {
+    await p.evaluate(([camera, target, sx, sz]) => {
       const s = window.snapfort;
       const cam = s.scene.activeCamera;
       const V = cam.position.constructor;
@@ -118,11 +130,11 @@ for (const [id, path] of WORLDS) {
       window.__ref = s.scene.onBeforeRenderObservable.add(() => {
         // Always at full sharpness: the game draws fewer pixels on a busy computer, which would differ at every edge.
         if (s.engine.getHardwareScalingLevel() !== 1) s.engine.setHardwareScalingLevel(1);
-        cam.position.copyFromFloats(...camera);
-        cam.setTarget(new V(...target));
+        cam.position.copyFromFloats(camera[0] + sx * 5, camera[1], camera[2] + sz * 5);
+        cam.setTarget(new V(target[0] + sx * 5, target[1], target[2] + sz * 5));
         for (const m of s.scene.meshes) if (m.name.startsWith("ghost") || m.name === "cloud") m.isVisible = false;
       });
-    }, [camera, target]);
+    }, [camera, target, sx, sz]);
     await p.waitForTimeout(1200);
     const file = `qa/refs/${id}-${shot}.png`;
     const now = await p.screenshot();

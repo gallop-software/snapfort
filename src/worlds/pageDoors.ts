@@ -7,7 +7,7 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import type { Environment } from "../game/environments";
-import type { MaterialId, PieceSpec, PieceType } from "../game/pieces";
+import type { MaterialId, Piece, PieceSpec, PieceType } from "../game/pieces";
 
 /**
  * The page half of a world: everything a world draws and plays itself. The
@@ -34,6 +34,15 @@ export interface WorldPage {
    * Picking one hands aiming and clicking to the world's feature (`aimTool`, `useTool`).
    */
   tools?: readonly WorldTool[];
+  /** True when this world tells a new player how it is played itself: the first-game tips every world shares (place a wall, try another piece) are not shown here. */
+  ownTips?: boolean;
+  /** True when a builder here starts with no piece picked (a click builds nothing until they pick one). */
+  emptyHanded?: boolean;
+  /**
+   * This world's own controls, for the Controls panel, after the ones every
+   * world has: keys and what they do, lines for phones, and a few words under them.
+   */
+  controls?: { keys: readonly (readonly [string, string])[]; touch?: readonly string[]; note?: string };
   /**
    * Starts whatever this world has that no other does (vehicles, say), once
    * the game is set up. Optional. It reaches the game only through `game`.
@@ -67,6 +76,8 @@ export interface PageGame {
     seat(x: number, y: number, z: number): void;
     /** Puts the player's body centre here, in the air, this frame (flying with something of the world's own): drawn gliding, and seen so by everyone. */
     fly(x: number, y: number, z: number): void;
+    /** Puts the player's body centre here, standing still, from now on (where a world starts its players, say). */
+    teleport(x: number, y: number, z: number): void;
   };
   /**
    * Draws a builder (this player or anyone else, by id) sitting on a seat,
@@ -110,6 +121,22 @@ export interface PageGame {
   chase(distance: number | null): void;
   /** Turns the player's view up or down: `pitch` radians below level (as `viewPitch` gives it). */
   look(pitch: number): void;
+  /** Turns the player's view about the vertical, to face `yaw` radians (as `viewYaw` gives it). */
+  face(yaw: number): void;
+  /** Whether a key is held down now, by its code ("ShiftLeft"). */
+  held(code: string): boolean;
+  /** True while the player is playing (not in a menu or panel, and not typing). */
+  playing(): boolean;
+  /** Where the view looks from, and the unit vector along the crosshair. */
+  sight(): { from: [number, number, number]; dir: [number, number, number] };
+  /** Draws another builder, or stops drawing them (someone this player's side cannot see, say). Everyone is drawn until told otherwise. */
+  conceal(playerId: string, hidden: boolean): void;
+  /** Everyone else here: id, name, colour, and where they are drawn (null: not known yet). */
+  others(): { id: string; name: string; color: string; position: [number, number, number] | null }[];
+  /** This player's own name and colour. */
+  me(): { name: string; color: string };
+  /** A sound of the shared set, by name ("deny", "select", "place"). */
+  play(sound: "deny" | "select" | "place" | "remove" | "boom" | "launch" | "horn"): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */
@@ -139,6 +166,24 @@ export interface WorldFeature {
   useTool?(id: string): void;
   /** True when something of this world's own stands where this piece would go, so it cannot be built there (the server says the same: WorldServer.blocks). */
   blocks?(spec: PieceSpec): boolean;
+  /** When `blocks` said so: why, in a few words for the player (else the usual "Something stands in the way"). */
+  whyBlocked?(spec: PieceSpec): string | null;
+  /** Why this player may not remove or edit that piece, in a few words, or null when they may (the server decides: WorldServer.mayChange). */
+  keeps?(piece: Piece): string | null;
+  /**
+   * A key was pressed while playing, before the game looks at it: return true
+   * when it was for this world (the game then ignores it). Never take the keys
+   * every world shares: moving, jumping, running, chat and Esc do not come here.
+   */
+  key?(code: string, event: KeyboardEvent): boolean;
+  /** A mouse button went down (`down`) or up, before the game looks at it: return true when that was for this world. */
+  mouse?(button: number, down: boolean): boolean;
+  /** The wheel turned a step, before the game looks at it: return true when that was for this world. */
+  wheel?(direction: 1 | -1): boolean;
+  /** The mouse moved (pixels), before it turns the view: return true to keep the view still (the world moves something of its own with it). */
+  look?(dx: number, dy: number): boolean;
+  /** Where a player starts when they begin playing: their body's centre, or null for the usual place. */
+  spawn?(): [number, number, number] | null;
   /** The Remove tool is picked and the crosshair is not on a piece: called every frame, to show what of this world's own it would take away (if anything). */
   aimRemove?(): void;
   /** The player used Remove (the tool, or the right button) and the crosshair was not on a piece: take away what of this world's own is there. True when something was. */

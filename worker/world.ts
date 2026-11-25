@@ -4,9 +4,9 @@ import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { fallEnd, planFall, type Fall } from "../src/game/fall";
 import type { Room } from "../src/worlds/serverDoors";
-import { checkRange, findImpact, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
+import { checkRange, findImpact, hitPoints, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
-import { saidName, type Environment } from "../src/game/environments";
+import { halfCellsOf, saidName, type Environment } from "../src/game/environments";
 import { DEFAULT_WORLD, serverOf, worldOf, WORLDS } from "../src/worlds";
 import { cleanKey } from "../src/net/keys";
 import type { Ledger } from "./ledger";
@@ -443,7 +443,20 @@ export class World extends DurableObject<Env> {
     }
 
     const now = Date.now();
-    const { done, rejected, extra } = applyAction(this.build, wire.map(decodeOp), (piece) => !this.isFull(piece) && materialAllowed(piece.type, piece.material, piece.y, this.environment) && !this.keptOut(piece));
+    const own = serverOf(this.environment);
+    let asked = false;
+    const { done, rejected, extra } = applyAction(
+      this.build,
+      wire.map(decodeOp),
+      (piece) => {
+        if (this.isFull(piece) || !materialAllowed(piece.type, piece.material, piece.y, this.environment) || this.keptOut(piece)) return false;
+        if (!own.mayPlace) return true;
+        asked = true;
+        return own.mayPlace(this.room(), player.id, piece);
+      },
+      (piece, kind) => own.mayChange?.(this.room(), player.id, piece, kind) !== false,
+    );
+    if (asked) own.placed?.(this.room(), player.id, done.flatMap((d) => (d.op.kind === "place" ? [d.op.piece] : [])));
 
     for (const d of [...done, ...extra]) this.unsavedLog.push([now, player.id, encodeOp(d.op), encodeOp(d.inverse)]);
     const extraWire = extra.map((e) => encodeOp(e.op));
@@ -541,6 +554,7 @@ export class World extends DurableObject<Env> {
     if (this.environmentKnown || !id) return;
     this.environment = worldOf(id);
     this.environmentKnown = true;
+    this.build.halfCells = halfCellsOf(this.environment);
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO state (key, value) VALUES ('environment', ?)", this.environment.id);
   }
 
@@ -849,6 +863,15 @@ export class World extends DurableObject<Env> {
       this.damageDirty = true;
       this.scheduleFlush();
     }
+    const { ops, gone, fallen } = this.bringDown(broken, by, now);
+    this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
+    this.knock(point, [...gone, ...fallen]);
+    serverOf(this.environment).struck?.(this.room(), point);
+    if (ops.length > 0) this.scheduleFlush();
+  }
+
+  /** Takes these pieces out of the build, and then whatever that leaves unsupported: what went, and the operations that did it. */
+  private bringDown(pieces: readonly Piece[], by: string, now: number): { ops: WireOp[]; gone: Piece[]; fallen: Piece[] } {
     const ops: WireOp[] = [];
     const remove = (piece: Piece) => {
       const op: BuildOp = { kind: "remove", id: piece.id };
@@ -858,12 +881,46 @@ export class World extends DurableObject<Env> {
       this.unsavedLog.push([now, by, encodeOp(op), encodeOp(inverse)]);
       return true;
     };
-    const gone = broken.filter(remove);
+    const gone = pieces.filter(remove);
     const fallen = gone.length > 0 ? findLooseAfterRemoval(this.build, gone).filter(remove) : [];
-    this.broadcast({ t: "impact", shot, point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
-    this.knock(point, [...gone, ...fallen]);
-    serverOf(this.environment).struck?.(this.room(), point);
-    if (ops.length > 0) this.scheduleFlush();
+    return { ops, gone, fallen };
+  }
+
+  /** A world's own weapons wear pieces down (see Room.wear): hits may be fractions. */
+  private wear(point: Vec, hits: readonly (readonly [string, number])[], by: string): void {
+    const now = Date.now();
+    const broken: Piece[] = [];
+    const damaged: [string, number][] = [];
+    for (const [id, amount] of hits) {
+      const piece = this.build.get(id);
+      if (!piece || !(amount > 0) || broken.includes(piece)) continue;
+      const total = Math.round(((this.damage.get(id) ?? 0) + amount) * 1000) / 1000;
+      if (total >= hitPoints(piece, this.environment)) {
+        broken.push(piece);
+        this.damage.delete(id);
+      } else {
+        this.damage.set(id, total);
+        damaged.push([id, total]);
+      }
+    }
+    if (broken.length === 0 && damaged.length === 0) return;
+    this.damageDirty = true;
+    const { ops, gone, fallen } = this.bringDown(broken, by, now);
+    this.broadcast({ t: "worn", point: round(point), ops, fallen: fallen.map((p) => p.id), damage: damaged });
+    if (gone.length > 0) this.knock(null, [...gone, ...fallen]);
+    this.scheduleFlush();
+  }
+
+  /** A world takes pieces out by its own rules (see Room.remove). */
+  private takeOut(ids: readonly string[], by: string): void {
+    const pieces = ids.flatMap((id) => this.build.get(id) ?? []);
+    if (pieces.length === 0) return;
+    const { ops, gone, fallen } = this.bringDown(pieces, by, Date.now());
+    if (ops.length === 0) return;
+    // In lots: one message stays well under what a page will take.
+    for (let i = 0; i < ops.length; i += 2000) this.broadcast({ t: "ops", by, ops: ops.slice(i, i + 2000) });
+    this.knock(null, [...gone, ...fallen]);
+    this.scheduleFlush();
   }
 
   /**
@@ -963,7 +1020,15 @@ export class World extends DurableObject<Env> {
           return undefined;
         }
       },
-      worlds: () => WORLDS.filter((w) => w !== this.environment).map((w) => ({ id: w.id, name: w.name, said: saidName(w) })),
+      worlds: () => WORLDS.filter((w) => w !== this.environment && !w.apart).map((w) => ({ id: w.id, name: w.name, said: saidName(w) })),
+      who: (id) => {
+        const p = find(id)?.player;
+        return p ? { name: p.name, color: p.color } : null;
+      },
+      tabOf: (id) => find(id)?.player.tab ?? null,
+      remove: (ids, by) => this.takeOut(ids, by),
+      wear: (point, hits, by) => this.wear(point, hits, by),
+      test: () => this.name.startsWith("test-"),
       toWorld: async (worldId, data) => {
         const to = WORLDS.find((w) => w.id === worldId);
         if (!to || to === this.environment) return undefined;
@@ -1044,6 +1109,7 @@ export class World extends DurableObject<Env> {
     if (env) {
       this.environment = worldOf(env.value);
       this.environmentKnown = true;
+      this.build.halfCells = halfCellsOf(this.environment);
     }
     this.name = sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'name'").toArray()[0]?.value ?? "";
     // Hits taken by pieces that have not broken yet.

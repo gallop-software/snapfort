@@ -50,6 +50,8 @@ export interface NetHandlers {
   shot(shot: number, id: string, by: string, from: WireVec, to: WireVec): void;
   /** `ops` are applied like anyone's changes; this is told which pieces they remove first. */
   impact(shot: number, point: WireVec, ops: BuildOp[], fallen: string[], damage: [string, number][]): void;
+  /** Pieces worn down by something of the world's own: as an impact, with no stone. */
+  worn(point: WireVec, ops: BuildOp[], fallen: string[], damage: [string, number][]): void;
   /** Builder `id` is thrown or falls along a planned flight. */
   thrown(id: string, fall: Fall): void;
   denied(reason: string): void;
@@ -274,6 +276,8 @@ export class NetClient {
         return h.shot(msg.shot, msg.id, msg.by, msg.from, msg.to);
       case "impact":
         return h.impact(msg.shot, msg.point, decodeOps(msg.ops), msg.fallen, msg.damage);
+      case "worn":
+        return h.worn(msg.point, decodeOps(msg.ops), msg.fallen, msg.damage);
       case "thrown":
         return h.thrown(msg.id, { from: msg.path[0] ?? msg.land, v: [0, 0, 0], time: msg.time, land: msg.land, path: msg.path, ...(typeof msg.glide === "number" ? { glideFrom: msg.glide } : {}) });
       case "denied":

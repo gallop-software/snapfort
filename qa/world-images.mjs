@@ -11,6 +11,8 @@
  * Mars: a base of ice, redbrick and iron under greenhouses on the canyon floor,
  * the Terraformer running behind it, the sky paling and green spreading over
  * the red ground, a builder on their wings and a helicopter lifting off.
+ * Mojave: a general's base, their army drawn up before it and firing on an
+ * enemy line, drones overhead, and the dark beyond.
  * Everything is built the way a builder builds it (pieces through the page,
  * parts by the world's own messages from close by), so the server agrees.
  *
@@ -372,7 +374,113 @@ async function mars() {
   }
 }
 
+// ── Mojave ───────────────────────────────────────────────────────────────
+
+/**
+ * A general's base (Core, Foundry, Armory, Skyport, masts and turrets, a
+ * watchtower of all three materials) with their army drawn up in front of it
+ * and firing on an enemy line, drones overhead, and the dark beyond. The
+ * buildings are ordered as a general orders them; the army is put there by
+ * the dev server's own shortcut (it would take half an hour to make).
+ */
+async function mojave() {
+  console.log("Mojave");
+  const world = `art-j-${stamp}`;
+  const page = await open("/mojave", world);
+  await page.waitForFunction(() => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.buildings.size > 0);
+  await send(page, { m: "bots", n: 0 });
+  await send(page, { m: "dev", do: "rich" });
+  await send(page, { m: "dev", do: "speed", n: 15 });
+  const core = await page.evaluate(() => { const b = [...window.snapfort.feature.army.buildings.values()][0]; return [b.x + 1, b.z + 1]; });
+  // Everything is laid out from the Core: `m` toward the middle of the map, `t` across.
+  const len = Math.hypot(core[0], core[1]);
+  const m = [-core[0] / len, -core[1] / len], t = [m[1], -m[0]];
+  const cell = (a, b) => [Math.round(core[0] + m[0] * a + t[0] * b), Math.round(core[1] + m[1] * a + t[1] * b)];
+  const spot = (a, b, y = 0) => [(core[0] + 0.5 + m[0] * a + t[0] * b) * 5, y, (core[1] + 0.5 + m[1] * a + t[1] * b) * 5];
+  const has = (kind) => page.evaluate((kind) => [...window.snapfort.feature.army.buildings.values()].some((b) => b.kind === kind && b.d === 0), kind);
+  const order = async (kind, a, b) => {
+    // Tried a cell or two either way: the grid does not line up with a base laid out on the diagonal.
+    for (const [da, db] of [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1]]) {
+      const [x, z] = cell(a + da, b + db);
+      await hover(page, ...spot(a + da - 3, b + db, 0.95));
+      const before = await page.evaluate(() => window.snapfort.feature.army.buildings.size);
+      await send(page, { m: "build", kind, x, z });
+      await wait(450);
+      if ((await page.evaluate(() => window.snapfort.feature.army.buildings.size)) > before) return true;
+    }
+    console.log(`  no room for the ${kind}`);
+    return false;
+  };
+  const done = async (kind) => { for (let i = 0; i < 80 && !(await has(kind)); i++) await wait(250); };
+  await order("foundry", 6, -5);
+  await order("relay", 3, 5);
+  await order("relay", 5, 7);
+  await order("sentry", 11, -1);
+  await order("sentry", 11, 4);
+  await done("foundry");
+  await order("armory", 7, 1);
+  await order("skyport", 2, -9);
+  await order("flak", 8, -9);
+  await done("armory");
+  await done("skyport");
+  await order("titanbay", 9, 7);
+  await order("laser", 5, -2);
+  await wait(4500);
+  await send(page, { m: "dev", do: "speed", n: 1 });
+  // A watchtower beside the base: printcrete below, steel above, a lattice top with a canopy.
+  const tower = new Plan();
+  const [tx, tz] = cell(13, -5);
+  tower.ring(tx, tx, tz, tz, 0, "brick", (side) => (side === "s" ? CUT.gate : 0));
+  tower.ring(tx, tx, tz, tz, 1, "brick", () => CUT.slit);
+  tower.put("floor", tx, 2, tz, 0, "metal");
+  tower.ring(tx, tx, tz, tz, 2, "metal", () => CUT.window);
+  tower.put("floor", tx, 3, tz, 0, "metal");
+  tower.ring(tx, tx, tz, tz, 3, "wood", () => CUT.battlement);
+  tower.put("roof", tx, 4, tz, 0, "wood");
+  for (let i = 1; i <= 4; i++) tower.put("wall", tx + (Math.abs(t[0]) > 0.5 ? i * Math.sign(t[0]) : 0), 0, tz + (Math.abs(t[0]) > 0.5 ? 0 : i * Math.sign(t[1])), Math.abs(t[0]) > 0.5 ? 0 : 1, "brick", i % 2 ? CUT.slit : 0);
+  await hover(page, ...spot(11, -5, 0.95));
+  await build(page, tower);
+  // The army, drawn up in front, facing the middle of the map; and an enemy line for it to fire on.
+  const spawn = (kind, n, a, b, slot) => send(page, { m: "dev", do: "spawn", kind, n, at: spot(a, b), ...(slot === undefined ? {} : { slot }) });
+  await spawn("tank", 9, 26, 0);
+  await spawn("trooper", 36, 20, 0);
+  await spawn("artillery", 4, 15, 9);
+  await spawn("missile", 3, 15, -9);
+  await spawn("titan", 2, 20, 14);
+  await spawn("scout", 4, 27, -12);
+  await spawn("gunship", 6, 24, 4);
+  await spawn("transport", 1, 14, -3);
+  await wait(1200);
+  // Everyone stands their ground (so the picture keeps its lines), and the general looks on.
+  await page.evaluate(() => { const f = window.snapfort.feature; const ids = [...f.army.units.values()].filter((u) => u.kind !== "hauler").map((u) => u.id); window.snapfort.net.sendWorld({ m: "order", ids, k: "hold" }); });
+  await hover(page, ...spot(12, 3, 0.95));
+  await page.evaluate(([x, z]) => { const s = window.snapfort; s.rig.yaw = Math.atan2(x, z); }, m);
+  // The enemy line comes into range, and the pictures are taken while the two fire on each other:
+  // from low beside the tanks looking back across the army to the base, from the other flank, and from over the base.
+  const views = [
+    [spot(35, 11, 3.2), spot(12, -5, 5.5), 0.62],
+    [spot(33, -15, 5), spot(13, 5, 4.5), 0.62],
+    [spot(1, 7, 10), spot(27, -1, 2), 0.8],
+    [spot(38, 3, 7), spot(10, 0, 4), 0.6],
+  ];
+  await frame(page, ...views[0]);
+  await spawn("tank", 8, 45, 2, 8);
+  await spawn("trooper", 24, 44, -6, 8);
+  await spawn("scout", 6, 46, 10, 8);
+  await wait(900);
+  let n = 0;
+  for (let round = 0; round < 3; round++) {
+    for (const view of views) {
+      await page.evaluate(([camera, target]) => { window.__view = { camera, target }; }, view);
+      await page.evaluate((fov) => { window.snapfort.scene.activeCamera.fov = fov; }, view[2]);
+      await wait(420);
+      await shoot(page, `mojave-${n++}`);
+    }
+  }
+}
+
 if (!only || only === "meadow") { await meadow(); await closeAll(); await wait(1500); }
+if (!only || only === "mojave") { await mojave(); await closeAll(); await wait(1500); }
 if (!only || only === "mars") { await mars(); await closeAll(); await wait(1500); }
 if (!only || only === "moon") { await moon(); await closeAll(); }
 await browser.close();

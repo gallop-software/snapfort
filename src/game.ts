@@ -40,7 +40,7 @@ import { ChatView } from "./ui/chat";
 import { Blocks, PlayersView } from "./ui/players";
 import { PRICE, Store } from "./ui/store";
 import { Tips } from "./ui/tips";
-import { pieceLabel, saidName, type Environment } from "./game/environments";
+import { halfCellsOf, pieceLabel, saidName, type Environment } from "./game/environments";
 import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
 import { WORLDS } from "./worlds";
 import { askBuilders, reachOf } from "./ui/worlds";
@@ -68,6 +68,9 @@ const SHARED_TOOLS: readonly Tool[] = ["wall", "floor", "ramp", "roof", "remove"
 /** Quick keys beside WASD, one per piece. F1 to F4 and the number keys work too. */
 const TOOL_KEYS: Record<Tool, string> = { wall: "Z", floor: "F", ramp: "X", roof: "C", remove: "V", trebuchet: "B" };
 const FUNCTION_KEYS: Record<string, Tool> = { F1: "wall", F2: "floor", F3: "ramp", F4: "roof" };
+
+/** The keys every world shares: a world's own code is never handed these. */
+const WORLD_KEYS_KEPT = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "ShiftLeft", "ShiftRight", "Enter", "NumpadEnter", "Slash", "Escape"]);
 
 /** Which way a ramp climbs for each rotation: rot 0 toward +z, 1 toward +x, 2 toward -z, 3 toward -x. */
 const RAMP_DIR: Record<number, [number, number]> = { 0: [0, 1], 1: [1, 0], 2: [0, -1], 3: [-1, 0] };
@@ -116,6 +119,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   // Game logic: plain modules that know nothing about rendering.
   const state = new BuildState();
+  state.halfCells = halfCellsOf(env);
   // Own changes go through `synced`, which applies them at once and sends them to the shared world.
   const synced = new SyncedState(state);
   const history = new History(synced);
@@ -295,6 +299,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) if (built.has(`${cx + dx},${cz + dz}`)) return false;
       return true;
     });
+    const start = feature?.spawn?.();
+    if (start) player.teleport(start[0], start[1], start[2]);
     rig.yaw = 0;
     rig.pitch = 0.22;
     hud.setSiege(null);
@@ -394,7 +400,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.select(-1);
       ghost.hide();
       aimSpec = null;
-    } else if (!was) selectTool(0);
+    } else if (!was && !page.emptyHanded) selectTool(0);
   }
 
   /** What the badge last showed, so it is only redrawn when that changes. */
@@ -424,6 +430,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** What to tell the builder when a piece cannot go where they aim. */
   function problemText(spec: PieceSpec, problem: PlaceProblem): string {
+    const own = problem === "blocked" && feature?.blocks?.(spec) === true ? feature.whyBlocked?.(spec) : null;
+    if (own) return own;
     if (problem === "blocked" && spec.type === "trebuchet") return `A ${engineName} needs clear space over it: nothing built in its way`;
     if (problem === "blocked" && engineInTheWay(state, spec, env)) return `A ${engineName} stands in the way`;
     if (problem !== "unsupported") return PROBLEM_TEXT[problem];
@@ -476,6 +484,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** Removes a piece and, in the same undo step, everything that no longer connects to the ground. */
   function removePiece(id: string): void {
     const piece = state.get(id);
+    const kept = piece ? feature?.keeps?.(piece) : null;
+    if (kept) {
+      hud.toast(kept);
+      return sfx.deny();
+    }
     if (!piece || !history.do({ kind: "remove", id })) return;
     const loose = findLooseAfterRemoval(state, [piece]).map((p) => ({ ...p }));
     for (const p of loose) history.extend({ kind: "remove", id: p.id });
@@ -524,6 +537,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
     if (!editGrid(piece.type)) {
       hud.toast("Only walls and floors can be edited for now");
+      return sfx.deny();
+    }
+    const kept = feature?.keeps?.(piece);
+    if (kept) {
+      hud.toast(kept);
       return sfx.deny();
     }
     editing = { id: piece.id, cut: piece.edit, paint: null, hover: -1 };
@@ -737,6 +755,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     sfx.unlock();
     // Middle click pings the spot under the crosshair.
     if (button === 1) return ping();
+    // Something of the world's own may take the click first.
+    if (feature?.mouse?.(button, true)) return;
     // Riding something of the world's own: hands are busy (visitors too); a click is for that.
     if (feature?.busy?.()) return button === 0 ? feature.act?.() : undefined;
     if (!builder) return lockedNote();
@@ -777,6 +797,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   };
   input.onMouseUp = (button) => {
+    if (button !== 1 && feature?.mouse?.(button, false)) return;
     if (button === 0) {
       placing = false;
       if (editing) editing.paint = null;
@@ -789,11 +810,14 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       rig.zoom = Math.max(0, Math.min(SCOPE_ZOOMS.length - 1, rig.zoom + direction));
       return;
     }
+    if (feature?.wheel?.(direction)) return;
     wheelTool(direction);
   };
   const wheelTool = (direction: 1 | -1) => selectTool(toolIndex < 0 ? (direction > 0 ? 0 : TOOLS.length - 1) : toolIndex + direction);
   input.onKey = (code, event) => {
     const command = event.ctrlKey || event.metaKey;
+    // Something of the world's own may take the key first (never the ones every world shares).
+    if (!WORLD_KEYS_KEPT.has(code) && !crewOn && feature?.key?.(code, event)) return;
     if (command && code === "KeyZ") return event.shiftKey ? redo() : undo();
     if (command && code === "KeyY") return redo();
     if (command) return;
@@ -1191,6 +1215,21 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         if (pieces.length > 4) sfx.crumble();
       }
     },
+    worn(point, ops, fallen, hits) {
+      if (solo) return;
+      const falling = new Set(fallen);
+      const pieces = ops.flatMap((op) => (op.kind === "remove" && state.get(op.id) ? [{ ...state.get(op.id)! }] : []));
+      const broken = new Set(pieces.filter((p) => !falling.has(p.id)).map((p) => p.id));
+      synced.remote(ops);
+      for (const [id, n] of hits) {
+        damage.set(id, n);
+        tint(id);
+      }
+      if (pieces.length === 0) return;
+      debris.spawn(pieces, broken, point);
+      debris.puff(new Vector3(...point), 1.6, 0.8);
+      if (nearness(point) > 0) sfx.crumble();
+    },
     thrown(id, fall) {
       if (solo) return;
       if (id === myId) {
@@ -1543,7 +1582,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     resolution.update(engine.getDeltaTime() / 1000);
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
     const [dx, dy] = input.takeLook();
-    rig.look(dx, dy);
+    if (!((dx !== 0 || dy !== 0) && feature?.look?.(dx, dy))) rig.look(dx, dy);
     rig.update(player.position, dt);
     player.animate(dt, rig.yaw);
     world.update(dt);
@@ -1589,7 +1628,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     chat.update(now, here());
     tips.update(
       { moved: Math.hypot(player.position.x - tipStart.x, player.position.z - tipStart.z), placed: placedTotal, kinds: placedKinds, chatted },
-      input.locked && builder && !crewOn && !siege.captured,
+      input.locked && builder && !crewOn && !siege.captured && !page.ownTips,
       now,
     );
     updateCrewHud(now);
@@ -1645,7 +1684,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       },
       sound: sfx.kit,
       touch: input.touch,
-      worlds: () => WORLDS.filter((w) => w !== env).map((w) => ({ id: w.id, name: w.name, said: saidName(w) })),
+      worlds: () => WORLDS.filter((w) => w !== env && !w.apart).map((w) => ({ id: w.id, name: w.name, said: saidName(w) })),
       travel: (worldId, note) => {
         const to = WORLDS.find((w) => w.id === worldId);
         if (!to || to === env) return;
@@ -1663,10 +1702,40 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       look: (pitch) => {
         rig.pitch = Math.max(-1.4, Math.min(1.4, pitch));
       },
+      face: (yaw) => {
+        rig.yaw = yaw;
+      },
+      held: (code) => input.isDown(code),
+      playing: () => input.locked && !input.typing && !outdated,
+      sight: () => ({ from: [rig.pivot.x, rig.pivot.y, rig.pivot.z], dir: [rig.forward.x, rig.forward.y, rig.forward.z] }),
+      conceal: (id, hidden) => remotes.conceal(id, hidden),
+      others: () => remotes.list().map((p) => ({ id: p.id, name: p.name, color: p.color, position: remotes.positionOf(p.id) })),
+      me: () => ({ name: identity.name, color: identity.color }),
+      play: (sound) => {
+        if (sound === "boom") sfx.boom(1);
+        else sfx[sound]();
+      },
     }) ?? null;
 
-  if (builder) selectTool(0);
+  if (builder && page.emptyHanded) {
+    toolIndex = -1;
+    hud.select(-1);
+  } else if (builder) selectTool(0);
   else setBuilder(false);
+  // The world's own controls, after the shared ones in the Controls panel.
+  if (page.controls) {
+    const row = (parent: Element | null, html: string, cls: string) => {
+      if (!parent) return;
+      const el = document.createElement("div");
+      el.className = cls;
+      el.innerHTML = html;
+      parent.appendChild(el);
+    };
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+    for (const [key, what] of page.controls.keys) row(document.querySelector("#view-controls .keys"), `<kbd>${esc(key)}</kbd><span>${esc(what)}</span>`, "keyrow");
+    for (const line of page.controls.touch ?? []) row(document.getElementById("touch-help"), esc(line), "");
+    if (page.controls.note) row(document.querySelector("#view-controls .keys")?.parentElement ?? null, esc(page.controls.note), "small world-note");
+  }
   showMaterial();
   hud.showMouseSpeed(settings.mouseSpeed);
   hud.showMuted(settings.muted);

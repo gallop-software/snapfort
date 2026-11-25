@@ -129,10 +129,20 @@ export class RemotePlayers {
     this.release(remote);
     this.disposeTag(remote);
     this.remotes.delete(id);
+    this.concealed.delete(id);
   }
 
   clear(): void {
     for (const id of [...this.remotes.keys()]) this.leave(id);
+  }
+
+  /** Builders a world has asked not to be drawn (see PageGame.conceal), by id. */
+  private readonly concealed = new Set<string>();
+
+  /** Stops drawing builder `id`, or draws them again. */
+  conceal(id: string, hidden: boolean): void {
+    if (hidden) this.concealed.add(id);
+    else this.concealed.delete(id);
   }
 
   /** Builder `id` sits on something of a world's own (null: no longer). */
@@ -183,6 +193,12 @@ export class RemotePlayers {
         remote.z = ride.z;
       }
       if (remote.samples.length === 0 && !remote.fall && !ride) continue;
+      // Not to be drawn (a world's own rule): nothing of them shows.
+      if (this.concealed.has(remote.player.id)) {
+        this.release(remote);
+        if (remote.tag) remote.tag.setEnabled(false);
+        continue;
+      }
       const dist = Math.max(0.1, Math.hypot(remote.x - viewer.x, remote.y - viewer.y, remote.z - viewer.z));
       const size = BODY / (dist * halfView);
       // Someone thrown always gets the full body: the flailing is the point.

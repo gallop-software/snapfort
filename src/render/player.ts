@@ -2,8 +2,8 @@ import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGener
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/core/Physics/v2/characterController";
 import type { Scene } from "@babylonjs/core/scene";
-import { CELL, WORLD_HALF_CELLS } from "../game/constants";
-import type { Environment } from "../game/environments";
+import { CELL } from "../game/constants";
+import { halfCellsOf, type Environment } from "../game/environments";
 import type { OutfitBuilder, Ride } from "../worlds/pageDoors";
 import { fallEnd, fallPhase, fallPosition, type Fall } from "../game/fall";
 import { Avatar, AVATAR_RUN_SPEED, downness } from "./avatar";
@@ -25,7 +25,6 @@ const RUN_SPEED = AVATAR_RUN_SPEED;
 const UP = Vector3.Up();
 const DOWN = Vector3.Down();
 const SPAWN = new Vector3(CELL / 2, HEIGHT / 2 + 0.05, -CELL * 1.5);
-const WORLD_LIMIT = WORLD_HALF_CELLS * CELL + 12;
 
 export interface MoveInput {
   /** -1..1, positive is to the right of the view. */
@@ -58,9 +57,12 @@ export class Player {
   /** The world's pull, and how high a jump lifts the feet. */
   private readonly gravity: Vector3;
   private readonly jumpHeight: number;
+  /** How far from the middle the builder can go, m: the building area and a little more. */
+  private readonly worldLimit: number;
   constructor(scene: Scene, shadows: ShadowGenerator, env: Environment, outfit: OutfitBuilder) {
     this.gravity = new Vector3(0, -env.gravity, 0);
     this.jumpHeight = env.jumpHeight;
+    this.worldLimit = halfCellsOf(env) * CELL + 12;
     this.controller = new PhysicsCharacterController(SPAWN.clone(), { capsuleHeight: HEIGHT, capsuleRadius: RADIUS }, scene);
     // Lets the builder walk over floor edges and ramp lips without hopping.
     this.controller.maxStepHeight = 0.4;
@@ -173,9 +175,10 @@ export class Player {
   private settle(): void {
     const cc = this.controller;
     const p = cc.getPosition();
-    if (p.y < -30 || Math.abs(p.x) > WORLD_LIMIT || Math.abs(p.z) > WORLD_LIMIT) {
-      p.x = Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, p.x));
-      p.z = Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, p.z));
+    const limit = this.worldLimit;
+    if (p.y < -30 || Math.abs(p.x) > limit || Math.abs(p.z) > limit) {
+      p.x = Math.max(-limit, Math.min(limit, p.x));
+      p.z = Math.max(-limit, Math.min(limit, p.z));
       if (p.y < -30) p.copyFrom(SPAWN);
       cc.setPosition(p);
     }

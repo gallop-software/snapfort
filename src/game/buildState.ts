@@ -1,4 +1,4 @@
-import { CELL, LEVEL } from "./constants";
+import { CELL, LEVEL, WORLD_HALF_CELLS } from "./constants";
 import { piecesMeet } from "./contact";
 import { boxesTouch, gridBox, inBounds, isMaterial, isValidEdit, normalizeSpec, slotKey, type Piece, type PieceSpec } from "./pieces";
 
@@ -27,6 +27,8 @@ export class BuildState {
   /** Piece ids bucketed by cell, for neighbour lookups. */
   private readonly cells = new Map<string, Set<string>>();
   private readonly listeners = new Set<BuildListener>();
+  /** Half the width of the building area, in cells: the usual one unless the world has its own (Environment.halfCells). */
+  halfCells = WORLD_HALF_CELLS;
 
   get size(): number {
     return this.pieces.size;
@@ -57,7 +59,7 @@ export class BuildState {
    * resting on the ground or touching a piece that is already there.
    */
   canPlace(spec: PieceSpec): PlaceCheck {
-    if (!inBounds(spec)) return { ok: false, problem: "bounds" };
+    if (!inBounds(spec, this.halfCells)) return { ok: false, problem: "bounds" };
     if (this.slots.has(slotKey(spec))) return { ok: false, problem: "occupied" };
     if (!this.isSupported(spec)) return { ok: false, problem: "unsupported" };
     return { ok: true };
@@ -142,7 +144,7 @@ export class BuildState {
       const src = op.piece;
       const piece: Piece = { ...normalizeSpec(src), id: src.id, material: src.material, edit: src.edit };
       const slot = slotKey(piece);
-      if (!piece.id || this.pieces.has(piece.id) || this.slots.has(slot) || !inBounds(piece)) return null;
+      if (!piece.id || this.pieces.has(piece.id) || this.slots.has(slot) || !inBounds(piece, this.halfCells)) return null;
       if (!isMaterial(piece.material) || !isValidEdit(piece.type, piece.edit)) return null;
       this.pieces.set(piece.id, piece);
       this.slots.set(slot, piece.id);

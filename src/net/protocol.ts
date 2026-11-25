@@ -151,6 +151,11 @@ export type ServerMessage =
    */
   | { t: "impact"; shot: number; point: WireVec; ops: WireOp[]; fallen: string[]; damage: [string, number][] }
   /**
+   * Pieces were worn down at `point` by something of the world's own (no stone
+   * flew): `ops`, `fallen` and `damage` as for an impact. Hits may be fractions.
+   */
+  | { t: "worn"; point: WireVec; ops: WireOp[]; fallen: string[]; damage: [string, number][] }
+  /**
    * Builder `id` is thrown (by a trebuchet hit) or falls (what they stood on
    * went): their body's centre follows `path` (a point every tenth of a
    * second), comes down at `land` after `time` seconds, lies there a moment and

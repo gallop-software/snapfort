@@ -134,16 +134,19 @@ for (const [k, name] of [["z", "Wall"], ["f", "Floor"], ["x", "Ramp"], ["c", "Ca
 }
 
 // ── 2. Core selected, the wheel ──
+const held2 = await sf(a, () => document.querySelector("#hotbar .slot:not(.menu).selected .label")?.firstChild?.textContent ?? null);
 await selectCore("2: Core selected, then the mouse wheel");
 await aim(a, ground);
 await a.mouse.wheel(0, 120);
 await frames(a, 5);
 v = await look(a);
 say("after wheel", v);
-check("2. Core selected, the wheel: lets go of the Core and moves along the pieces, the preview showing", v.pieceGhost && v.selB === 0, JSON.stringify(v));
+check("2. Core selected, the wheel (a trackpad brushed) does nothing: the Core stays selected", v.selB === 1 && !v.pieceGhost, JSON.stringify(v));
 await sf(a, () => window.snapfort.feature.run("desel"));
 await frames(a, 4);
-say("after Deselect", await look(a));
+v = await look(a);
+say("after Deselect", v);
+check("2. …and letting go of the Core, the piece in hand is the one from before (the wheel did not change it out of sight)", new RegExp(`:${held2}\\*`).test(v.row), `${held2} then ${v.row}`);
 
 // ── 3. Core selected, a building from the menu (B, then N) ──
 for (const [path, keys] of [["B then F", ["b", "f"]], ["N then F", ["n", "f"]], ["N then T (Tap)", ["n", "t"]], ["N then E (Sentry)", ["n", "e"]]]) {

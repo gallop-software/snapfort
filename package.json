@@ -26,6 +26,7 @@
     "qa:mojave-load": "node qa/mojave-load.mjs",
     "qa:mojave-chaos": "node qa/mojave-chaos.mjs",
     "qa:mojave-select": "node qa/mojave-select.mjs",
+    "qa:look": "node qa/look.mjs",
     "qa:terraformer": "node qa/terraformer.mjs",
     "qa:helicopter": "node qa/helicopter.mjs",
     "qa:menu": "node qa/menu.mjs",

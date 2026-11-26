@@ -1125,12 +1125,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     update,
     key: onKey,
     mouse: onMouse,
-    // The wheel moves along the pieces, as everywhere: from a selection or a menu, it lets go of them first.
+    // With something selected or a menu open the wheel does nothing: a trackpad's two fingers brushing it would
+    // otherwise let go of what was selected, or change the piece out of sight. (A piece's key goes back to building.)
     wheel() {
-      if (slot < 0 || mapOn || (!mode && selected.size === 0 && selectedBuildings.size === 0)) return false;
-      setMode(null);
-      deselect();
-      return false;
+      return slot >= 0 && (mapOn || mode !== null || selected.size > 0 || selectedBuildings.size > 0);
     },
     look(dx, dy) {
       if (!mapOn) return false;

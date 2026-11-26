@@ -2,6 +2,16 @@
 const WHEEL_STEP = 100;
 /** Largest mouse movement accepted from a single event, in pixels. */
 const MAX_MOUSE_JUMP = 250;
+/**
+ * A movement this big (pixels) out of stillness or slow movement is held back
+ * until the next one says whether it was a hand: a real flick goes on moving,
+ * a glitch (trackpads under pointer lock, on a Mac especially) is one event
+ * alone. Held at most this long (ms).
+ */
+const SUSPECT_JUMP = 60;
+const SUSPECT_HOLD_MS = 40;
+/** For this long after the mouse is captured (ms), movement is ignored: browsers often report where the cursor was as one jump. */
+const SETTLE_AFTER_LOCK_MS = 120;
 
 /**
  * True on a phone or tablet with no mouse: the game is played with on-screen
@@ -41,12 +51,21 @@ export class Input {
   private wheelAt = 0;
   private lookX = 0;
   private lookY = 0;
+  /** How far the last few movements went (pixels an event, smoothed), and when the last came. */
+  private recent = 0;
+  private movedAt = 0;
+  private lockedAt = 0;
+  /** A big movement held back until the next one: x, y, when. */
+  private suspect: [number, number, number] | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     document.addEventListener("pointerlockchange", () => {
       if (this.touch) return;
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) this.down.clear();
+      else this.lockedAt = performance.now();
+      this.suspect = null;
+      this.recent = 0;
       this.onLockChange(this.locked);
     });
     window.addEventListener("blur", () => this.down.clear());
@@ -67,11 +86,7 @@ export class Input {
 
     document.addEventListener("mousemove", (e) => {
       if (!this.locked) return;
-      // Browsers occasionally report one huge jump (a known pointer-lock glitch).
-      // No real hand moves this far in a single event, so ignore it.
-      if (Math.abs(e.movementX) > MAX_MOUSE_JUMP || Math.abs(e.movementY) > MAX_MOUSE_JUMP) return;
-      this.lookX += e.movementX;
-      this.lookY += e.movementY;
+      this.moved(e.movementX, e.movementY, performance.now());
     });
     canvas.addEventListener("mousedown", (e) => {
       if (this.locked && !this._typing) this.onMouseDown(e.button);
@@ -140,6 +155,40 @@ export class Input {
     this.axis.x = this.axis.y = 0;
     this.axis.run = false;
     this.onLockChange(false);
+  }
+
+  /**
+   * One movement of the mouse or trackpad under pointer lock. Browsers
+   * occasionally report a jump no hand made (a known pointer-lock glitch,
+   * common with trackpads): one event far bigger than the movement around it.
+   * Such a jump is held back for the next event: kept if the movement goes on
+   * (a fast flick builds up over several events), dropped if it was alone.
+   */
+  moved(dx: number, dy: number, now: number): void {
+    if (now - this.lockedAt < SETTLE_AFTER_LOCK_MS) return;
+    // No real hand moves this far in a single event.
+    if (Math.abs(dx) > MAX_MOUSE_JUMP || Math.abs(dy) > MAX_MOUSE_JUMP) return;
+    const size = Math.hypot(dx, dy);
+    // Still for a while: what came before says nothing of this.
+    if (now - this.movedAt > 100) this.recent = 0;
+    this.movedAt = now;
+    const held = this.suspect;
+    if (held) {
+      this.suspect = null;
+      // The movement went on: the jump was a hand's, and counts.
+      if (now - held[2] <= SUSPECT_HOLD_MS && size >= Math.hypot(held[0], held[1]) / 4) {
+        this.lookX += held[0];
+        this.lookY += held[1];
+        this.recent = this.recent * 0.6 + Math.hypot(held[0], held[1]) * 0.4;
+      }
+    }
+    if (size > SUSPECT_JUMP && size > this.recent * 4) {
+      this.suspect = [dx, dy, now];
+      return;
+    }
+    this.recent = this.recent * 0.6 + size * 0.4;
+    this.lookX += dx;
+    this.lookY += dy;
   }
 
   /** Mouse movement since the last call, in pixels. */

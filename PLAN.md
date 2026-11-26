@@ -576,4 +576,6 @@ Where this differs from the second pass above, this holds.
 
 **QA**: 412 unit tests (43 Mojave's); `qa:mojave` 93 checks, `qa:mojave-mobile` 48, `qa:mojave-chaos` 11, `qa:mojave-load` 10; Mojave's reference pictures saved anew, the other worlds' unchanged.
 
+**Live since 2026-11-25** (live build 20261126043243 and a fix after it). The live room went on running the code before for about ten minutes after the deploy, with two players connected to it throughout; in that time a fresh page broke against it (it was sent one builder to an army, where it expected a list), so the page now reads both. `node qa/_live-room.mjs` says which rules the live room is running. Once it had moved on: `node qa/_live.mjs` and `node qa/_live2.mjs` pass (two generals on the testing key are offered the eight armies, choose orange and teal, command, open the row's menus and the map; no errors; the war as it stood was kept, with what the computers had built).
+
 **Not done**: the menu's card picture is still the first one; the menu button still says "Visit Mojave" to someone without the Full Game; "Click or press any key to keep building" is the shared wording; a general arriving faces where the army's first Core stands, which another building may hide; tanks' and Titans' guns do not turn; a real phone.

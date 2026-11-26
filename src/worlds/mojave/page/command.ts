@@ -650,11 +650,15 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         // No place here for them now: kept out, with why on the menu. Let in the moment there is one.
         // Without the Full Game there is no place here: kept out, with why on the menu.
         game.shut(why === "visitor" ? { text: "Commanding an army in Mojave comes with the Full Game.", unlock: true } : null);
-        // Whatever was known is forgotten: after saying who this is, the server sends everything afresh.
-        army.clear();
-        reports.clear();
-        deselect();
-        setMode(null);
+        // After saying who this is, the server sends everything afresh. The same army as before (the connection was
+        // lost and found): what is drawn stays until then, so nothing blinks. Another army: nothing of the old is kept.
+        if (was === slot && slot >= 0) army.refresh(now);
+        else {
+          army.clear();
+          reports.clear();
+          deselect();
+          setMode(null);
+        }
         if (was !== slot) {
           sight.clear();
           placed = false;
@@ -1084,10 +1088,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   return {
     message: onMessage,
     joined() {
-      // Joined again (a dropped connection): the server sends everything afresh.
-      army.clear();
-      deselect();
-      mode = null;
+      // Joined again (a dropped connection, or the room restarted): the server sends everything afresh. What is drawn
+      // stays until it has, so the war does not blink out and in; what is selected stays selected.
+      army.refresh(performance.now());
     },
     update,
     key: onKey,

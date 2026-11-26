@@ -50,6 +50,8 @@ interface War {
   /** When the last step was taken (ms). */
   last: number;
   savedAt: number;
+  /** Something was bought or built since the war was last saved: it is saved again within a second, not at the next ten. */
+  dirty: boolean;
   gens: string;
   /** What was last sent of each field. */
   fieldSent: Map<number, number>;
@@ -66,6 +68,7 @@ const STEP_MS = DT * 1000;
 /** Units and what happened go out every this many steps. */
 const SEND_EVERY = 2;
 const SAVE_MS = 10_000;
+const SAVE_SOON_MS = 1000;
 const HALF_DM = HALF_CELLS * 50;
 
 const war = (room: Room) => room.memory as War;
@@ -85,7 +88,7 @@ export function openWar(room: Room): War {
     wear: (point, hits, by) => room.wear?.(point, hits, by),
     removePieces: (ids, by) => room.remove?.(ids, by),
   });
-  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
+  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, dirty: false, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
   // The war is taken up where it was left, however long ago: it has no end.
   const saved = room.load("war") as { at?: number; sim?: unknown } | undefined;
   if (saved && typeof saved.at === "number" && sim.restore(saved.sim)) {
@@ -240,7 +243,9 @@ function run(room: Room): void {
       if (due > 8) w.last = now;
       else w.last += (steps * STEP_MS) / w.speed;
       for (; steps > 0; steps--) step(room);
-      if (now - w.savedAt > SAVE_MS) save(room);
+      // Saved every ten seconds, and within a second of anything being bought or built: a room may be restarted at any
+      // moment (a new version going out does it), and takes the war up from the last save.
+      if (now - w.savedAt > SAVE_MS || (w.dirty && now - w.savedAt > SAVE_SOON_MS)) save(room);
     } catch (error) {
       // A fault in the war must never leave it running wild, or hold the room up: it is written down, and the war begins afresh.
       console.error("The war stopped on a fault:", error);
@@ -272,6 +277,7 @@ function run(room: Room): void {
 function save(room: Room): void {
   const w = war(room);
   w.savedAt = Date.now();
+  w.dirty = false;
   room.save("war", { at: w.savedAt, sim: w.sim.snapshot() });
 }
 
@@ -495,6 +501,8 @@ export function warMessage(room: Room, pid: string, data: unknown): void {
   const refuse = (why: string) => {
     if (why) room.send(pid, { m: "no", text: why } satisfies ToPage);
   };
+  // (What spends or makes: the war is saved soon after.)
+  if (msg.m === "build" || msg.m === "make" || msg.m === "research" || msg.m === "scrap" || msg.m === "cancel") w.dirty = true;
   switch (msg.m) {
     case "order": {
       const ids = idList(msg.ids);
@@ -619,6 +627,9 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
 // ── The shared rules' questions ───────────────────────────────────────────
 
 export const warMayPlace = (room: Room, pid: string, piece: Piece): boolean => war(room).sim.mayPlace(pid, piece);
-export const warPlaced = (room: Room, pid: string, pieces: readonly Piece[]): void => war(room).sim.placed(pid, pieces);
+export const warPlaced = (room: Room, pid: string, pieces: readonly Piece[]): void => {
+  war(room).sim.placed(pid, pieces);
+  war(room).dirty = true;
+};
 export const warMayChange = (room: Room, pid: string, piece: Piece): boolean => war(room).sim.mayChange(pid, piece);
 export const warBlocks = (room: Room, piece: Piece): boolean => (room.memory ? war(room).sim.blocks(piece) : false);

@@ -290,6 +290,22 @@ describe("orders from pages", () => {
     expect(told.q).toHaveLength(1);
   });
 
+  it("what is bought or built is saved within a second or so: a room restarted just after takes the war up with it", () => {
+    const r = fakeRoom({ test: true });
+    const g = r.join("a", 0)!;
+    r.say("a", { m: "dev", do: "rich" });
+    // Just after the ten-second save: the next would be ten seconds off.
+    r.run(10.5);
+    const s = STARTS[g.start]!;
+    const inX = -Math.sign(s.cx) || 1, inZ = -Math.sign(s.cz) || 1;
+    for (let i = 0; i < 3; i++) r.say("a", { m: "build", kind: "relay", x: s.cx + inX * (5 + i * 2), z: s.cz + inZ * 5 });
+    expect([...r.sim().buildings.values()].filter((b) => b.kind === "relay")).toHaveLength(3);
+    r.run(1.5);
+    // The room is restarted (a new version went out): it wakes with the three masts.
+    const again = fakeRoom({ saved: r.saved, test: true });
+    expect([...again.sim().buildings.values()].filter((b) => b.kind === "relay")).toHaveLength(3);
+  });
+
   it("what is only for checks is refused outside a test room", () => {
     const live = fakeRoom();
     const g = live.join("a", 0)!;

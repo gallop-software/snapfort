@@ -213,7 +213,29 @@ export class ArmyView {
     this.sparkMesh = prepare(CreateBox("mojave-spark", { size: 1 }, scene), true, glow, false);
   }
 
-  /** Forgets everything (joined again: the server sends it afresh). */
+  /**
+   * The server is about to send everything afresh (the connection was lost
+   * and found again, say). What is drawn stays drawn meanwhile, so nothing
+   * blinks; whatever has not been heard of again a moment later is gone.
+   */
+  refresh(now: number): void {
+    this.refreshFrom = now;
+  }
+  private refreshFrom = 0;
+
+  /** Lets go of what was not heard of again after `refresh`. */
+  private settle(now: number): void {
+    if (this.refreshFrom === 0 || now - this.refreshFrom < 1800) return;
+    for (const u of [...this.units.values()]) if (u.at < this.refreshFrom) this.units.delete(u.id);
+    for (const b of [...this.buildings.values()]) {
+      if (b.at >= this.refreshFrom) continue;
+      this.unsolid(b);
+      this.buildings.delete(b.i);
+    }
+    this.refreshFrom = 0;
+  }
+
+  /** Forgets everything at once (another army is served now: none of this is theirs to see). */
   clear(): void {
     this.units.clear();
     this.leaving.length = 0;
@@ -416,6 +438,7 @@ export class ArmyView {
   // ── Every frame ────────────────────────────────────────────────────────
 
   update(now: number): void {
+    this.settle(now);
     const time = now / 1000;
     const dt = Math.min(0.1, Math.max(0, (now - this.lastDraw) / 1000));
     this.lastDraw = now;

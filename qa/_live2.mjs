@@ -59,13 +59,13 @@ say(/Deselect/.test(await tiles(a)) && said.length > 3, `a click selects the bui
 const selected = /H:Hauler/.test(await tiles(a));
 if (selected) {
   const now = await bank(a);
-  if (now.lithium >= 50 && now.used < now.max) {
+  if (now.lithium >= 50) {
     await a.keyboard.press("h");
-    const made = await until(a, (used) => { const t = document.getElementById("material").querySelectorAll("b")[2].textContent; return Number(t.split("/")[0].trim()) > used; }, now.used, 8000);
-    say(!!made, `H orders a Hauler on the live server: supply ${now.used} → ${(await bank(a)).used}`);
+    const made = await until(a, () => /making Hauler/.test(document.getElementById("world-panel")?.textContent ?? ""), null, 8000);
+    say(!!made, `H orders a Hauler on the live server: "${(await over(a)).slice(0, 60)}"`);
   } else console.log(`(no Hauler ordered: ${JSON.stringify(now)})`);
 }
-await a.keyboard.press("Backspace");
+for (let i = 0; i < 3; i++) await a.keyboard.press("Backspace");
 await wait(700);
 await a.keyboard.press("b");
 await wait(700);
@@ -73,7 +73,7 @@ say(/N:Build/.test(await tiles(a)) && /Whole army/.test(await tiles(a)), `B open
 await a.keyboard.press("n");
 await wait(700);
 say(/F:Foundry/.test(await tiles(a)) && /C:Command Core/.test(await tiles(a)), `N opens the buildings (${await tiles(a)})`);
-await a.keyboard.press("Backspace");
+for (let i = 0; i < 3; i++) await a.keyboard.press("Backspace");
 await wait(700);
 await a.keyboard.press("j");
 await wait(500);

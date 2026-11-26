@@ -39,7 +39,7 @@ export const page: WorldPage = {
       ["I", "Next idle Hauler"],
       ["Shift", "Add to the selection · queue orders"],
       ["Tab", "The map: right click sends the selected there"],
-      ["Backspace", "Deselect"],
+      ["Backspace", "Back one step: to the menu before, then to what is selected, then deselect"],
     ],
     touch: ["Select and Order act on what the crosshair is on", "Army picks every fighting unit · Build opens the build menu", "Tap the tiles along the top to give orders"],
     note: "Mojave always has eight generals: you take over a computer's base and army as they stand, and a computer takes yours when you leave. Mine lithium with Haulers, build an army, and command it. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which.",

@@ -138,7 +138,7 @@ await aim(p, [dest[0], 0, dest[1]]);
 await p.tap('[data-id="t-order"]');
 const moved = await until(p, ([x, z]) => { const f = window.snapfort.feature; const us = [...f.army.units.values()].filter((u) => f.selected.has(u.id)); const cx = us.reduce((s, u) => s + u.x, 0) / us.length, cz = us.reduce((s, u) => s + u.z, 0) / us.length; return Math.hypot(cx - x, cz - z) < 10; }, dest, 12000);
 check("Order, with the crosshair on the ground, sends them there", moved === true);
-await p.tap('#hotbar .slot[data-id="desel"]');
+await p.tap('#hotbar .slot[data-id="back"]');
 check("Deselect lets go, and the pieces are back on the row", await until(p, () => window.snapfort.feature.selected.size === 0) && await until(p, () => [...document.querySelectorAll("#hotbar .slot .label")].some((l) => l.textContent === "Wall")));
 await p.tap("#hotbar .slot:last-child");
 check("a tap on Command opens the general's own menu", await until(p, () => !!document.querySelector('#hotbar .slot[data-id="army"]')));

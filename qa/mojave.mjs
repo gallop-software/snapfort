@@ -59,6 +59,8 @@ const centreOf = (b, size) => [(b.x + size / 2) * 5, (b.z + size / 2) * 5];
 /** The tiles on the row now: the pieces, or a menu of Mojave's own. */
 const row = (page) => sf(page, () => [...document.querySelectorAll("#hotbar .slot")].filter((x) => !x.hidden).map((x) => ({ label: x.querySelector(".label").firstChild?.textContent ?? "", key: x.querySelector(".key").textContent, sub: x.querySelector("small")?.textContent ?? "", off: x.classList.contains("off"), on: x.classList.contains("selected"), menu: x.classList.contains("menu") })));
 const rowHas = (page, labels) => until(page, (labels) => { const have = [...document.querySelectorAll("#hotbar .slot")].filter((x) => !x.hidden).map((x) => x.querySelector(".label").firstChild?.textContent ?? ""); return labels.every((l) => have.includes(l)) ? true : null; }, labels, 3000);
+/** Lets go of everything: nothing selected, no menu open (Backspace itself goes back one step at a time). */
+const clear = (page) => sf(page, () => window.snapfort.feature.run("desel"));
 const keysOf = (tiles) => Object.fromEntries(tiles.map((t) => [t.label, t.key]));
 
 const [keyA, keyB] = [await paidKey(base, "/mojave"), await paidKey(base, "/mojave")];
@@ -115,10 +117,10 @@ check("the row shows what it makes, with its key and its price, in the same boxe
 check("what is selected is said over the row", await sf(a, () => /Command Core/.test(document.getElementById("world-panel").textContent)));
 await until(a, () => window.snapfort.feature.bank.l >= 50, null, 20000);
 await a.keyboard.press("h");
-wa = await until(a, (id) => { const f = window.snapfort.feature; return f.army.buildings.get(id).q.length === 1 && f.bank.used === 5 ? true : null; }, core.id);
-check("H orders a Hauler: it is in the Core's queue, and has a place in the supply", wa === true);
-await a.keyboard.press("Backspace");
-check("Backspace lets go of the selection, and the pieces are back on the row", (await war(a)).selB.length === 0 && (await rowHas(a, ["Wall", "Command"])) === true);
+wa = await until(a, (id) => { const f = window.snapfort.feature; return f.army.buildings.get(id).q.length === 1 && /making Hauler/.test(document.getElementById("world-panel").textContent) ? true : null; }, core.id);
+check("H orders a Hauler: it is in the Core's queue, and the row says so", wa === true);
+await clear(a);
+check("letting go of the selection, the pieces are back on the row", (await war(a)).selB.length === 0 && (await rowHas(a, ["Wall", "Command"])) === true);
 
 // ── Command, and building ────────────────────────────────────────────────
 await dev(a, { do: "rich" });
@@ -132,9 +134,20 @@ check("B (the Command tile) opens the general's own menu on the row", tiles.map(
 await a.keyboard.press("n");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);
-check("N opens the buildings, each with its key and price", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").off, tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("N opens the buildings, each with its key and price; none is faded, whatever it needs", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").sub === "needs Foundry" && tiles.every((t) => !t.off), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("f");
 check("F picks the Foundry to place", (await war(a)).mode === "place");
+// Backspace goes back one step at a time: to the buildings, to the general's own menu, to the pieces.
+await a.keyboard.press("Backspace");
+const step1 = (await war(a)).mode === "menu" && (await rowHas(a, ["Foundry", "Advanced"])) === true;
+await a.keyboard.press("Backspace");
+const step2 = (await rowHas(a, ["Whole army", "Build"])) === true;
+await a.keyboard.press("Backspace");
+const step3 = (await war(a)).mode === null && (await rowHas(a, ["Wall", "Command"])) === true;
+check("Backspace goes back one step: from placing to the buildings, to the general's own menu, to the pieces", step1 && step2 && step3, `${step1} ${step2} ${step3}`);
+await a.keyboard.press("n");
+await a.keyboard.press("f");
+await frames(a, 3);
 await aim(a, [site[0], 0, site[1]], [coreX + inX * 18, coreZ + inZ * 18]);
 await frames(a, 4);
 const ghost = await sf(a, () => { const m = window.snapfort.scene.getMeshByName("mojave-ghost-foundry"); return m ? { on: m.isEnabled(), x: m.position.x, z: m.position.z, verts: m.getTotalVertices(), green: m.material.name === "mojave-ghost-ok", alpha: m.material.alpha } : null; });
@@ -156,7 +169,7 @@ await rowHas(a, ["Armory", "Basic"]);
 await a.keyboard.press("m");
 await frames(a, 4);
 check("V turns to the advanced buildings; the Armory needs a finished Foundry: it cannot be placed yet", await sf(a, () => /Needs Foundry/.test(document.getElementById("world-panel").textContent)));
-await a.keyboard.press("Backspace");
+await clear(a);
 // (A check may run the clock fast.)
 await dev(a, { do: "speed", n: 12 });
 await until(a, (id) => window.snapfort.feature.army.buildings.get(id)?.d === 0, foundry, 15000);
@@ -168,8 +181,30 @@ await rowHas(a, ["Trooper"]);
 await a.keyboard.press("t");
 await a.keyboard.down("Shift"); await a.keyboard.press("t"); await a.keyboard.up("Shift");
 wa = await until(a, (id) => (window.snapfort.feature.army.buildings.get(id)?.q.length ?? 0) >= 2 ? true : null, foundry);
-check("T at the Foundry orders a Trooper; Shift orders several, as far as supply allows", wa === true, `queue ${(await war(a)).buildings.find((b) => b.id === foundry).q}`);
-await a.keyboard.press("Backspace");
+check("T at the Foundry orders a Trooper; Shift orders several", wa === true, `queue ${(await war(a)).buildings.find((b) => b.id === foundry).q}`);
+await clear(a);
+
+// Supply is no bar to queueing: with the army at its limit a unit is still ordered, and waits, made, for room.
+const full = await sf(a, () => { const f = window.snapfort.feature; return { used: f.bank.used, max: f.bank.max }; });
+await aim(a, [site[0] + inX * 5, 3, site[1] + inZ * 5]);
+await click(a);
+await rowHas(a, ["Trooper"]);
+tiles = await row(a);
+const qBefore = await sf(a, (id) => window.snapfort.feature.army.buildings.get(id).q.length, foundry);
+await dev(a, { do: "spawn", kind: "titan", n: 2 });
+await until(a, () => { const f = window.snapfort.feature; return f.bank.used >= f.bank.max; });
+await a.keyboard.press("k");
+const queued = await until(a, ([id, n]) => window.snapfort.feature.army.buildings.get(id).q.length > n ? true : null, [foundry, qBefore]);
+check("with supply full, the row says so and what to do about it", await sf(a, () => /Supply is full \(\d+ \/ \d+\): build a Relay mast/.test(document.getElementById("world-panel").textContent)) || /waiting for supply/.test(await sf(a, () => document.getElementById("world-panel").textContent)), await sf(a, () => document.getElementById("world-panel").textContent));
+check("with supply full no tile is faded, and a Tank can still be queued", tiles.every((t) => !t.off) && (await row(a)).every((t) => !t.off) && queued === true, JSON.stringify(full));
+await dev(a, { do: "speed", n: 15 });
+const waiting = await until(a, () => /waiting for supply/.test(document.getElementById("world-panel").textContent) ? true : null, null, 20000);
+await dev(a, { do: "speed", n: 1 });
+check("made, it waits for supply, and the row says so", waiting === true, await sf(a, () => document.getElementById("world-panel").textContent));
+await sf(a, () => { const f = window.snapfort.feature; for (const b of f.selectedBuildings) for (let i = 0; i < 8; i++) window.snapfort.net.sendWorld({ m: "cancel", id: b }); });
+await dev(a, { do: "kill" });
+await clear(a);
+await wait(800);
 
 // ── An army: selecting and orders ────────────────────────────────────────
 // Open ground for a parade, a march and a fight: three spots in a row, each well clear of every field and building,
@@ -206,7 +241,7 @@ await click(a);
 wa = await war(a);
 check("a second click selects all of its kind nearby", wa.sel.length >= 12, `selected ${wa.sel.length}`);
 await a.keyboard.down("Control"); await a.keyboard.press("1"); await a.keyboard.up("Control");
-await a.keyboard.press("Backspace");
+await clear(a);
 check("(nothing selected)", (await war(a)).sel.length === 0);
 await a.keyboard.press("1");
 check("Ctrl + 1 saves the group and 1 brings it back", (await war(a)).sel.length >= 12);
@@ -247,6 +282,10 @@ await until(a, () => [...window.snapfort.feature.army.units.values()].filter((u)
 // F, then a click on the ground beyond them: attack-move.
 await a.keyboard.press("f");
 check("F waits for a click (attack), and the row shows it", (await war(a)).mode === "target" && (await rowHas(a, ["Attack", "Cancel"])) === true);
+await a.keyboard.press("Backspace");
+const kept = (await war(a)).mode === null && (await war(a)).sel.length >= 16 && (await rowHas(a, ["Move", "Deselect"])) === true;
+await a.keyboard.press("f");
+check("Backspace from there goes back to the orders, with the army still selected", kept && (await war(a)).mode === "target");
 await aim(a, [enemyAt[0] - back[0] * 10, 0, enemyAt[1] - back[1] * 10]);
 // Watch what is drawn while they fight: who is thrown, and how Troopers are posed.
 await sf(a, () => {
@@ -359,7 +398,7 @@ await wait(900);
 check("nobody builds a siege engine: the world refuses one", await sf(a, (id) => !window.snapfort.state.get(id), engine) && await sf(b, (id) => !window.snapfort.state.get(id), engine));
 
 // ── No alliances ─────────────────────────────────────────────────────────
-await a.keyboard.press("Backspace");
+await clear(a);
 await a.keyboard.press("j");
 await frames(a, 3);
 check("there are no alliances: J opens nothing, and the two generals' armies are enemies", (await war(a)).mode === null && (await row(a)).every((t) => !/all/i.test(t.label) || t.label === "Wall"));

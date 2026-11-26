@@ -100,6 +100,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   army.selectedBuildings = selectedBuildings;
   const groups = new Map<number, { units: number[]; buildings: number[] }>();
   let mode: Mode = null;
+  /** The buildings menu was reached through the general's own menu (so Back goes there, not all the way out). */
+  let menuTop = false;
   let mapOn = false;
   const cursor = { x: 0, z: 0 };
   let painting = false;
@@ -429,6 +431,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       case "menu": {
         const page: Menu = arg === "cmd" ? "cmd" : arg === "1" ? 1 : 0;
+        if (page !== "cmd" && mode?.k !== "menu" && mode?.k !== "place") menuTop = false;
+        if (page !== "cmd" && mode?.k === "menu" && mode.page === "cmd") menuTop = true;
         return setMode(mode?.k === "menu" && mode.page === page ? null : { k: "menu", page });
       }
       case "b":
@@ -461,8 +465,14 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         if (mode?.k === "menu") setMode(null);
         return toggleMap();
       case "back":
-        // Out of the buildings to the general's own menu; out of that, or anything else, to the pieces.
-        return setMode(mode?.k === "menu" && mode.page !== "cmd" && selected.size === 0 && selectedBuildings.size === 0 ? { k: "menu", page: "cmd" } : null);
+        // One step back, to whatever was on the row before: from placing a building to the buildings, from them to the
+        // general's own menu (if they were reached through it), from a menu or an order waiting for its click to what
+        // is selected, and from a selection to nothing selected.
+        if (mapOn) return toggleMap();
+        if (mode?.k === "place") return setMode({ k: "menu", page: BUILDINGS[mode.kind].advanced ? 1 : 0 });
+        if (mode?.k === "menu" && mode.page !== "cmd" && menuTop) return setMode({ k: "menu", page: "cmd" });
+        if (mode) return setMode(null);
+        return deselect();
     }
   }
 
@@ -485,17 +495,18 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     const cost = (lithium: number, plasma: number) => (plasma > 0 ? `${lithium} · ${plasma} pl` : `${lithium}`);
     const has = (kind: BuildingKind) => [...army.buildings.values()].some((b) => mine(b.o) && b.kind === kind && b.d === 0);
     const tile = (id: string, key: string, label: string, icon: string, more: Partial<RowTile> = {}): RowTile => ({ id, key, label, icon: ICONS[icon] ?? "", ...more });
-    const back = (label = "Back") => tile(label === "Back" ? "back" : "desel", "⌫", label, label === "Back" ? "back" : "cancel");
+    const back = (label = "Back") => tile("back", "⌫", label, label === "Back" ? "back" : "cancel");
     const building = (k: BuildingKind, more: Partial<RowTile> = {}) => {
       const def = BUILDINGS[k];
       const free = k === "core" && bank.routed === 0;
       const lacks = (def.needs ?? []).find((n) => !has(n));
-      return tile(`b:${k}`, def.key, def.label, k, { sub: free ? "free" : lacks ? `needs ${BUILDINGS[lacks].label}` : cost(def.lithium, def.plasma), off: !free && (!!lacks || bank.l < def.lithium || bank.p < def.plasma), ...more });
+      // (Never faded: every tile can be pressed, and says why when it cannot be done.)
+      return tile(`b:${k}`, def.key, def.label, k, { sub: free ? "free" : lacks ? `needs ${BUILDINGS[lacks].label}` : cost(def.lithium, def.plasma), ...more });
     };
     const routed = bank.routed >= 0 ? (bank.routed === 0 ? "You are routed: your new Core is free. " : `You are routed: a free Core in ${bank.routed} s. `) : "";
     if (mode?.k === "place") {
       const def = BUILDINGS[mode.kind];
-      return { tiles: [building(mode.kind, { on: true, off: false }), back("Cancel")], status: plain(lastHint) || `${def.label}: ${def.blurb}` };
+      return { tiles: [building(mode.kind, { on: true }), back()], status: plain(lastHint) || `${def.label}: ${def.blurb}` };
     }
     if (mode?.k === "target") {
       const what = mode.what;
@@ -545,27 +556,30 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const now = performance.now();
       const left = (s: number) => Math.max(0, Math.ceil(s - (now - first.at) / 1000));
       const doing =
-        first.d > 0 ? `printing, ${left(first.d)} s` : first.r > 0 ? `working on ${UPGRADES[first.r - 1]}, ${left(first.rl)} s` : first.q.length > 0 ? `making ${first.q.map((k) => UNITS[UNIT_KIND_AT(k)].label).join(", ")} · ${left(first.ql)} s` : def.blurb;
+        first.d > 0 ? `printing, ${left(first.d)} s` : first.r > 0 ? `working on ${UPGRADES[first.r - 1]}, ${left(first.rl)} s` : first.q.length > 0 ? `making ${first.q.map((k) => UNITS[UNIT_KIND_AT(k)].label).join(", ")} · ${left(first.ql) === 0 && bank.used + UNITS[UNIT_KIND_AT(first.q[0]!)].supply > bank.max ? "waiting for supply: build a Relay mast" : `${left(first.ql)} s`}` : def.blurb;
       const kinds = new Set(list.map((b) => b.kind));
+      // The army is at its limit: said plainly wherever units are made, since nothing more will come out until there is room.
+      const makes = [...kinds].some((k) => MAKES[k].length > 0);
+      const full = makes && bank.used >= bank.max ? (bank.max >= 200 ? ` · Your army is at its limit (${bank.used} / ${bank.max})` : ` · Supply is full (${bank.used} / ${bank.max}): build a Relay mast for 10 more (N, then R). What you order now waits for room`) : "";
       const tiles: RowTile[] = [];
       for (const kind of kinds) {
         for (const unit of MAKES[kind]) {
           const u = UNITS[unit];
           const lacks = (u.needs ?? []).find((n) => !has(n));
-          tiles.push(tile(`make:${unit}`, u.key, u.label, unit === "emp" ? "emp_unit" : unit, { sub: lacks ? `needs ${BUILDINGS[lacks].label}` : cost(u.lithium, u.plasma), off: !!lacks || bank.l < u.lithium || bank.p < u.plasma || bank.used + u.supply > bank.max }));
+          tiles.push(tile(`make:${unit}`, u.key, u.label, unit === "emp" ? "emp_unit" : unit, { sub: lacks ? `needs ${BUILDINGS[lacks].label}` : cost(u.lithium, u.plasma) }));
         }
         if (kind === "armory") {
           UPGRADES.forEach((up, i) => {
             const level = bank.up[i]!;
             const price = UPGRADE_COST[level];
-            tiles.push(tile(`up:${up}`, UPGRADE_KEYS[up], `${up === "weapons" ? "Weapons" : "Armour"} ${Math.min(UPGRADE_LEVELS, level + 1)}`, up, { sub: price === undefined ? "done" : `${price} · ${price} pl`, off: price === undefined || bank.l < price || bank.p < price }));
+            tiles.push(tile(`up:${up}`, UPGRADE_KEYS[up], `${up === "weapons" ? "Weapons" : "Armour"} ${Math.min(UPGRADE_LEVELS, level + 1)}`, up, { sub: price === undefined ? "done" : `${price} · ${price} pl` }));
           });
         }
       }
       if ([...kinds].some((k) => MAKES[k].length > 0)) tiles.push(tile("rally", kinds.has("armory") ? "Y" : "R", "Rally point", "rally"), tile("cancel", "Z", "Cancel last", "cancel"));
       else if (first.r > 0) tiles.push(tile("cancel", "Z", "Cancel", "cancel"));
       tiles.push(back("Deselect"));
-      return { tiles, status: `${list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`} · ${doing}` };
+      return { tiles, status: `${list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`} · ${doing}${/waiting for supply/.test(doing) ? "" : full}` };
     }
     return { tiles: null, status: routed ? `${routed}${game.touch ? "Tap Build" : "Press N"} to put it down.` : null };
   }
@@ -729,7 +743,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return false;
     if (code === "Backquote") return act("army"), true;
-    if (code === "Backspace") return act("desel"), true;
+    if (code === "Backspace") return act("back"), true;
     if (code === "KeyI") return act("idle"), true;
     if (mode?.k === "menu" && mode.page === "cmd") {
       // The general's own menu: its tiles' keys, and anything else closes it.

@@ -3,7 +3,7 @@ import { BuildState } from "../../game/buildState";
 import { CELL, LEVEL, THICK } from "../../game/constants";
 import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
-import { BUILDINGS, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
+import { buildingBox, BUILDINGS, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
 import { STARTS } from "./map";
 import { DT, emptyHappened, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
 import { HALF_CELLS, world } from "./world";
@@ -256,6 +256,34 @@ describe("getting about", () => {
 });
 
 describe("nothing passes through anything", () => {
+  it("Haulers at work keep out of each other, the crystals and the Core, and still bring lithium in", () => {
+    const { sim, general, mine } = setup();
+    const g = general("p1", 0);
+    const core = [...sim.buildings.values()].find((b) => b.owner === g.slot && b.kind === "core")!;
+    // A busy base: twelve Haulers on the round.
+    for (let i = 0; i < 8; i++) (sim as unknown as { spawnBeside(b: typeof core, kind: "hauler"): Unit | null }).spawnBeside(core, "hauler");
+    const haulers = mine(g.slot, "hauler");
+    const before = g.lithium;
+    const r = UNITS.hauler.radius;
+    let worstEach = 0, worstCrystal = 0, worstCore = 0;
+    const deepIn = (u: Unit, x0: number, z0: number, x1: number, z1: number) => r - Math.hypot(u.x - Math.max(x0, Math.min(x1, u.x)), u.z - Math.max(z0, Math.min(z1, u.z)));
+    for (let i = 0; i < Math.round(120 / DT); i++) {
+      sim.tick();
+      if (i < Math.round(10 / DT)) continue;
+      for (const u of haulers) {
+        for (const o of haulers) if (o.id < u.id) worstEach = Math.max(worstEach, 2 * r - Math.hypot(u.x - o.x, u.z - o.z));
+        for (const f of sim.fields) if (f.kind === "crystal" && Math.abs(f.cx * CELL - u.x) < 12 && Math.abs(f.cz * CELL - u.z) < 12) worstCrystal = Math.max(worstCrystal, deepIn(u, f.cx * CELL, f.cz * CELL, (f.cx + 1) * CELL, (f.cz + 1) * CELL));
+        const [x0, , z0, x1, , z1] = buildingBox("core", core.cx, core.cz);
+        worstCore = Math.max(worstCore, deepIn(u, x0, z0, x1, z1));
+      }
+    }
+    expect(worstEach).toBeLessThan(0.1);
+    expect(worstCrystal).toBeLessThan(0.1);
+    expect(worstCore).toBeLessThan(0.1);
+    // Out of each other's way, they bring in as much as when they drove through each other (about 500 in this time).
+    expect(g.lithium - before).toBeGreaterThan(450);
+  });
+
   it("a crowd marching past a building and the end of a wall keeps every body out of both", () => {
     const { sim, general, piece } = setup();
     const g = general("p1", 0);

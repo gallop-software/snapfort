@@ -132,6 +132,9 @@ export interface Unit {
   cz: number;
   level: number;
   heading: number;
+  /** Going round another unit: to its right (1) or left (-1), kept until this time (s) so it does not dither between two. */
+  side: number;
+  sideUntil: number;
   hp: number;
   order: Order;
   queue: Order[];
@@ -742,7 +745,7 @@ export class Sim {
   addUnit(kind: UnitKind, owner: number, x: number, z: number): Unit {
     const def = UNITS[kind];
     const u: Unit = {
-      id: this.nextUnit++, kind, owner, x, y: def.air ? FLIGHT_HEIGHT : 0, z, cx: Math.floor(x / CELL), cz: Math.floor(z / CELL), level: 0, heading: 0, hp: def.hp,
+      id: this.nextUnit++, kind, owner, x, y: def.air ? FLIGHT_HEIGHT : 0, z, cx: Math.floor(x / CELL), cz: Math.floor(z / CELL), level: 0, heading: 0, side: 1, sideUntil: 0, hp: def.hp,
       order: { k: "stop" }, queue: [], goal: null, group: 0, arrived: true, tk: 0, tid: 0, coolAt: 0, stunUntil: 0, downUntil: 0, deployedAt: 0, packedAt: 0,
       carry: 0, phase: 0, digUntil: 0, field: 0, cargo: [], inside: 0, empAt: 0, stuck: 0, linger: 0, hitUntil: 0, post: -1, dead: false,
       aim: 0, chase: null, chaseAt: 0, chaseX: 0, chaseZ: 0, closer: 0.85, home: null, alarmX: 0, alarmZ: 0, alarmUntil: 0,
@@ -1348,7 +1351,8 @@ export class Sim {
       u.heading = Math.atan2(dx, dz);
       const step = Math.min(def.speed * DT, d);
       const bx = u.x, bz = u.z;
-      this.shift(u, u.x + (dx / d) * step, u.z + (dz / d) * step, classOf(def));
+      const [sx, sz] = this.clearStep(u, def, dx / d, dz / d, step, d);
+      this.shift(u, u.x + sx, u.z + sz, classOf(def));
       if (Math.hypot(u.x - bx, u.z - bz) < step * 0.3) {
         u.stuck += DT;
         if (u.stuck > 3) {
@@ -2137,7 +2141,8 @@ export class Sim {
     u.heading = Math.atan2(dx, dz);
     const s = Math.min(reach, d);
     const bx = u.x, bz = u.z;
-    this.shift(u, u.x + (dx / d) * s, u.z + (dz / d) * s, classOf(def));
+    const [sx, sz] = this.clearStep(u, def, dx / d, dz / d, s, near);
+    this.shift(u, u.x + sx, u.z + sz, classOf(def));
     // In the cell it was heading for: the next one is chosen from there (so it never doubles back to a spot it was pushed past).
     if (u.cx === Math.floor(goal.wx / CELL) && u.cz === Math.floor(goal.wz / CELL) && d < CELL * 0.6) goal.set = false;
     const moved = Math.hypot(u.x - bx, u.z - bz);
@@ -2147,6 +2152,56 @@ export class Sim {
       goal.set = false;
       if (u.stuck > 5) u.arrived = true;
     } else u.stuck = Math.max(0, u.stuck - DT * 0.5);
+  }
+
+  /** Whether a unit is on its way somewhere roughly along (ux, uz): by where it is going, not where it faces (it may not have turned yet). */
+  private goingAlong(o: Unit, ux: number, uz: number): boolean {
+    const to = o.chase ?? (o.arrived ? null : o.goal);
+    if (!to) return false;
+    const dx = to.ox - o.x, dz = to.oz - o.z;
+    const d = Math.hypot(dx, dz);
+    return d > 1 && (dx * ux + dz * uz) / d > 0.5;
+  }
+
+  /**
+   * A ground unit's step of `s` along (ux, uz), short of driving into another
+   * unit on the ground ahead: it goes as far as that one's edge, and the rest
+   * of the step goes to the side, round it (to its own right, unless the
+   * other is already off to the right). Units behind or beside, or ahead and
+   * going the same way, are no matter. Nearly where it is going (`left`, m),
+   * behind one standing still, it just stops.
+   */
+  private clearStep(u: Unit, def: UnitDef, ux: number, uz: number, s: number, left: number): [number, number] {
+    let allowed = s, side = 0, still = false;
+    this.nearby(u.x, u.z, def.radius + s + 4, (o) => {
+      if (o === u || o.dead || o.inside || o.level !== u.level) return;
+      const od = UNITS[o.kind];
+      if (od.air || this.t < o.downUntil) return;
+      // Going the same way (a group on the march): it moves on before this one gets there.
+      if (this.goingAlong(o, ux, uz)) return;
+      const ox = o.x - u.x, oz = o.z - u.z;
+      const along = ox * ux + oz * uz;
+      if (along <= 0) return;
+      const gap = def.radius + od.radius + 0.1;
+      const across = ox * uz - oz * ux;
+      if (Math.abs(across) >= gap) return;
+      // Already in each other: separate() moves them apart; this only keeps it from going deeper.
+      const t = Math.max(0, along - Math.sqrt(gap * gap - across * across));
+      if (t < allowed) {
+        allowed = t;
+        side = across > 0.3 * gap ? -1 : 1;
+        still = !(o.chase ?? (o.arrived ? null : o.goal));
+      }
+    });
+    if (allowed >= s) return [ux * s, uz * s];
+    // Nearly there, behind one already standing: it stops behind it, not round it (a group arriving keeps its shape).
+    if (still && left < (def.radius + 2) * 2.5) return [ux * allowed, uz * allowed];
+    // Round it on the side it chose a moment ago, if it is still going round.
+    if (this.t < u.sideUntil) side = u.side;
+    u.side = side;
+    u.sideUntil = this.t + 1.5;
+    const slip = (s - allowed) * side;
+    return [ux * allowed + uz * slip, uz * allowed - ux * slip];
   }
 
   /**
@@ -2240,13 +2295,12 @@ export class Sim {
     }
   }
 
-  /** Units standing in each other push apart (ground with ground, drones with drones). Haulers at work pass through. */
+  /** Units standing in each other push apart (ground with ground, drones with drones), Haulers at work too. */
   private separate(): void {
     for (let i = 0; i < this.units.length; i++) {
       const u = this.units[i]!;
       if (u.dead || u.inside || this.t < u.downUntil) continue;
       const def = UNITS[u.kind];
-      if (u.kind === "hauler" && (u.order.k === "gather" || u.order.k === "return")) continue;
       // Artillery set up does not budge.
       if (def.deploy && u.deployedAt > 0) continue;
       let px = 0, pz = 0;
@@ -2254,7 +2308,6 @@ export class Sim {
         if (j === i || o.dead || o.inside) return;
         const od = UNITS[o.kind];
         if (!!od.air !== !!def.air || (!def.air && o.level !== u.level)) return;
-        if (o.kind === "hauler" && (o.order.k === "gather" || o.order.k === "return")) return;
         // Soldiers in a fight keep more room between them: one shell should not catch a crowd.
         const gap = def.radius + od.radius + 0.3 + (def.infantry && od.infantry && (u.tk || o.tk) ? 1.4 : 0);
         let dx = u.x - o.x, dz = u.z - o.z;
@@ -2269,12 +2322,19 @@ export class Sim {
           d = 1;
         }
         // Whoever is still moving gives way more than whoever has stopped.
-        const give = (gap - d) * (o.arrived && !u.arrived ? 0.7 : u.arrived && !o.arrived ? 0.2 : 0.45);
+        const give = (gap - d) * (o.arrived && !u.arrived ? 0.7 : u.arrived && !o.arrived ? 0.2 : 0.5);
         px += (dx / d) * give;
         pz += (dz / d) * give;
+        // Going somewhere with the other ahead and not going its way (meeting head-on, or one standing): a step to its own right as well,
+        // so the two pass each other instead of pushing face to face.
+        if (u.goal && !u.arrived && !this.goingAlong(o, Math.sin(u.heading), Math.cos(u.heading)) && -(dx * Math.sin(u.heading) + dz * Math.cos(u.heading)) > 0) {
+          px += Math.cos(u.heading) * give * 0.6;
+          pz -= Math.sin(u.heading) * give * 0.6;
+        }
       });
       if (px === 0 && pz === 0) continue;
-      const len = Math.hypot(px, pz), max = 0.5;
+      // As far as it could have moved this tick: pushing apart keeps up with driving into each other.
+      const len = Math.hypot(px, pz), max = Math.max(0.5, def.speed * DT);
       if (len > max) {
         px = (px / len) * max;
         pz = (pz / len) * max;

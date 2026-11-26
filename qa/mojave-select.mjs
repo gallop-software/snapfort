@@ -56,6 +56,7 @@ const look = (page) => sf(page, () => {
 const say = (label, v) => console.log(`   ${label.padEnd(34)} mode=${v.mode} sel=${v.selB}b/${v.selU}u busy=${v.busy} pieceGhost=${v.pieceGhost} bldGhost=${v.buildingGhost} q=${v.q} pieces=${v.pieces} bld=${v.buildings}\n   ${"".padEnd(34)} row[${v.row}] panel="${v.panel}"`);
 
 const key = await paidKey(base, "/mojave");
+const key2 = await paidKey(base, "/mojave");
 const context = await browser.newContext({ viewport: { width: 1280, height: 760 } });
 await context.addInitScript((k) => { localStorage.setItem("snapfort.key", k); localStorage.setItem("snapfort.tips", "done"); localStorage.setItem("snapfort.mojave.intro", "seen"); }, key);
 const a = await context.newPage();
@@ -281,6 +282,63 @@ await frames(a, 4);
 v = await look(a);
 say("then X", v);
 check("8. …and X from the buildings picks the Ramp, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /X:Ramp\*/.test(v.row), JSON.stringify(v));
+
+// ── 9. A building planned over a general: red, and the line says why ──
+console.log("\n── 9: a Foundry planned over a general");
+await sf(a, () => window.snapfort.feature.run("desel"));
+const spot9 = nextSite();
+await a.keyboard.press("n"); await a.keyboard.press("f");
+await aim(a, spot9, [spot9[0] - inX * 14, spot9[2] - inZ * 14]);
+const ghost9 = () => sf(a, () => { const m = window.snapfort.scene.getMeshByName("mojave-ghost-foundry"); return { on: m?.isEnabled() ?? false, red: m?.material.name === "mojave-ghost-bad", line: document.getElementById("world-panel").textContent }; });
+let g9 = await ghost9();
+check("9. on clear ground, the Foundry's preview is green", g9.on && !g9.red, JSON.stringify(g9));
+// A second general of the same army stands right where it would go.
+const b = await context.browser().newContext({ viewport: { width: 900, height: 600 } }).then(async (cb) => {
+  await cb.addInitScript((k) => { localStorage.setItem("snapfort.key", k); localStorage.setItem("snapfort.tips", "done"); localStorage.setItem("snapfort.mojave.intro", "seen"); }, key2);
+  return cb.newPage();
+});
+await b.goto(`${base}/mojave?world=${world}`);
+await b.waitForSelector("body.ready", { timeout: 30000 });
+await b.click("#play-free");
+await until(b, () => window.snapfort.feature.why === "choose" || window.snapfort.feature.slot >= 0, null, 15000);
+if (await sf(b, () => window.snapfort.feature.slot !== 0)) await b.keyboard.press("1");
+await until(b, () => window.snapfort.feature.slot === 0, null, 15000);
+await sf(b, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), [spot9[0], spot9[2]]);
+g9 = await until(a, () => { const m = window.snapfort.scene.getMeshByName("mojave-ghost-foundry"); return m?.material.name === "mojave-ghost-bad" ? { line: document.getElementById("world-panel").textContent } : null; }, [spot9[0], spot9[2]], 8000);
+check("9. with a general standing there, the preview turns red and says so", !!g9 && /A general is standing there/.test(g9.line), JSON.stringify(g9));
+const n9 = (await look(a)).buildings;
+await click(a);
+await wait(800);
+check("9. …and a click there builds nothing", (await look(a)).buildings === n9);
+await b.context().close();
+await frames(a, 6);
+g9 = await ghost9();
+check("9. once they have gone, it is green again", g9.on && !g9.red, JSON.stringify(g9));
+// Over the general themselves.
+await aim(a, [spot9[0], 0, spot9[2]], [spot9[0] + 1, spot9[2] + 1]);
+g9 = await ghost9();
+check("9. planned over the general's own feet, it is red: they are standing there", g9.red && /You are standing there/.test(g9.line), JSON.stringify(g9));
+await a.keyboard.press("Backspace"); await a.keyboard.press("Backspace"); await a.keyboard.press("Backspace");
+
+// ── 10. An upgrade being worked on is shown as a picture with a bar, as a unit being made is ──
+console.log("\n── 10: an Armory working on weapons");
+await sf(a, () => window.snapfort.feature.run("desel"));
+const spot10 = nextSite();
+await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("m");
+await aim(a, spot10, [spot10[0] - inX * 16, spot10[2] - inZ * 16]);
+await click(a);
+const armory = await until(a, () => { const f = window.snapfort.feature; return [...f.army.buildings.values()].find((b) => b.o === f.slot && b.kind === "armory")?.i ?? null; });
+await aim(a, [spot10[0] + 2.5, 3, spot10[2] + 2.5]);
+await click(a);
+await a.keyboard.press("e");
+const work = () => until(a, () => { const q = document.querySelector("#world-panel .mjq"); const bar = q?.querySelector(".q i.now u"); return q && bar && q.querySelector(".q i.now svg path") ? { width: parseFloat(bar.style.width), words: q.querySelector("small").textContent, title: q.querySelector("b").textContent } : null; }, null, 6000);
+const w1 = await work();
+await wait(2500);
+const w2 = await work();
+check("10. an Armory working on weapons shows it as a picture with a bar, and the bar fills", !!armory && !!w1 && /Weapons 1 · \d+ s/.test(w1.words) && /Armory/.test(w1.title) && !!w2 && w2.width > w1.width, `${JSON.stringify(w1)} then ${JSON.stringify(w2)}`);
+await a.screenshot({ path: "qa/shots/mojave-research.png" });
+await a.keyboard.press("q");
+await sf(a, () => window.snapfort.feature.run("desel"));
 
 await a.screenshot({ path: "qa/shots/mojave-select.png" });
 check("no errors on the page", errors.length === 0, errors.slice(0, 3).join(" | "));

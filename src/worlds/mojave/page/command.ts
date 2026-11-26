@@ -13,6 +13,7 @@ import {
   UPGRADE_COST,
   UPGRADE_KEYS,
   UPGRADE_LEVELS,
+  UPGRADE_TIME,
   UPGRADES,
   upkeep,
   type BuildingKind,
@@ -394,14 +395,23 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       if (!vent) return "A Tap goes on a plasma vent";
       return taken(cx, cz, true) ? "That vent already has a Tap" : "";
     }
+    // As the server judges it (Sim.cannotBuild): every storey it stands up through, and nobody standing where it goes.
+    const storeys = Math.ceil(def.height / LEVEL);
     for (let x = cx; x < cx + def.size; x++) {
       for (let z = cz; z < cz + def.size; z++) {
         if (taken(x, z, false)) return "Something is in the way";
-        if (game.build.occupant({ type: "floor", x, y: 0, z, rot: 0 }) || game.build.occupant({ type: "ramp", x, y: 0, z, rot: 0 })) return "Something is built there";
-        if (x > cx && game.build.occupant({ type: "wall", x, y: 0, z, rot: 1 })) return "Something is built there";
-        if (z > cz && game.build.occupant({ type: "wall", x, y: 0, z, rot: 0 })) return "Something is built there";
+        for (let y = 0; y < storeys; y++) {
+          if (game.build.occupant({ type: "floor", x, y, z, rot: 0 }) || game.build.occupant({ type: "ramp", x, y, z, rot: 0 })) return "Something is built there";
+          if (x > cx && game.build.occupant({ type: "wall", x, y, z, rot: 1 })) return "Something is built there";
+          if (z > cz && game.build.occupant({ type: "wall", x, y, z, rot: 0 })) return "Something is built there";
+        }
       }
     }
+    const x0 = cx * CELL - 0.45, z0 = cz * CELL - 0.45, x1 = (cx + def.size) * CELL + 0.45, z1 = (cz + def.size) * CELL + 0.45;
+    const on = (at: readonly [number, number, number] | null) => !!at && at[0] > x0 && at[0] < x1 && at[2] > z0 && at[2] < z1 && at[1] < def.height + 1;
+    if (on([p.x, p.y, p.z])) return "You are standing there";
+    // (Another general out of sight is not given away: the server refuses that one, and says why.)
+    if (game.others().some((o) => generals.some((g) => g.pids.includes(o.id)) && !!o.position && sight.sees(o.position[0], o.position[2]) && on(o.position))) return "A general is standing there";
     return "";
   }
 
@@ -601,16 +611,33 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       else if (first.r > 0) tiles.push(tile("cancel", "Q", "Cancel", "cancel"));
       tiles.push(back("Deselect"));
       const title = list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`;
-      // What it is making, as a line of pictures: the first with a bar that fills as it nears being done.
-      let html: string | undefined;
-      if (first.d === 0 && first.r === 0 && first.q.length > 0) {
-        const kindsQ = first.q.map((k) => UNIT_KIND_AT(k));
-        const whole = UNITS[kindsQ[0]!].time;
-        const done = Math.max(0, Math.min(1, 1 - (first.ql - (now - first.at) / 1000) / whole));
-        html =
+      // What it is doing, as a line of pictures: the first with a bar that fills as it nears being done (units being
+      // made, an upgrade being worked on, the building itself being printed).
+      const pictures = (items: readonly { icon: string; label: string }[], whole: number, leftS: number, words: string) => {
+        const done = Math.max(0, Math.min(1, 1 - leftS / whole));
+        return (
           `<span class="mjq"><b>${escapeHtml(title)}</b><span class="q">` +
-          kindsQ.map((k, i) => `<i class="${i === 0 ? "now" : ""}" title="${UNITS[k].label}"><svg viewBox="0 0 40 40" aria-hidden="true">${ICONS[k === "emp" ? "emp_unit" : k] ?? ""}</svg>${i === 0 ? `<em><u style="width:${Math.round(done * 100)}%"></u></em>` : ""}</i>`).join("") +
-          `</span><small>${escapeHtml(UNITS[kindsQ[0]!].label)} · ${left(first.ql)} s${kindsQ.length > 1 ? ` · ${kindsQ.length - 1} more after it` : ""}</small>${full ? `<small class="bad">${escapeHtml(full.replace(/^ · /, ""))}</small>` : ""}</span>`;
+          items.map((it, i) => `<i class="${i === 0 ? "now" : ""}" title="${escapeHtml(it.label)}"><svg viewBox="0 0 40 40" aria-hidden="true">${ICONS[it.icon] ?? ""}</svg>${i === 0 ? `<em><u style="width:${Math.round(done * 100)}%"></u></em>` : ""}</i>`).join("") +
+          `</span><small>${escapeHtml(words)}</small>${full ? `<small class="bad">${escapeHtml(full.replace(/^ · /, ""))}</small>` : ""}</span>`
+        );
+      };
+      const since = (now - first.at) / 1000;
+      let html: string | undefined;
+      if (first.d > 0) {
+        html = pictures([{ icon: first.kind, label: def.label }], def.time, first.d - since, `Printing · ${left(first.d)} s`);
+      } else if (first.r > 0) {
+        const up = UPGRADES[first.r - 1]!;
+        const level = Math.min(UPGRADE_LEVELS - 1, bank.up[first.r - 1] ?? 0);
+        const label = `${up === "weapons" ? "Weapons" : "Armour"} ${level + 1}`;
+        html = pictures([{ icon: up, label }], UPGRADE_TIME[level]!, first.rl - since, `${label} · ${left(first.rl)} s`);
+      } else if (first.q.length > 0) {
+        const kindsQ = first.q.map((k) => UNIT_KIND_AT(k));
+        html = pictures(
+          kindsQ.map((k) => ({ icon: k === "emp" ? "emp_unit" : k, label: UNITS[k].label })),
+          UNITS[kindsQ[0]!].time,
+          first.ql - since,
+          `${UNITS[kindsQ[0]!].label} · ${left(first.ql)} s${kindsQ.length > 1 ? ` · ${kindsQ.length - 1} more after it` : ""}`,
+        );
       }
       return { tiles, status: `${title} · ${doing}${full}`, ...(html ? { html } : {}) };
     }

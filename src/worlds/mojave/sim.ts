@@ -2168,8 +2168,9 @@ export class Sim {
    * unit on the ground ahead: it goes as far as that one's edge, and the rest
    * of the step goes to the side, round it (to its own right, unless the
    * other is already off to the right). Units behind or beside, or ahead and
-   * going the same way, are no matter. Nearly where it is going (`left`, m),
-   * behind one standing still, it just stops.
+   * going the same way, are no matter. One of its own army standing on its
+   * line is nudged aside. Nearly where it is going (`left`, m), behind one
+   * standing still, it just stops.
    */
   private clearStep(u: Unit, def: UnitDef, ux: number, uz: number, s: number, left: number): [number, number] {
     let allowed = s, side = 0, still = false;
@@ -2179,12 +2180,34 @@ export class Sim {
       if (od.air || this.t < o.downUntil) return;
       // Going the same way (a group on the march): it moves on before this one gets there.
       if (this.goingAlong(o, ux, uz)) return;
-      const ox = o.x - u.x, oz = o.z - u.z;
-      const along = ox * ux + oz * uz;
+      let ox = o.x - u.x, oz = o.z - u.z;
+      let along = ox * ux + oz * uz;
       if (along <= 0) return;
       const gap = def.radius + od.radius + 0.1;
-      const across = ox * uz - oz * ux;
+      let across = ox * uz - oz * ux;
       if (Math.abs(across) >= gap) return;
+      // One of its own army standing in the way is nudged aside, off its line (as a crowd parts for one going
+      // through it); an enemy, one set up and not to be moved, or a Hauler at work, is gone round.
+      if (along < gap + s * 3 && o.owner === u.owner && !o.inside && !(o.chase ?? (o.arrived ? null : o.goal)) && !(od.deploy && o.deployedAt > 0) && !(o.kind === "hauler" && (o.order.k === "gather" || o.order.k === "return"))) {
+        const away = Math.abs(across) > 0.05 ? Math.sign(across) : o.id % 2 ? 1 : -1;
+        const push = Math.min(gap - Math.abs(across), s * 1.2);
+        const nx = o.x + uz * away * push, nz = o.z - ux * away * push;
+        // (Not into a third: where it would go aside is taken, and this one goes round it instead.)
+        let room = true;
+        this.nearby(nx, nz, od.radius + 4, (q) => {
+          if (!room || q === o || q === u || q.dead || q.inside || q.level !== o.level || UNITS[q.kind].air) return;
+          const need = od.radius + UNITS[q.kind].radius + 0.1;
+          const after = Math.hypot(q.x - nx, q.z - nz);
+          // (A little squeeze is allowed: separate() evens it out the next step.)
+          if (after < need - 0.3 && after < Math.hypot(q.x - o.x, q.z - o.z)) room = false;
+        });
+        if (room) this.shift(o, nx, nz, classOf(od));
+        ox = o.x - u.x;
+        oz = o.z - u.z;
+        along = ox * ux + oz * uz;
+        across = ox * uz - oz * ux;
+        if (along <= 0 || Math.abs(across) >= gap) return;
+      }
       // Already in each other: separate() moves them apart; this only keeps it from going deeper.
       const t = Math.max(0, along - Math.sqrt(gap * gap - across * across));
       if (t < allowed) {

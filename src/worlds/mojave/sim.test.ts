@@ -316,6 +316,26 @@ describe("nothing passes through anything", () => {
     expect(units.filter((u) => u.x > (cx + 9) * CELL).length).toBeGreaterThan(units.length * 0.8);
   });
 
+  it("a tank in the middle of its own army standing packed round it drives out: they make way, and nobody is driven into", () => {
+    const { sim, general } = setup();
+    const g = general("p1", 0);
+    const [x0, z0] = OPEN;
+    // Troopers standing in a tight block, a tank in the middle of them.
+    const crowd = [];
+    for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) if (Math.abs(i) > 1 || Math.abs(j) > 1) crowd.push(sim.addUnit("trooper", g.slot, x0 + i * 1.6, z0 + j * 1.6));
+    const tank = sim.addUnit("tank", g.slot, x0, z0);
+    for (let i = 0; i < 20; i++) sim.tick();
+    sim.command(g.slot, [tank.id], { k: "move", x: x0 + 30, z: z0, l: 0 });
+    let worst = 0;
+    for (let i = 0; i < 60; i++) {
+      sim.tick();
+      for (const c of crowd) worst = Math.max(worst, UNITS.tank.radius + UNITS.trooper.radius - Math.hypot(c.x - tank.x, c.z - tank.z));
+    }
+    // Six seconds: out, and most of the way there.
+    expect(tank.x).toBeGreaterThan(x0 + 20);
+    expect(worst).toBeLessThan(0.5);
+  });
+
   it("a Titan goes round a floor too low to walk under; a tank goes under it", () => {
     const { sim, general, piece } = setup();
     const g = general("p1", 0);

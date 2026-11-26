@@ -672,7 +672,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         return;
       }
       case "gens":
-        generals = msg.g;
+        // (For a moment after a new version goes out, a world may still be running the one before, which named one builder to an army: read either.)
+        generals = msg.g.map((g) => ({ ...g, pids: Array.isArray(g.pids) ? g.pids : typeof (g as { pid?: unknown }).pid === "string" && (g as { pid?: string }).pid ? [(g as { pid?: string }).pid!] : [] }));
         cardDirty = true;
         return;
       case "fields":

@@ -247,9 +247,16 @@ function scout(p: Parts): void {
   }
   p.box(TRIM, 1.0, 0.05, 0.72, 0, 1.345, -0.15);
   p.box(STEEL_D, 0.9, 0.35, 0.5, 0, 1.0, -0.3);
+  p.box(AMBER, 0.9, 0.09, 0.05, 0, 0.52, 1.55);
+}
+
+/** The buggy's roof gun, on a ring mount. */
+function scoutHead(p: Parts): void {
+  p.cyl(GRAPHITE, 0.34, 0.34, 0.1, 0, 1.36, -0.1, 8);
   p.box(GRAPHITE, 0.22, 0.18, 0.34, 0, 1.46, -0.1);
   p.rod(GRAPHITE, [0, 1.48, 0], [0, 1.48, 0.85], 0.1);
-  p.box(AMBER, 0.9, 0.09, 0.05, 0, 0.52, 1.55);
+  // A small gun shield in the owner's colour.
+  p.box(TRIM, 0.42, 0.22, 0.04, 0, 1.5, 0.12);
 }
 
 /** Two tracks, from z = -length/2 to length/2. */
@@ -264,7 +271,10 @@ function tank(p: Parts): void {
   p.prism(STEEL, [[-2.3, 0.45], [2.4, 0.45], [2.5, 0.7], [1.1, 1.3], [-2.3, 1.3]], 1.7);
   p.beam(TRIM, [0, 1.2, 1.333], [0, 0.8, 2.267], 1.25, 0.06);
   p.box(GRAPHITE, 1.3, 0.1, 0.9, 0, 1.33, -1.8);
-  // The flat turret and its gun.
+}
+
+/** The tank's flat turret and its gun: it turns on its own, to what it fires at. */
+function tankHead(p: Parts): void {
   p.frustum(STEEL, 1.7, 2.1, 1.2, 1.4, 0.55, 0, 1.3, -0.4, -0.15);
   p.box(TRIM, 1.1, 0.05, 1.3, 0, 1.865, -0.55);
   p.box(STEEL_D, 0.7, 0.4, 0.4, 0, 1.55, 0.6);
@@ -306,8 +316,11 @@ function missile(p: Parts): void {
   p.box(AMBER, 1.5, 0.1, 0.05, 0, 1.0, 2.16);
   p.box(STEEL_D, 2.0, 0.12, 3.0, 0, 0.93, -0.65);
   for (const s of SIDES) p.box(TRIM, 0.06, 0.3, 2.9, s * 1.0, 0.85, -0.65);
+}
+
+/** The missile truck's launcher: a turntable and two pods, angled up, that turn to the drone they fire at. */
+function missileHead(p: Parts): void {
   p.box(GRAPHITE, 1.6, 0.5, 1.0, 0, 1.2, -1.3);
-  // Two pods, angled up toward the front.
   for (const s of SIDES) {
     const from: V3 = [s * 0.5, 1.3, -1.9], to: V3 = [s * 0.5, 2.125, 0.14];
     p.beam(WHITE, from, to, 0.85, 0.7);
@@ -367,11 +380,17 @@ function titan(p: Parts): void {
     p.beam(TRIM, [x, 0.81, 0.41], [x, 2.24, -0.04], 0.5, 0.1);
     p.rod(GRAPHITE, [x - 0.5, 2.25, -0.5], [x + 0.5, 2.25, -0.5], 0.95);
     p.beam(STEEL_D, [x, 2.2, -0.5], [x, 3.8, 0.3], 0.8, 0.9);
+  }
+  p.box(GRAPHITE, 2.6, 0.8, 1.5, 0, 3.9, 0.2);
+}
+
+/** The Titan's upper body, its cannon and its missile pod: it turns at the waist to face what it fires at. */
+function titanHead(p: Parts): void {
+  for (const s of SIDES) {
     // Shoulder armour.
     p.box(TRIM, 0.9, 1.0, 1.9, s * 1.8, 5.75, 0);
     p.box(GRAPHITE, 0.5, 0.9, 0.5, s * 0.6, 6.55, -1.25);
   }
-  p.box(GRAPHITE, 2.6, 0.8, 1.5, 0, 3.9, 0.2);
   // The hunched hull.
   p.prism(STEEL, [[-1.5, 4.2], [1.3, 4.2], [2.1, 5.0], [1.4, 6.3], [-0.7, 6.7], [-1.8, 5.7]], 2.6);
   p.beam(CYAN, [0, 5.4, 1.885], [0, 5.8, 1.669], 1.6, 0.08);
@@ -650,6 +669,33 @@ function laser(p: Parts): void {
   p.cyl(TRIM, 1.5, 1.9, 0.5, 0, 4.2, 0, 8);
   for (const s of SIDES) p.box(TRIM, 0.2, 1.3, 0.5, s * 0.85, 5.1, 0);
   p.ball(VIOLET, 1.5, 0, 5.3, 0);
+}
+
+/**
+ * The parts of a vehicle that turn on their own to aim (a turret, a launcher,
+ * a Titan's upper body): drawn turned about `pivot` (in the vehicle's own
+ * frame: right, up, ahead) to the aim the server sends, while the hull keeps
+ * to the way it drives. `muzzles`: where its shots leave it, in the same
+ * frame before turning (taking turns, when there are several). `recoil`: how
+ * far the gun kicks back when it fires, m.
+ */
+export const UNIT_HEADS: Readonly<Partial<Record<UnitKind, { pivot: V3; muzzles: readonly V3[]; recoil: number }>>> = {
+  tank: { pivot: [0, 0, -0.4], muzzles: [[0, 1.55, 2.95]], recoil: 0.35 },
+  scout: { pivot: [0, 0, -0.1], muzzles: [[0, 1.48, 0.9]], recoil: 0.05 },
+  missile: { pivot: [0, 0, -1.1], muzzles: [[-0.5, 2.15, 0.2], [0.5, 2.15, 0.2]], recoil: 0.1 },
+  titan: { pivot: [0, 0, 0], muzzles: [[1.8, 4.7, 3.35], [-1.8, 4.65, 1.25]], recoil: 0.3 },
+};
+/** Where the shots of a unit that turns as a whole leave it, in its own frame: a Trooper's rifle as it aims, a drone's gun, the rail. */
+export const UNIT_MUZZLES: Readonly<Partial<Record<UnitKind, V3>>> = { trooper: [0.3, 1.42, 1.25], gunship: [0, 0.09, 1.55], artillery: [0, 4.75, 2.75] };
+const UNIT_HEAD_MODELS: Readonly<Partial<Record<UnitKind, (p: Parts) => void>>> = { tank: tankHead, scout: scoutHead, missile: missileHead, titan: titanHead };
+
+/** The part of a vehicle that turns to aim (see UNIT_HEADS), in the vehicle's own frame, or null when it has none. */
+export function unitHeadModel(kind: UnitKind, scene: Scene): Model | null {
+  const make = UNIT_HEAD_MODELS[kind];
+  if (!make) return null;
+  const p = parts(scene);
+  make(p);
+  return p.done(`mojave-${kind}-gun`);
 }
 
 const UNIT_MODELS: Readonly<Record<UnitKind, (p: Parts) => void>> = { hauler, trooper, scout, tank, artillery, missile, gunship, transport, emp, titan };

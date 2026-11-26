@@ -294,7 +294,23 @@ check("Backspace from there goes back to the orders, with the army still selecte
 await aim(a, [enemyAt[0] - back[0] * 10, 0, enemyAt[1] - back[1] * 10]);
 // Watch what is drawn while they fight: who is thrown, and how Troopers are posed.
 await sf(a, () => {
-  window.seen = { thrownTroopers: 0, thrownOthers: 0, flail: 0, down: 0, aim: 0, flinch: 0, bulletThrows: 0 };
+  window.seen = { thrownTroopers: 0, thrownOthers: 0, flail: 0, down: 0, aim: 0, flinch: 0, bulletThrows: 0, maxPuffs: 0, maxChunks: 0, tankAim: 0, tracers: 0, muzzleOk: 0 };
+  // Every shot drawn: does it leave the shooter's muzzle (not its middle)?
+  const army = window.snapfort.feature.army;
+  const shots = army.shots.bind(army);
+  army.shots = (list, now) => {
+    const before = army.tracers.length;
+    shots(list, now);
+    for (let i = 0; i + 10 <= list.length; i += 10) {
+      const by = (list[i + 6] >> 3) - 1, u = army.units.get(by);
+      if (!u || u.tumble || (list[i + 6] & 7) !== 0) continue;
+      const t = army.tracers[army.tracers.length - 1];
+      if (!t || army.tracers.length === before) continue;
+      window.seen.tracers++;
+      const middle = Math.hypot(t.fx - u.x, t.fz - u.z) > 0.6 || t.fy - u.y > 1.0;
+      if (middle) window.seen.muzzleOk++;
+    }
+  };
   const count = (re) => window.snapfort.scene.meshes.filter((m) => re.test(m.name) && m.isEnabled()).reduce((n, m) => n + (m.thinInstanceCount || 0), 0);
   window.watch = setInterval(() => {
     for (const u of window.snapfort.feature.army.units.values()) if (u.tumble) u.kind === "trooper" ? window.seen.thrownTroopers++ : window.seen.thrownOthers++;
@@ -302,6 +318,10 @@ await sf(a, () => {
     window.seen.down += count(/^mojave-trooper-down$/);
     window.seen.aim += count(/^mojave-trooper-aim$/);
     window.seen.flinch += count(/^mojave-trooper-flinch$/);
+    const f = window.snapfort.feature;
+    window.seen.maxPuffs = Math.max(window.seen.maxPuffs, f.army.puffs.length);
+    window.seen.maxChunks = Math.max(window.seen.maxChunks, f.army.chunks.length);
+    for (const u of f.army.units.values()) if (u.kind === "tank" && !u.tumble && Math.abs(Math.atan2(Math.sin(u.a - u.h), Math.cos(u.a - u.h))) > 0.35) window.seen.tankAim++;
   }, 50);
 });
 await click(a);
@@ -324,6 +344,10 @@ check("a Trooper standing to fire on the way somewhere holds the rifle up: nobod
 wa = await war(a);
 const enemiesLeft = wa.units.filter((u) => u.owner === 8 && Math.hypot(u.x - enemyAt[0], u.z - enemyAt[1]) < 40).length;
 check("an attack-move fights what it meets: the enemy line is destroyed", enemiesLeft <= 2, `${enemiesLeft} of 12 left`);
+const look = await sf(a, () => { const f = window.snapfort.feature; return { puffs: f.army.puffs.length + window.seen.maxPuffs, chunks: window.seen.maxChunks, scorches: f.army.scorches.length, tankAim: window.seen.tankAim, tracersFromMuzzle: window.seen.muzzleOk, tracers: window.seen.tracers }; });
+check("explosions leave smoke rising, pieces thrown out, and scorch marks on the ground", look.puffs > 5 && look.chunks > 3 && look.scorches > 0, JSON.stringify(look));
+check("a tank's turret turns on its own: laid on its target while its hull points elsewhere", look.tankAim > 0, JSON.stringify(look));
+check("shots leave the end of the barrel or rifle, not the middle of the body", look.tracers > 10 && look.tracersFromMuzzle / look.tracers > 0.9, JSON.stringify(look));
 const fought = await sf(a, () => { clearInterval(window.watch); return window.seen; });
 check("tank shells throw units through the air; thrown Troopers fly flailing, and lie a moment where they land", fought.thrownTroopers > 0 && fought.flail > 0 && fought.down > 0, JSON.stringify(fought));
 check("Troopers bring their rifles up to fire, and flinch when a bullet finds them", fought.aim > 0 && fought.flinch > 0, JSON.stringify(fought));
@@ -346,6 +370,24 @@ check("a turret's head turns to face what it fires on, one way and then another"
 const muzzle = await sf(a, ([id, x, z]) => new Promise((res) => { const s = window.snapfort, f = s.feature; const shots = f.army.shots.bind(f.army); let found = null; f.army.shots = (list, now) => { shots(list, now); const t = f.army.tracers[f.army.tracers.length - 1]; if (t && Math.hypot(t.fx - x, t.fz - z) < 4) found = { fromCentre: Math.hypot(t.fx - x, t.fz - z), up: t.fy }; }; s.net.sendWorld({ m: "dev", do: "spawn", kind: "tank", n: 1, slot: 8, at: [x + 20, 0, z + 12] }); setTimeout(() => { f.army.shots = shots; res(found); }, 4000); }), [sentryId, post[0], post[1]]);
 check("its shots are drawn from the ends of its barrels, not from its middle", !!muzzle && muzzle.fromCentre > 2 && muzzle.fromCentre < 3 && Math.abs(muzzle.up - 2.75) < 0.1, JSON.stringify(muzzle));
 await dev(a, { do: "kill", slot: 8 });
+
+// ── Nothing walks through anything ───────────────────────────────────────
+const parked = await sf(a, () => { const f = window.snapfort.feature; const t = [...f.army.units.values()].find((u) => u.kind === "tank" && u.owner === f.slot && !u.tumble); return t ? [t.x, t.z, t.id] : null; });
+if (parked) {
+  await sf(a, ([, , id]) => window.snapfort.net.sendWorld({ m: "order", ids: [id], k: "hold" }), parked);
+  await wait(1500);
+  const t = await sf(a, (id) => { const u = window.snapfort.feature.army.units.get(id); return [u.x, u.z, u.h]; }, parked[2]);
+  // Coming at it from its side, square on.
+  const sx = Math.cos(t[2]), sz = -Math.sin(t[2]);
+  await sf(a, ([x, z, sx, sz]) => { const s = window.snapfort; s.player.teleport(x - sx * 8, 0.95, z - sz * 8); s.rig.yaw = Math.atan2(sx, sz); s.rig.pitch = 0.1; }, [t[0], t[1], sx, sz]);
+  await wait(500);
+  await a.keyboard.down("w");
+  await wait(2200);
+  await a.keyboard.up("w");
+  const gap = await sf(a, ([x, z]) => { const p = window.snapfort.player.position; return Math.hypot(p.x - x, p.z - z); }, t);
+  const why = await sf(a, ([id]) => { const f = window.snapfort.feature, u = f.army.units.get(id), p = window.snapfort.player.position; return { tank: u ? [u.x.toFixed(1), u.z.toFixed(1), u.tumble ? "tumbling" : "", u.goneAt] : null, me: [p.x.toFixed(1), p.y.toFixed(2), p.z.toFixed(1)], inUse: f.bodies.inUse, first: f.bodies.slots.slice(0, 3).map((s) => [s.shape, s.node.position.x.toFixed(1), s.node.position.y.toFixed(1), s.node.position.z.toFixed(1)]), down: window.snapfort.player.knockedDown }; }, [parked[2]]);
+  check("a general walking into a tank is stopped against its side, not let through", gap > 1.9 && gap < 3.5, `${gap.toFixed(2)} m from its middle ${JSON.stringify(why)}`);
+}
 
 // ── A second general, far away: neither sees the other ───────────────────
 const b = await open("B", keyB);

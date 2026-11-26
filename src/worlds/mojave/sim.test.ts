@@ -5,7 +5,7 @@ import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
 import { BUILDINGS, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
 import { STARTS } from "./map";
-import { DT, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
+import { DT, emptyHappened, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
 import { HALF_CELLS, world } from "./world";
 
 /** A room that remembers what the war asked of it. */
@@ -252,6 +252,159 @@ describe("getting about", () => {
     run(12);
     expect(u.cx === cx && u.cz === cz).toBe(false);
     expect(u.order.k).toBe("stop");
+  });
+});
+
+describe("each soldier thinks for itself", () => {
+  function twoSides() {
+    const s = setup();
+    const a = s.general("pa", 0), b = s.general("pb", 4);
+    return { ...s, a, b };
+  }
+  /** A block of Troopers, `n` of them, `rows` deep, with its middle at (x, z), facing along z. */
+  function squad(sim: Sim, slot: number, n: number, x: number, z: number) {
+    const per = Math.ceil(Math.sqrt(n * 2));
+    return Array.from({ length: n }, (_, i) => sim.addUnit("trooper", slot, x + ((i % per) - per / 2) * 2.2, z + Math.floor(i / per) * 2.2));
+  }
+  /** Who fired, and at whom, over the steps run. */
+  function watchShots(sim: Sim, run: (s: number) => void) {
+    const shooters = new Set<number>(), hits = new Map<number, number>();
+    return (seconds: number) => {
+      for (let i = 0; i < seconds * 10; i++) {
+        run(0.1);
+        for (const shot of sim.happened.shots) {
+          if (shot.by) shooters.add(shot.by);
+          if (shot.hit > 0) hits.set(shot.hit, (hits.get(shot.hit) ?? 0) + 1);
+        }
+        sim.happened = emptyHappened();
+      }
+      return { shooters, hits };
+    };
+  }
+
+  it("twenty attack-moving into twenty: nearly every soldier fires, at targets of its own, not all at one", () => {
+    const { sim, a, b, run } = twoSides();
+    const red = squad(sim, a.slot, 20, OPEN[0], OPEN[1]);
+    const blue = squad(sim, b.slot, 20, OPEN[0], OPEN[1] + 45);
+    sim.command(a.slot, red.map((u) => u.id), { k: "amove", x: OPEN[0], z: OPEN[1] + 45, l: 0 });
+    sim.command(b.slot, blue.map((u) => u.id), { k: "amove", x: OPEN[0], z: OPEN[1], l: 0 });
+    const { shooters, hits } = watchShots(sim, run)(15);
+    const redFired = red.filter((u) => shooters.has(u.id)).length, blueFired = blue.filter((u) => shooters.has(u.id)).length;
+    expect(redFired).toBeGreaterThanOrEqual(18);
+    expect(blueFired).toBeGreaterThanOrEqual(18);
+    const total = [...hits.values()].reduce((x, y) => x + y, 0);
+    expect(Math.max(...hits.values())).toBeLessThan(total / 3);
+    // Many targets were shot at, not a few.
+    expect(hits.size).toBeGreaterThan(12);
+  });
+
+  it("a plain move goes past enemies without a shot", () => {
+    const { sim, a, b, run } = twoSides();
+    const red = squad(sim, a.slot, 6, OPEN[0], OPEN[1]);
+    squad(sim, b.slot, 4, OPEN[0] + 30, OPEN[1] + 20);
+    for (const u of [...sim.units]) if (u.owner === b.slot) sim.command(b.slot, [u.id], { k: "hold" });
+    sim.command(a.slot, red.map((u) => u.id), { k: "move", x: OPEN[0], z: OPEN[1] + 45, l: 0 });
+    const { shooters } = watchShots(sim, run)(5);
+    expect(red.some((u) => shooters.has(u.id))).toBe(false);
+  });
+
+  it("standing soldiers go after an enemy they see, fight, and come back to where they stood; held ones never move", () => {
+    const { sim, a, b, run } = twoSides();
+    const guards = squad(sim, a.slot, 4, OPEN[0], OPEN[1]);
+    const holders = squad(sim, a.slot, 3, OPEN[0] - 30, OPEN[1]);
+    sim.command(a.slot, holders.map((u) => u.id), { k: "hold" });
+    run(0.5);
+    const stood = guards.map((u) => [u.x, u.z]), held = holders.map((u) => [u.x, u.z]);
+    // An enemy 40 m off: out of a rifle's 28, inside its 45 of sight.
+    const enemy = sim.addUnit("hauler", b.slot, OPEN[0], OPEN[1] + 40);
+    sim.command(b.slot, [enemy.id], { k: "hold" });
+    const { shooters } = watchShots(sim, run)(12);
+    expect(enemy.dead).toBe(true);
+    expect(guards.filter((u) => shooters.has(u.id)).length).toBeGreaterThanOrEqual(2);
+    run(15);
+    guards.forEach((u, i) => expect(Math.hypot(u.x - stood[i]![0]!, u.z - stood[i]![1]!)).toBeLessThan(3.5));
+    holders.forEach((u, i) => expect(Math.hypot(u.x - held[i]![0]!, u.z - held[i]![1]!)).toBeLessThan(0.5));
+  });
+
+  it("an enemy that keeps going is let go: a guard does not follow it across the map", () => {
+    const { sim, a, b, run } = twoSides();
+    const [guard] = squad(sim, a.slot, 1, OPEN[0], OPEN[1]);
+    run(0.5);
+    const runner = sim.addUnit("tank", b.slot, OPEN[0], OPEN[1] + 40);
+    runner.hp = 100_000;
+    sim.command(b.slot, [runner.id], { k: "move", x: OPEN[0], z: OPEN[1] + 200, l: 0 });
+    run(30);
+    expect(Math.hypot(guard!.x - OPEN[0], guard!.z - OPEN[1])).toBeLessThan(5);
+  });
+
+  it("a group told to attack one building spreads round it, each to a firing spot of its own", () => {
+    const { sim, a, b, run } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    const target = sim.addBuilding("foundry", b.slot, cx, cz + 14, true);
+    target.hp = 1e9;
+    const red = squad(sim, a.slot, 12, OPEN[0], OPEN[1] - 10);
+    sim.command(a.slot, red.map((u) => u.id), { k: "attack", tk: T_BUILDING, id: target.id });
+    run(25);
+    const c = sim.centreOf(target);
+    const angles = red.map((u) => Math.atan2(u.x - c[0], u.z - c[2])).sort((x, y) => x - y);
+    expect(((angles[angles.length - 1]! - angles[0]!) * 180) / Math.PI).toBeGreaterThan(120);
+    // And they all fire.
+    const { shooters } = watchShots(sim, run)(4);
+    expect(red.filter((u) => shooters.has(u.id)).length).toBeGreaterThanOrEqual(11);
+  });
+
+  it("a patrol keeps its shape, leg after leg: no pile", () => {
+    const { sim, a, run } = twoSides();
+    const red = squad(sim, a.slot, 12, OPEN[0], OPEN[1]);
+    const spacing = (list: Unit[]) => {
+      let sum = 0, n = 0, min = Infinity;
+      for (const p of list) for (const q of list) {
+        if (p === q) continue;
+        const d = Math.hypot(p.x - q.x, p.z - q.z);
+        sum += d;
+        n++;
+        min = Math.min(min, d);
+      }
+      return { mean: sum / n, min };
+    };
+    const start = spacing(red);
+    sim.command(a.slot, red.map((u) => u.id), { k: "patrol", x: OPEN[0] + 60, z: OPEN[1], l: 0, bx: OPEN[0], bz: OPEN[1], bl: 0 });
+    run(45);
+    const later = spacing(red);
+    expect(later.min).toBeGreaterThan(1);
+    expect(later.mean).toBeGreaterThan(start.mean * 0.8);
+    expect(red.every((u) => u.order.k === "patrol" && u.order.px !== undefined)).toBe(true);
+  });
+
+  it("soldiers step round a general standing in their way", () => {
+    const { sim, a, run, host } = twoSides();
+    host.at.set("pa", [OPEN[0], 0.95, OPEN[1] + 15]);
+    const red = squad(sim, a.slot, 6, OPEN[0], OPEN[1]);
+    sim.command(a.slot, red.map((u) => u.id), { k: "move", x: OPEN[0], z: OPEN[1] + 30, l: 0 });
+    let nearest = Infinity;
+    for (let i = 0; i < 100; i++) {
+      run(0.1);
+      for (const u of red) nearest = Math.min(nearest, Math.hypot(u.x - OPEN[0], u.z - (OPEN[1] + 15)) - UNITS.trooper.radius);
+    }
+    expect(nearest).toBeGreaterThan(0.45);
+    expect(red.filter((u) => u.z > OPEN[1] + 25).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("a tank's gun turns to its target while its hull keeps to the way it drives", () => {
+    const { sim, a, b, run } = twoSides();
+    const tank = sim.addUnit("tank", a.slot, OPEN[0], OPEN[1]);
+    const target = sim.addUnit("tank", b.slot, OPEN[0] + 25, OPEN[1] + 25);
+    target.hp = 1e9;
+    sim.command(b.slot, [target.id], { k: "hold" });
+    sim.command(a.slot, [tank.id], { k: "amove", x: OPEN[0], z: OPEN[1] + 60, l: 0 });
+    let apart = 0;
+    for (let i = 0; i < 40; i++) {
+      run(0.1);
+      if (tank.tk && Math.abs(Math.atan2(Math.sin(tank.aim - tank.heading), Math.cos(tank.aim - tank.heading))) > 0.4) apart++;
+    }
+    expect(apart).toBeGreaterThan(5);
+    // (On it, near enough: each shell throws the target a few metres, after the gun was laid.)
+    expect(Math.abs(Math.atan2(Math.sin(tank.aim - Math.atan2(target.x - tank.x, target.z - tank.z)), Math.cos(tank.aim - Math.atan2(target.x - tank.x, target.z - tank.z))))).toBeLessThan(0.35);
   });
 });
 

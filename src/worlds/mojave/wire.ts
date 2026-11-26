@@ -10,7 +10,8 @@ import type { BuildingKind, UnitKind, UpgradeKind } from "./kit";
 export const UNIT_FIELDS = 9;
 /**
  * id, kind × 16 + owner, x, y, z (decimetres), heading (0..255 round the
- * circle), health (0..100), flags, and what it carries (a Hauler's load, a
+ * circle; above that, 256 × (aim + 1), where its gun points: a vehicle's
+ * turret turns on its own; 0 there means along the hull), health (0..100), flags, and what it carries (a Hauler's load, a
  * transport's passengers).
  */
 export const F_MOVING = 1, F_FIRING = 2, F_DEPLOYED = 4, F_STUNNED = 8, F_DOWN = 16, F_LOADED = 32, F_DIGGING = 64, F_HIT = 128;
@@ -76,7 +77,7 @@ export type ToPage =
       b?: WireBuilding[];
       /** Buildings gone: id, why (1 destroyed, 2 gone with their general). */
       bx?: number[];
-      /** Shots: from x y z, to x y z (decimetres), look, tenths of a second in the air, owner, what was hit (a unit's id, minus a building's, or 0). */
+      /** Shots: from x y z, to x y z (decimetres), look (+ 8 × (the id of the unit that fired + 1), 0 for a building), tenths of a second in the air, owner, what was hit (a unit's id, minus a building's, or 0). */
       s?: number[];
       /** Units thrown: id, from x y z, to x y z (decimetres), tenths of a second. */
       k?: number[];

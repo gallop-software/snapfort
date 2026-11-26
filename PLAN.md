@@ -579,3 +579,24 @@ Where this differs from the second pass above, this holds.
 **Live since 2026-11-25** (live build 20261126043243 and a fix after it). The live room went on running the code before for about ten minutes after the deploy, with two players connected to it throughout; in that time a fresh page broke against it (it was sent one builder to an army, where it expected a list), so the page now reads both. `node qa/_live-room.mjs` says which rules the live room is running. Once it had moved on: `node qa/_live.mjs` and `node qa/_live2.mjs` pass (two generals on the testing key are offered the eight armies, choose orange and teal, command, open the row's menus and the map; no errors; the war as it stood was kept, with what the computers had built).
 
 **Not done**: the menu's card picture is still the first one; the menu button still says "Visit Mojave" to someone without the Full Game; "Click or press any key to keep building" is the shared wording; a general arriving faces where the army's first Core stands, which another building may hide; tanks' and Titans' guns do not turn; a real phone.
+
+## Mojave: soldiers that think, bodies that collide, fire that looks real (user, 2026-11-25: "each individual soldier needs to act intelligently and independently from the herd... they all need to be highly effective, and not standing in a line or half the group not shooting... if they are patrolling, they can't all just be in a giant mass of pile going in circles... fix players and generals intersecting... soldiers are aiming and hitting what they are aiming at. turrets on a tank move to accurately hit their target")
+
+**Decided with the user**: a plain Move ignores enemies, as in StarCraft; idle units go and fight what they see, then return (Hold keeps them rooted); nothing walks through anything, generals included.
+
+**What changed**
+- Each unit chooses its own target by score: near, suited to its weapon, nearly finished, shooting at it, not already covered by others' fire (damage aimed at each target is counted each step), with a little of its own so neighbours differ. It looks again about once a second.
+- Standing, attack-moving and patrolling units go after what they see (sight, not only range), each to a firing spot of its own round the target; standing ones walk back to where they stood, and give up an enemy more than 1.5 times their range plus 10 m from there. Shot at from out of sight, a standing unit goes to look for 8 seconds.
+- An attack order fans the group round the target, by their places across the line to it.
+- Patrols keep each unit's place at both ends.
+- Soldiers in a fight keep 1.4 m more room between them, and step out from where a shell is about to land.
+- Units on the move step round generals. On the page, 32 physics bodies (in the builders' collision group, so the camera and crosshair pass through) stand on the units and other generals nearest the general, who cannot walk through them. This is in Mojave only; the other worlds are unchanged.
+- Vehicles' turrets (tank, buggy's roof gun, missile launcher, Titan's upper body) turn to the aim the server sends, separately from the hull; the gun kicks back when it fires. Shots leave the muzzle (alternating, where there are two) and land on a point of the target's body facing the shot, with sparks on metal and dust elsewhere.
+- Vehicles jolt when hit, smoke below half health and burn below a quarter. Explosions have a fireball, rising see-through smoke, debris, a ring and a scorch mark that fades over 20 seconds. A destroyed vehicle's turret is blown into the air.
+- Wire: the aim rides above the heading (heading + 256 × (aim + 1)); the shooter's id above a shot's look (look + 8 × (id + 1)). Both read as before when absent.
+
+**Measured**: the 1,700-unit unit test 8.5 ms a step on average (it was about 6), the load test 10.9 ms (worst 82); the commanding page 61 fps, the phone-sized page 31 fps with all the new effects. Battles end much sooner: 1,700 → 536 units in a minute (it was about 1,130), since nobody stands idle.
+
+**QA**: 421 unit tests, 8 new for this (twenty against twenty: at least 18 of each side fire and no target takes a third of the shots; a Move fires nothing; guards close in and come back, holders never move; a runner is let go; a group spreads over 120 degrees round a building; a patrol keeps its spacing; units step round a general; a tank's aim and hull differ). `qa:mojave` 97 (new: smoke, debris and scorch; turret aim apart from the hull; shots from the muzzle; a general stopped against a tank), `qa:mojave-mobile` 48, `qa:mojave-chaos` 11, `qa:mojave-load` 10; reference pictures unchanged in all four worlds.
+
+**Not done**: Rail artillery turns its whole hull to aim (its rails are fixed to it) rather than a separate launcher; drones turn as a whole; buildings' collision for generals was already there.

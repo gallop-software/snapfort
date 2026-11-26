@@ -355,7 +355,9 @@ function sendAll(room: Room): void {
   for (const u of sim.units) {
     if (u.dead || u.inside) continue;
     const x = dm(u.x), y = dm(u.y), z = dm(u.z);
-    const heading = Math.round(((((u.heading % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * 255) & 255;
+    const byte = (a: number) => Math.round(((((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * 255) & 255;
+    // The hull's heading, and (above it) where the gun points, plus one: 0 there says "along the hull" (see wire.ts).
+    const heading = byte(u.heading) + 256 * (byte(u.aim) + 1);
     const hp = Math.max(1, Math.round((u.hp / UNITS[u.kind].hp) * 100));
     const flags = flagsOf(sim, u);
     const extra = u.kind === "transport" ? u.cargo.length : Math.round(u.carry);
@@ -437,7 +439,8 @@ function sendAll(room: Room): void {
     const s: number[] = [];
     for (const shot of h.shots) {
       if (!seesSpot(shot.from[0], shot.from[2]) && !seesSpot(shot.to[0], shot.to[2])) continue;
-      s.push(dm(shot.from[0]), dm(shot.from[1]), dm(shot.from[2]), dm(shot.to[0]), dm(shot.to[1]), dm(shot.to[2]), LOOKS.indexOf(shot.look), Math.round(shot.time * 10), shot.owner, shot.hit);
+      // (The look, and above it who fired, plus one: see wire.ts.)
+      s.push(dm(shot.from[0]), dm(shot.from[1]), dm(shot.from[2]), dm(shot.to[0]), dm(shot.to[1]), dm(shot.to[2]), LOOKS.indexOf(shot.look) + 8 * ((shot.by ?? 0) + 1), Math.round(shot.time * 10), shot.owner, shot.hit);
     }
     if (s.length) out.s = s;
     const k: number[] = [];

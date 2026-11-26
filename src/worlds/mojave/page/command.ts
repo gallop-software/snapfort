@@ -21,6 +21,7 @@ import { ARMY_COLOR_NAMES, ARMY_COLORS, BUILD_REACH, generalSight } from "../sim
 import type { ToPage, ToServer, WireGeneral, WireSpot, WireTarget } from "../wire";
 import { HALF_CELLS } from "../world";
 import { ArmyView, type SeenBuilding, type SeenField, type SeenUnit } from "./army";
+import { Bodies } from "./bodies";
 import { ICONS } from "./icons";
 import { Panel, type MapDot } from "./panel";
 import { Sight } from "./sight";
@@ -79,6 +80,8 @@ const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string]
 export function startCommand(game: PageGame): WorldFeature & Record<string, unknown> {
   const army = new ArmyView(game);
   const sight = new Sight();
+  /** What this general cannot walk through: the units and other generals nearest them. */
+  const bodies = new Bodies(game.scene);
   const panel = new Panel();
   panel.badge = (html) => game.badge(html);
   const reports = new Map<number, Report>();
@@ -1025,6 +1028,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
 
     army.update(now);
+    // (Only while a general here: someone not in the war walks nowhere among it.)
+    if (slot >= 0) {
+      const others: [number, number, number][] = [];
+      for (const o of game.others()) if (o.position && generals.some((g) => g.pids.includes(o.id))) others.push(o.position);
+      bodies.update(game.player.position, army.units.values(), others);
+    }
 
     if (now - mapAt > (mapOn ? 60 : 220)) {
       mapAt = now;
@@ -1144,6 +1153,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     },
     // (Kept in reach for the checks that drive the game.)
     army,
+    bodies,
     sight,
     reports,
     panel,

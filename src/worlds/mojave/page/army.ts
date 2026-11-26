@@ -3,6 +3,7 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
+import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -17,7 +18,7 @@ import type { PageGame } from "../../pageDoors";
 import { BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
 import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
 import { Many, place, rgbOf, turn } from "./many";
-import { buildingModel, crystalModel, headModel, MUZZLES, unitModel, ventModel } from "./models";
+import { buildingModel, crystalModel, headModel, MUZZLES, UNIT_HEADS, UNIT_MUZZLES, unitHeadModel, unitModel, ventModel } from "./models";
 import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, runFrame, TROOPER_MIDDLE, Troopers } from "./troopers";
 
 /**
@@ -50,11 +51,20 @@ export interface SeenUnit {
   tz: number;
   th: number;
   at: number;
+  /** Where its gun points: when the last word came, as that word has it, and as drawn now (a vehicle's turret turns on its own). */
+  fa: number;
+  ta: number;
+  a: number;
   /** Where it is drawn now. */
   x: number;
   y: number;
   z: number;
   h: number;
+  /** When it last fired (ms), and which of its muzzles fires next. */
+  firedAt: number;
+  muzzle: number;
+  /** When it last gave off smoke (a vehicle badly hit). */
+  smokeAt: number;
   hp: number;
   flags: number;
   extra: number;
@@ -105,6 +115,18 @@ interface Tracer { fx: number; fy: number; fz: number; tx: number; ty: number; t
 interface Shell { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; arc: number }
 interface Flash { x: number; y: number; z: number; start: number; ms: number; size: number; color: [number, number, number]; ring: boolean }
 interface Spark { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number; ms: number; color: [number, number, number] }
+/** Smoke: rises, spreads and thins. */
+interface Puff { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number; ms: number; size: number; grow: number; shade: number }
+/** A piece thrown out by an explosion: falls, tumbles, lies a moment. */
+interface Chunk { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number; ms: number; size: number; spin: number; shade: number }
+/** Where something blew up: a dark mark on the ground that fades. */
+interface Scorch { x: number; z: number; size: number; start: number }
+/** A vehicle's turret blown off it as it is destroyed. */
+interface Lid { kind: UnitKind; color: [number, number, number]; x: number; y: number; z: number; vx: number; vy: number; vz: number; yaw: number; spin: number; start: number }
+
+/** How long a scorch mark lasts, ms, and how many there may be at once. */
+const SCORCH_MS = 20_000;
+const SCORCHES = 160;
 
 export class ArmyView {
   readonly units = new Map<number, SeenUnit>();
@@ -143,6 +165,16 @@ export class ArmyView {
   private readonly shells: Shell[] = [];
   private readonly flashes: Flash[] = [];
   private readonly sparks: Spark[] = [];
+  private readonly puffs: Puff[] = [];
+  private readonly chunks: Chunk[] = [];
+  private readonly scorches: Scorch[] = [];
+  private readonly lids: Lid[] = [];
+  /** The parts of vehicles that turn to aim (see UNIT_HEADS). */
+  private readonly gunBody = new Map<UnitKind, Many>();
+  private readonly gunTrim = new Map<UnitKind, Many>();
+  private readonly smokeMesh: Many;
+  private readonly chunkMesh: Many;
+  private readonly scorchMesh: Many;
   private readonly solid: PhysicsShapeBox[] = [];
   private readonly troopers: Troopers;
   /** Units that have gone out of view, shrinking away. */
@@ -184,6 +216,11 @@ export class ArmyView {
       const model = unitModel(kind, scene);
       this.unitBody.set(kind, prepare(model.body, false, matt, true));
       this.unitTrim.set(kind, prepare(model.trim, true, matt, false));
+      const gun = unitHeadModel(kind, scene);
+      if (gun) {
+        this.gunBody.set(kind, prepare(gun.body, false, matt, true));
+        this.gunTrim.set(kind, prepare(gun.trim, true, matt, false));
+      }
     }
     for (const kind of BUILDING_KINDS) {
       const model = buildingModel(kind, scene);
@@ -211,6 +248,17 @@ export class ArmyView {
     this.flashMesh = prepare(CreateSphere("mojave-flash", { diameter: 1, segments: 8 }, scene), true, glow, false);
     this.pulseMesh = prepare(CreateTorus("mojave-pulse", { diameter: 2, thickness: 0.2, tessellation: 28 }, scene), true, glow, false);
     this.sparkMesh = prepare(CreateBox("mojave-spark", { size: 1 }, scene), true, glow, false);
+    // Smoke: soft grey, see-through. Debris: dark chunks that cast shadows. Scorch: a dark mark lying on the ground.
+    const smoke = new StandardMaterial("mojave-smoke", scene);
+    smoke.specularColor = Color3.Black();
+    smoke.alpha = 0.5;
+    this.smokeMesh = prepare(CreateSphere("mojave-smoke", { diameter: 1, segments: 6 }, scene), true, smoke, false);
+    this.chunkMesh = prepare(CreateBox("mojave-chunk", { size: 1 }, scene), true, matt, true);
+    const scorch = new StandardMaterial("mojave-scorch", scene);
+    scorch.specularColor = Color3.Black();
+    scorch.alpha = 0.55;
+    scorch.zOffset = -2;
+    this.scorchMesh = prepare(CreateCylinder("mojave-scorch", { diameter: 1, height: 0.02, tessellation: 14 }, scene), true, scorch, false);
   }
 
   /**
@@ -241,7 +289,7 @@ export class ArmyView {
     this.leaving.length = 0;
     for (const b of this.buildings.values()) this.unsolid(b);
     this.buildings.clear();
-    this.tracers.length = this.shells.length = this.flashes.length = this.sparks.length = 0;
+    this.tracers.length = this.shells.length = this.flashes.length = this.sparks.length = this.puffs.length = this.chunks.length = this.lids.length = 0;
   }
 
   setFields(list: readonly WireField[]): void {
@@ -254,12 +302,18 @@ export class ArmyView {
     for (let i = 0; i + UNIT_FIELDS <= u.length; i += UNIT_FIELDS) {
       const id = u[i]!, kind = UNIT_KINDS[u[i + 1]! >> 4], owner = u[i + 1]! & 15;
       if (!kind) continue;
-      const x = u[i + 2]! / 10, y = u[i + 3]! / 10, z = u[i + 4]! / 10, h = (u[i + 5]! / 255) * Math.PI * 2;
+      const x = u[i + 2]! / 10, y = u[i + 3]! / 10, z = u[i + 4]! / 10;
+      // The hull's heading, and above it where the gun points, plus one (0: along the hull; see wire.ts).
+      const raw = u[i + 5]!;
+      const h = ((raw & 255) / 255) * Math.PI * 2, gun = Math.floor(raw / 256);
+      const a = gun > 0 ? ((gun - 1) / 255) * Math.PI * 2 : h;
       let unit = this.units.get(id);
       if (!unit) {
-        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, going: false, seenAt: now, goneAt: 0 };
+        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, going: false, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0 };
         this.units.set(id, unit);
       } else {
+        unit.fa = unit.a;
+        unit.ta = a;
         unit.going = Math.hypot(x - unit.tx, z - unit.tz) > 0.12;
         unit.fx = unit.x;
         unit.fy = unit.y;
@@ -291,7 +345,16 @@ export class ArmyView {
         this.leaving.push(unit);
         this.onUnseen(unit);
       }
-      if (x[i + 1] === 1) this.burst(unit.x, unit.y + UNITS[unit.kind].height * 0.5, unit.z, UNITS[unit.kind].radius, rgbOf(this.colorOf(unit.owner)), now);
+      if (x[i + 1] === 1) {
+        const def = UNITS[unit.kind];
+        this.burst(unit.x, unit.y + def.height * 0.5, unit.z, def.radius, rgbOf(this.colorOf(unit.owner)), now);
+        // A vehicle blows up: a fireball, smoke, pieces thrown out, a scorch mark, and its turret blown up into the air.
+        if (unit.kind !== "trooper") this.explode(unit.x, def.air ? unit.y : unit.y + 0.6, unit.z, def.radius * 1.4, now, !def.air);
+        if (this.gunBody.has(unit.kind)) {
+          const a = Math.random() * Math.PI * 2;
+          this.lids.push({ kind: unit.kind, color: rgbOf(this.colorOf(unit.owner)), x: unit.x, y: unit.y, z: unit.z, vx: Math.sin(a) * 2.5, vy: 9 + Math.random() * 4, vz: Math.cos(a) * 2.5, yaw: unit.a, spin: (Math.random() - 0.5) * 9, start: now });
+        }
+      }
     }
   }
 
@@ -349,10 +412,13 @@ export class ArmyView {
   shots(s: readonly number[], now: number): void {
     for (let i = 0; i + 10 <= s.length; i += 10) {
       let fx = s[i]! / 10, fy = s[i + 1]! / 10, fz = s[i + 2]! / 10;
-      const tx = s[i + 3]! / 10, ty = s[i + 4]! / 10, tz = s[i + 5]! / 10;
-      const look = s[i + 6]!, time = s[i + 7]! / 10, owner = s[i + 8]!, hit = s[i + 9]!;
+      let tx = s[i + 3]! / 10, ty = s[i + 4]! / 10, tz = s[i + 5]! / 10;
+      const raw = s[i + 6]!, time = s[i + 7]! / 10, owner = s[i + 8]!, hit = s[i + 9]!;
+      // The look, and above it who fired, plus one (see wire.ts).
+      const look = raw & 7, by = (raw >> 3) - 1;
+      const shooter = by > 0 ? this.units.get(by) : undefined;
       // A turret's shot: its head turns to face what it fired on, and the shot is drawn from a muzzle (they take turns), not from its middle.
-      const turret = this.turretAt(fx, fz, owner);
+      const turret = shooter ? null : this.turretAt(fx, fz, owner);
       if (turret) {
         const muzzle = MUZZLES[turret.kind]!;
         const size = BUILDINGS[turret.kind].size * CELL;
@@ -365,15 +431,105 @@ export class ArmyView {
         fy = muzzle[1];
         fz = cz - right * sin + muzzle[2] * cos;
       }
+      // A unit's shot: from the end of its barrel (or its rifle), turned as it is aimed; its gun laid on what it fires at.
+      if (shooter && !shooter.tumble) {
+        shooter.firedAt = now;
+        const aim = Math.atan2(tx - shooter.x, tz - shooter.z);
+        const head = UNIT_HEADS[shooter.kind];
+        if (head) shooter.ta = shooter.a = aim;
+        else shooter.th = shooter.h = aim;
+        const m = this.muzzleOf(shooter);
+        if (m) [fx, fy, fz] = m;
+      }
+      // It lands on what it was aimed at: a point on its body, on the side facing the shot.
+      const target = hit > 0 ? this.units.get(hit) : undefined;
+      const building = hit < 0 ? this.buildings.get(-hit) : undefined;
+      if (target && !target.tumble) {
+        const td = UNITS[target.kind];
+        const toward = Math.atan2(fx - target.x, fz - target.z), r = td.radius * (target.kind === "trooper" ? 0.3 : 0.55);
+        const jitter = ((by * 7 + now) % 10) / 10 - 0.5;
+        tx = target.x + Math.sin(toward + jitter * 0.8) * r;
+        tz = target.z + Math.cos(toward + jitter * 0.8) * r;
+        ty = target.y + (target.kind === "trooper" ? 1.15 + jitter * 0.3 : td.air ? 0.5 : Math.min(td.height * 0.55, 2.4) + jitter * 0.3);
+      } else if (building) {
+        const def = BUILDINGS[building.kind];
+        const size = def.size * CELL;
+        const cx = building.x * CELL + size / 2, cz = building.z * CELL + size / 2;
+        const toward = Math.atan2(fx - cx, fz - cz);
+        tx = cx + Math.sin(toward) * size * 0.42;
+        tz = cz + Math.cos(toward) * size * 0.42;
+        ty = Math.min(def.height * 0.4, 4);
+      }
       const c = rgbOf(this.colorOf(owner));
       // Bright, in the general's colour.
       const bright: [number, number, number] = [0.45 + c[0] * 0.55, 0.45 + c[1] * 0.55, 0.45 + c[2] * 0.55];
       if (time > 0) this.shells.push({ fx, fy, fz, tx, ty, tz, start: now, ms: time * 1000, arc: Math.min(40, Math.hypot(tx - fx, tz - fz) * 0.28) });
       else if (look === 1 || look === 2) this.shells.push({ fx, fy, fz, tx, ty, tz, start: now, ms: Math.min(260, Math.hypot(tx - fx, tz - fz) * 4), arc: 0 });
       else this.tracers.push({ fx, fy, fz, tx, ty, tz, until: now + 90, color: bright, wide: look === 3 ? 0.22 : 0.09 });
-      this.flashes.push({ x: fx, y: fy, z: fz, start: now, ms: 80, size: look === 0 ? 0.5 : 1.3, color: [1, 0.9, 0.6], ring: false });
-      const target = hit > 0 ? this.units.get(hit) : undefined;
+      // The muzzle flash, and smoke from a big gun.
+      this.flashes.push({ x: fx, y: fy, z: fz, start: now, ms: look === 0 ? 70 : 120, size: look === 0 ? 0.45 : 1.4, color: [1, 0.9, 0.6], ring: false });
+      if (look === 1 && time === 0) this.puff(fx, fy, fz, 0.9, 1.6, 0.75, now);
+      // Where a bullet lands (a shell's landing is its blast): a spark on metal, a puff of dust on anything else.
+      if (time === 0 && look !== 1 && look !== 2) {
+        const hard = (target && target.kind !== "trooper") || building;
+        if (hard) for (let n = 0; n < 2; n++) this.sparks.push({ x: tx, y: ty, z: tz, vx: (Math.random() - 0.5) * 5, vy: 1 + Math.random() * 3, vz: (Math.random() - 0.5) * 5, start: now + 60, ms: 260, color: [1, 0.85, 0.5] });
+        else this.puff(tx, ty, tz, 0.35, 0.6, 0.8, now + 60);
+      }
       if (target) target.hitAt = now;
+    }
+  }
+
+  /** Where a unit's next shot leaves it, as it is drawn now (the muzzles taking turns), or null for one with none. */
+  muzzleOf(u: SeenUnit): [number, number, number] | null {
+    const head = UNIT_HEADS[u.kind];
+    const own = UNIT_MUZZLES[u.kind];
+    const lift = UNITS[u.kind].air ? Math.sin(performance.now() / 1000 * 2.2 + u.id) * 0.25 : 0;
+    if (head) {
+      const m = head.muzzles[u.muzzle++ % head.muzzles.length]!;
+      const [px, , pz] = head.pivot;
+      // The pivot on the hull, turned with the hull; the muzzle about the pivot, turned with the gun.
+      const sh = Math.sin(u.h), ch = Math.cos(u.h), sa = Math.sin(u.a), ca = Math.cos(u.a);
+      const ox = px * ch + pz * sh, oz = -px * sh + pz * ch;
+      const mx = m[0] - px, mz = m[2] - pz;
+      return [u.x + ox + mx * ca + mz * sa, u.y + m[1] + lift, u.z + oz - mx * sa + mz * ca];
+    }
+    if (own) {
+      const sh = Math.sin(u.h), ch = Math.cos(u.h);
+      return [u.x + own[0] * ch + own[2] * sh, u.y + own[1] + lift, u.z - own[0] * sh + own[2] * ch];
+    }
+    return null;
+  }
+
+  /** A puff of smoke (or dust): `size` across to start, growing by `grow` as it rises and thins over `seconds`. `shade`: 0 black to 1 pale. */
+  private puff(x: number, y: number, z: number, size: number, seconds: number, shade: number, now: number, rise = 1.2): void {
+    if (this.puffs.length > 700) this.puffs.splice(0, this.puffs.length - 700);
+    this.puffs.push({ x, y, z, vx: (Math.random() - 0.5) * 0.8, vy: rise * (0.6 + Math.random() * 0.8), vz: (Math.random() - 0.5) * 0.8, start: now, ms: seconds * 1000, size, grow: size * 2.2, shade });
+  }
+
+  /**
+   * An explosion: a fireball that swells and fades, a ring along the ground,
+   * smoke rolling up, pieces thrown out, and (on the ground) a scorch mark
+   * left behind.
+   */
+  private explode(x: number, y: number, z: number, r: number, now: number, ground: boolean): void {
+    // (A bright core, then a darker ball of fire behind it, both quick: the smoke is what lingers.)
+    this.flashes.push({ x, y: Math.max(0.6, y), z, start: now, ms: 220, size: r * 1.8, color: [1, 0.86, 0.5], ring: false });
+    this.flashes.push({ x, y: Math.max(0.8, y + r * 0.3), z, start: now + 40, ms: 360, size: r * 2.1, color: [0.95, 0.42, 0.1], ring: false });
+    if (ground) this.flashes.push({ x, y: 0.15, z, start: now, ms: 460, size: r * 1.7, color: [1, 0.85, 0.6], ring: true });
+    const puffs = Math.min(9, 3 + Math.round(r * 1.5));
+    for (let n = 0; n < puffs; n++) {
+      const a = (n / puffs) * Math.PI * 2;
+      this.puff(x + Math.sin(a) * r * 0.4, Math.max(0.5, y) + Math.random() * r * 0.5, z + Math.cos(a) * r * 0.4, r * 0.7, 2 + Math.random() * 1.4, 0.18 + Math.random() * 0.25, now + 120 + n * 30, 1.6);
+    }
+    const chunks = Math.min(10, 3 + Math.round(r * 1.8));
+    for (let n = 0; n < chunks; n++) {
+      const a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 6;
+      this.chunks.push({ x, y: Math.max(0.4, y), z, vx: Math.sin(a) * v, vy: 4 + Math.random() * 7, vz: Math.cos(a) * v, start: now, ms: 1300 + Math.random() * 700, size: 0.15 + Math.random() * 0.25 * Math.min(2, r), spin: (Math.random() - 0.5) * 14, shade: 0.12 + Math.random() * 0.2 });
+    }
+    if (this.chunks.length > 400) this.chunks.splice(0, this.chunks.length - 400);
+    if (ground && y < 3) {
+      this.scorches.push({ x, z, size: r * 2.2, start: now });
+      if (this.scorches.length > SCORCHES) this.scorches.splice(0, this.scorches.length - SCORCHES);
     }
   }
 
@@ -403,8 +559,7 @@ export class ArmyView {
   blasts(bl: readonly number[], now: number): void {
     for (let i = 0; i + 4 <= bl.length; i += 4) {
       const x = bl[i]! / 10, y = bl[i + 1]! / 10, z = bl[i + 2]! / 10, r = bl[i + 3]! / 10;
-      this.flashes.push({ x, y: Math.max(0.6, y), z, start: now, ms: 320, size: r * 2.2, color: [1, 0.62, 0.25], ring: false });
-      this.flashes.push({ x, y: 0.15, z, start: now, ms: 420, size: r * 1.5, color: [1, 0.85, 0.6], ring: true });
+      this.explode(x, y, z, r, now, y < FLIGHT_HEIGHT / 2);
       for (let n = 0; n < 6; n++) {
         const a = Math.random() * Math.PI * 2, v = 4 + Math.random() * 7;
         this.sparks.push({ x, y: y + 0.4, z, vx: Math.sin(a) * v, vy: 5 + Math.random() * 7, vz: Math.cos(a) * v, start: now, ms: 500 + Math.random() * 300, color: [1, 0.7, 0.35] });
@@ -442,7 +597,7 @@ export class ArmyView {
     const time = now / 1000;
     const dt = Math.min(0.1, Math.max(0, (now - this.lastDraw) / 1000));
     this.lastDraw = now;
-    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
+    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
     this.troopers.begin();
     for (const u of this.units.values()) this.drawUnit(u, now, time, Math.min(1, 0.15 + (0.85 * (now - u.seenAt)) / APPEAR_MS));
@@ -494,7 +649,7 @@ export class ArmyView {
 
     this.effects(now);
     this.drawGhost();
-    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
+    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
   }
 
   /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
@@ -535,6 +690,7 @@ export class ArmyView {
       u.y = u.fy + (u.ty - u.fy) * k;
       u.z = u.fz + (u.tz - u.fz) * k;
       u.h = turn(u.fh, u.th, k);
+      u.a = turn(u.fa, u.ta, k);
       if (u.flags & F_DOWN) {
         if (person) pose = POSE_DOWN;
         else roll = 1.2;
@@ -565,12 +721,43 @@ export class ArmyView {
       let bob = 0;
       if (def.air) bob = Math.sin(time * 2.2 + u.id) * 0.25;
       else if (moving && u.kind === "titan") roll += Math.sin(time * 3 + u.id) * 0.05;
+      // Struck: a jolt, rocked back from the hit, settling at once.
+      const jolt = Math.max(0, 1 - (now - u.hitAt) / 260);
+      if (jolt > 0 && !def.air && !u.tumble) {
+        pitch -= Math.sin(jolt * Math.PI) * 0.07;
+        roll += Math.sin(jolt * Math.PI * 2) * 0.03;
+      }
       const body = this.unitBody.get(u.kind)!, trim = this.unitTrim.get(u.kind)!;
       const i = body.add();
       place(body.matrices, i, u.x, u.y + bob + lift, u.z, u.h, pitch, roll, grown, grown, grown);
       const j = trim.add();
       trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
       trim.colors!.set([r, g, b, 1], j * 4);
+      // Its turret (launcher, upper body), turned to where it aims, kicking back as it fires. Thrown or lying on its side, it goes with the hull.
+      const gun = this.gunBody.get(u.kind);
+      if (gun) {
+        const gunTrim = this.gunTrim.get(u.kind)!;
+        const k = gun.add(), t = gunTrim.add();
+        const head = UNIT_HEADS[u.kind]!;
+        if (pitch !== 0 || roll !== 0 || u.tumble) place(gun.matrices, k, u.x, u.y + bob + lift, u.z, u.h, pitch, roll, grown, grown, grown);
+        else {
+          const kick = head.recoil * Math.max(0, 1 - (now - u.firedAt) / 180);
+          const [px, , pz] = head.pivot;
+          const sh = Math.sin(u.h), ch = Math.cos(u.h), sa = Math.sin(u.a), ca = Math.cos(u.a);
+          // (Turned about its pivot on the hull: the pivot where the hull puts it, the rest about it as the gun is laid.)
+          const ox = px * ch + pz * sh - (px * ca + pz * sa), oz = -px * sh + pz * ch - (-px * sa + pz * ca);
+          place(gun.matrices, k, u.x + ox - sa * kick, u.y + bob + lift, u.z + oz - ca * kick, u.a, 0, 0, grown, grown, grown);
+        }
+        gunTrim.matrices.set(gun.matrices.subarray(k * 16, k * 16 + 16), t * 16);
+        gunTrim.colors!.set([r, g, b, 1], t * 4);
+      }
+      // Badly hit, it smokes; nearly done for, it burns.
+      if (u.goneAt === 0 && u.hp < 50 && now - u.smokeAt > (u.hp < 25 ? 140 : 260)) {
+        u.smokeAt = now;
+        const top = u.y + bob + lift + Math.min(def.height, 3) * 0.85;
+        this.puff(u.x, top, u.z, def.radius * 0.45, 1.8, u.hp < 25 ? 0.12 : 0.3, now, 1.6);
+        if (u.hp < 25) this.flashes.push({ x: u.x + (Math.random() - 0.5) * def.radius * 0.6, y: top - 0.2, z: u.z + (Math.random() - 0.5) * def.radius * 0.6, start: now, ms: 180, size: def.radius * 0.5, color: [1, 0.55, 0.15], ring: false });
+      }
       // A Hauler on its way back shows what it mined: crystals heaped in its bed.
       if (u.kind === "hauler" && u.flags & F_LOADED && pitch === 0 && roll === 0) {
         const k = this.loads.add();
@@ -631,6 +818,72 @@ export class ArmyView {
   }
 
   private effects(now: number): void {
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const p = this.puffs[i]!;
+      const t = (now - p.start) / 1000, k = (now - p.start) / p.ms;
+      if (k >= 1) {
+        this.puffs.splice(i, 1);
+        continue;
+      }
+      if (k < 0) continue;
+      const j = this.smokeMesh.add();
+      // Swells as it rises and slows, and thins away (it shrinks a little at the very end).
+      const size = (p.size + p.grow * Math.sqrt(k)) * (k > 0.8 ? 1 - (k - 0.8) * 2.5 : 1);
+      place(this.smokeMesh.matrices, j, p.x + p.vx * t, p.y + p.vy * t * (1 - k * 0.4), p.z + p.vz * t, 0, 0, 0, size, size * 0.85, size);
+      const c = p.shade + (1 - p.shade) * k * 0.35;
+      this.smokeMesh.colors!.set([c, c * 0.97, c * 0.93, 1], j * 4);
+    }
+    for (let i = this.chunks.length - 1; i >= 0; i--) {
+      const c = this.chunks[i]!;
+      const t = (now - c.start) / 1000;
+      if (t * 1000 >= c.ms) {
+        this.chunks.splice(i, 1);
+        continue;
+      }
+      if (t < 0) continue;
+      // Up and out, then down; on the ground it lies still.
+      let y = c.y + c.vy * t - 9.8 * t * t, f = t;
+      if (y < c.size / 2) {
+        const land = (c.vy + Math.sqrt(c.vy * c.vy + 19.6 * Math.max(0, c.y - c.size / 2))) / 9.8;
+        f = land;
+        y = c.size / 2;
+      }
+      const j = this.chunkMesh.add();
+      const s = c.size * (t * 1000 > c.ms - 250 ? (c.ms - t * 1000) / 250 : 1);
+      place(this.chunkMesh.matrices, j, c.x + c.vx * f, y, c.z + c.vz * f, c.spin * f, c.spin * f * 0.7, 0, s, s * 0.7, s);
+      this.chunkMesh.colors!.set([c.shade, c.shade, c.shade * 1.05, 1], j * 4);
+    }
+    for (let i = this.scorches.length - 1; i >= 0; i--) {
+      const m = this.scorches[i]!;
+      const k = (now - m.start) / SCORCH_MS;
+      if (k >= 1) {
+        this.scorches.splice(i, 1);
+        continue;
+      }
+      if (k < 0) continue;
+      const j = this.scorchMesh.add();
+      // (Fades in its last quarter by drawing in from its edge.)
+      const size = m.size * (k > 0.75 ? 1 - (k - 0.75) * 4 : 1);
+      place(this.scorchMesh.matrices, j, m.x, 0.04 + (i % 7) * 0.002, m.z, i, 0, 0, size, 1, size);
+      this.scorchMesh.colors!.set([0.09, 0.08, 0.07, 1], j * 4);
+    }
+    for (let i = this.lids.length - 1; i >= 0; i--) {
+      const l = this.lids[i]!;
+      const t = (now - l.start) / 1000;
+      const y = l.y + l.vy * t - 9.8 * t * t;
+      if (t > 0.4 && y < l.y) {
+        // Down again: a last burst, and it is gone with the rest.
+        this.burst(l.x + l.vx * t, Math.max(0.5, y + 1), l.z + l.vz * t, 1, l.color, now);
+        this.lids.splice(i, 1);
+        continue;
+      }
+      const gun = this.gunBody.get(l.kind), gunTrim = this.gunTrim.get(l.kind);
+      if (!gun || !gunTrim) continue;
+      const k = gun.add(), m = gunTrim.add();
+      place(gun.matrices, k, l.x + l.vx * t, y, l.z + l.vz * t, l.yaw + l.spin * t * 0.4, l.spin * t, l.spin * t * 0.5);
+      gunTrim.matrices.set(gun.matrices.subarray(k * 16, k * 16 + 16), m * 16);
+      gunTrim.colors!.set([l.color[0] * 0.6, l.color[1] * 0.6, l.color[2] * 0.6, 1], m * 4);
+    }
     const stretch = (many: Many, fx: number, fy: number, fz: number, tx: number, ty: number, tz: number, wide: number, color: readonly [number, number, number]) => {
       const dx = tx - fx, dy = ty - fy, dz = tz - fz;
       const len = Math.hypot(dx, dy, dz) || 0.01;

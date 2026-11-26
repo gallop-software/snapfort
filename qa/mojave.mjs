@@ -134,7 +134,7 @@ check("B (the Command tile) opens the general's own menu on the row", tiles.map(
 await a.keyboard.press("n");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);
-check("N opens the buildings, each with its key and price; none is faded, whatever it needs", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").sub === "needs Foundry" && tiles.every((t) => !t.off), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("N opens the buildings, each with its key and price; one that cannot be built yet is faded, and says what it needs", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").sub === "needs Foundry" && tiles.find((t) => t.label === "Sentry turret").off && !tiles.find((t) => t.label === "Foundry").off, tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("f");
 check("F picks the Foundry to place", (await war(a)).mode === "place");
 // Backspace goes back one step at a time: to the buildings, to the general's own menu, to the pieces.
@@ -184,23 +184,18 @@ wa = await until(a, (id) => (window.snapfort.feature.army.buildings.get(id)?.q.l
 check("T at the Foundry orders a Trooper; Shift orders several", wa === true, `queue ${(await war(a)).buildings.find((b) => b.id === foundry).q}`);
 await clear(a);
 
-// Supply is no bar to queueing: with the army at its limit a unit is still ordered, and waits, made, for room.
-const full = await sf(a, () => { const f = window.snapfort.feature; return { used: f.bank.used, max: f.bank.max }; });
+// Supply full: the tiles for making units are faded, and the row says why and what to do about it.
 await aim(a, [site[0] + inX * 5, 3, site[1] + inZ * 5]);
 await click(a);
 await rowHas(a, ["Trooper"]);
-tiles = await row(a);
-const qBefore = await sf(a, (id) => window.snapfort.feature.army.buildings.get(id).q.length, foundry);
 await dev(a, { do: "spawn", kind: "titan", n: 2 });
 await until(a, () => { const f = window.snapfort.feature; return f.bank.used >= f.bank.max; });
+const fullRow = await until(a, () => { const t = [...document.querySelectorAll("#hotbar .slot")].find((x) => /Tank/.test(x.textContent)); return t && t.classList.contains("off") && /no supply/.test(t.textContent) && /Supply is full \(\d+ \/ \d+\): build a Relay mast/.test(document.getElementById("world-panel").textContent) ? true : null; });
+check("with supply full the units' tiles are faded, and the row says why and what to build", fullRow === true, await sf(a, () => document.getElementById("world-panel").textContent));
+const qFull = await sf(a, (id) => window.snapfort.feature.army.buildings.get(id).q.length, foundry);
 await a.keyboard.press("k");
-const queued = await until(a, ([id, n]) => window.snapfort.feature.army.buildings.get(id).q.length > n ? true : null, [foundry, qBefore]);
-check("with supply full, the row says so and what to do about it", await sf(a, () => /Supply is full \(\d+ \/ \d+\): build a Relay mast/.test(document.getElementById("world-panel").textContent)) || /waiting for supply/.test(await sf(a, () => document.getElementById("world-panel").textContent)), await sf(a, () => document.getElementById("world-panel").textContent));
-check("with supply full no tile is faded, and a Tank can still be queued", tiles.every((t) => !t.off) && (await row(a)).every((t) => !t.off) && queued === true, JSON.stringify(full));
-await dev(a, { do: "speed", n: 15 });
-const waiting = await until(a, () => /waiting for supply/.test(document.getElementById("world-panel").textContent) ? true : null, null, 20000);
-await dev(a, { do: "speed", n: 1 });
-check("made, it waits for supply, and the row says so", waiting === true, await sf(a, () => document.getElementById("world-panel").textContent));
+await wait(700);
+check("and nothing more can be queued until there is room", (await sf(a, (id) => window.snapfort.feature.army.buildings.get(id).q.length, foundry)) === qFull);
 await sf(a, () => { const f = window.snapfort.feature; for (const b of f.selectedBuildings) for (let i = 0; i < 8; i++) window.snapfort.net.sendWorld({ m: "cancel", id: b }); });
 await dev(a, { do: "kill" });
 await clear(a);

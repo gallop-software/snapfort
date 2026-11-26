@@ -452,10 +452,10 @@ export class Sim {
 
   // ── Money and supply ───────────────────────────────────────────────────
 
-  /** The supply a general's army takes up: the units they have. (What is queued takes none until it comes out: see `tick`.) */
   supplyUsed(slot: number): number {
     let n = 0;
     for (const u of this.units) if (u.owner === slot && !u.dead) n += UNITS[u.kind].supply;
+    for (const b of this.buildings.values()) if (b.owner === slot && !b.dead) for (const q of b.queue) n += UNITS[q.kind].supply;
     return n;
   }
 
@@ -656,8 +656,8 @@ export class Sim {
     for (const need of def.needs ?? []) if (!this.has(slot, need)) return `Needs ${article(BUILDINGS[need].label)} first`;
     let made = 0, why = "";
     for (let i = 0; i < Math.max(1, Math.min(10, count)); i++) {
-      // (Supply is no bar to queueing: a unit there is no room for waits, made, until there is.)
       if (b.queue.length >= 8) why = "Its queue is full";
+      else if (this.supplyUsed(slot) + def.supply > this.supplyMax(slot)) why = this.supplyMax(slot) >= MAX_SUPPLY ? "Your army is at its limit" : "Not enough supply: build a Relay mast";
       else why = this.pay(g, def.lithium, def.plasma);
       if (why) break;
       b.queue.push({ kind, left: def.time });
@@ -1062,9 +1062,7 @@ export class Sim {
       const q = b.queue[0];
       if (q) {
         q.left -= DT;
-        // Made, it comes out when the army has room for it; until then it waits at the door.
-        if (q.left <= 0 && this.supplyUsed(b.owner) + UNITS[q.kind].supply > this.supplyMax(b.owner)) q.left = 0;
-        else if (q.left <= 0) {
+        if (q.left <= 0) {
           const u = this.spawnBeside(b, q.kind);
           if (u) {
             b.queue.shift();

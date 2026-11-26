@@ -95,34 +95,22 @@ describe("a general arrives", () => {
     expect(sim.join("p9", "Late", "tabtab99")).toBeNull();
   });
 
-  it("makes units at a building: paid for, there after their time; one there is no supply for waits, made, until there is", () => {
+  it("makes units at a building: paid for, counted against supply, there after their time", () => {
     const { sim, general, run, mine } = setup();
     const g = general("p1", 0);
     g.lithium = 1000;
     const core = [...sim.buildings.values()].find((b) => b.owner === g.slot)!;
     expect(sim.make(g.slot, core.id, "hauler", 3)).toBe("");
     expect(g.lithium).toBe(1000 - 3 * UNITS.hauler.lithium);
-    // What is queued takes no supply yet.
-    expect(sim.supplyUsed(g.slot)).toBe(START_HAULERS);
+    expect(sim.supplyUsed(g.slot)).toBe(START_HAULERS + 3);
     expect(sim.make(g.slot, core.id, "trooper")).toBe("Not made here");
     run(UNITS.hauler.time * 3 + 2);
     expect(mine(g.slot, "hauler")).toHaveLength(START_HAULERS + 3);
-    expect(sim.supplyUsed(g.slot)).toBe(START_HAULERS + 3);
-    // Supply is no bar to queueing: the queue takes eight, though the Core's 12 has room for five more.
+    // Supply runs out at the Core's 12.
     g.lithium = 5000;
     expect(sim.make(g.slot, core.id, "hauler", 10)).toBe("");
-    expect(core.queue).toHaveLength(8);
-    expect(sim.make(g.slot, core.id, "hauler")).toBe("Its queue is full");
-    run(UNITS.hauler.time * 8 + 5);
-    // Five came out; the sixth is made and waits at the door.
     expect(sim.supplyUsed(g.slot)).toBe(BUILDINGS.core.supply);
-    expect(core.queue).toHaveLength(3);
-    expect(core.queue[0]!.left).toBe(0);
-    // Room is made (a Hauler is lost): the next comes out at once.
-    sim.kill(mine(g.slot, "hauler")[0]!, false);
-    run(1);
-    expect(core.queue).toHaveLength(2);
-    expect(sim.supplyUsed(g.slot)).toBe(BUILDINGS.core.supply);
+    expect(sim.make(g.slot, core.id, "hauler")).toMatch(/Relay mast/);
     // Cancelling gives the money back.
     const before = g.lithium;
     expect(sim.cancel(g.slot, core.id)).toBe("");

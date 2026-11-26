@@ -59,7 +59,7 @@ say(/Deselect/.test(await tiles(a)) && said.length > 3, `a click selects the bui
 const selected = /H:Hauler/.test(await tiles(a));
 if (selected) {
   const now = await bank(a);
-  if (now.lithium >= 50) {
+  if (now.lithium >= 50 && now.used < now.max) {
     await a.keyboard.press("h");
     const made = await until(a, () => /making Hauler/.test(document.getElementById("world-panel")?.textContent ?? ""), null, 8000);
     say(!!made, `H orders a Hauler on the live server: "${(await over(a)).slice(0, 60)}"`);

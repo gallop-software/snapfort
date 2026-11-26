@@ -21,7 +21,6 @@ import { ARMY_COLOR_NAMES, ARMY_COLORS, BUILD_REACH, generalSight } from "../sim
 import type { ToPage, ToServer, WireGeneral, WireSpot, WireTarget } from "../wire";
 import { HALF_CELLS } from "../world";
 import { ArmyView, type SeenBuilding, type SeenField, type SeenUnit } from "./army";
-import { Bodies } from "./bodies";
 import { ICONS } from "./icons";
 import { Panel, type MapDot } from "./panel";
 import { Sight } from "./sight";
@@ -80,8 +79,6 @@ const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string]
 export function startCommand(game: PageGame): WorldFeature & Record<string, unknown> {
   const army = new ArmyView(game);
   const sight = new Sight();
-  /** What this general cannot walk through: the units and other generals nearest them. */
-  const bodies = new Bodies(game.scene);
   const panel = new Panel();
   panel.badge = (html) => game.badge(html);
   const reports = new Map<number, Report>();
@@ -671,7 +668,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           // Playing already (they have just chosen an army, or changed sides): straight to its base.
           if (slot >= 0 && start && game.playing()) {
             placed = true;
-            game.player.teleport(start[0], 0.95, start[1]);
+            // (On clear ground: a unit or a building may stand on the spot.)
+            const at = game.clearSpot(start[0], 0.95, start[1]) ?? [start[0], 0.95, start[1]];
+            game.player.teleport(at[0], at[1], at[2]);
             faceHome = 3;
           }
         }
@@ -1028,12 +1027,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
 
     army.update(now);
-    // (Only while a general here: someone not in the war walks nowhere among it.)
-    if (slot >= 0) {
-      const others: [number, number, number][] = [];
-      for (const o of game.others()) if (o.position && generals.some((g) => g.pids.includes(o.id))) others.push(o.position);
-      bodies.update(game.player.position, army.units.values(), others);
-    }
 
     if (now - mapAt > (mapOn ? 60 : 220)) {
       mapAt = now;
@@ -1117,7 +1110,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         placed = true;
         // (They arrive looking at their own Core, which stands a few cells further from the middle of the map.)
         faceHome = 3;
-        return [start[0], 0.95, start[1]];
+        return game.clearSpot(start[0], 0.95, start[1]) ?? [start[0], 0.95, start[1]];
       }
       // (Not a general: they are kept on the menu, and this is only where the menu looks from.)
       return [2.5, 0.95, -62.5];
@@ -1153,8 +1146,26 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     },
     // (Kept in reach for the checks that drive the game.)
     army,
-    bodies,
     sight,
+    // Units on the ground are solid to the general (thrown ones too: a tank coming down is not walked through).
+    *bodies() {
+      if (slot < 0) return;
+      for (const u of army.units.values()) {
+        const def = UNITS[u.kind];
+        if (def.air || u.goneAt) continue;
+        if (u.kind === "trooper") yield { x: u.x, y: u.y, z: u.z, yaw: u.h, w: 0.8, h: 1.85, d: 0.8 };
+        else yield { x: u.x, y: u.y, z: u.z, yaw: u.h, w: def.radius * 1.7, h: def.height, d: def.radius * 2.1 };
+      }
+    },
+    // Buildings stand still: as boxes, for the page's questions of what is solid (where to put a general down, say).
+    solids() {
+      const out: [number, number, number, number, number, number][] = [];
+      for (const b of army.buildings.values()) {
+        const def = BUILDINGS[b.kind];
+        out.push([b.x * CELL, 0, b.z * CELL, (b.x + def.size) * CELL, def.height * 0.8, (b.z + def.size) * CELL]);
+      }
+      return out;
+    },
     reports,
     panel,
     get row() {

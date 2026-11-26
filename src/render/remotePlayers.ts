@@ -103,6 +103,17 @@ export class RemotePlayers {
     return r && r.y > -50 ? [r.x, r.y, r.z] : null;
   }
 
+  /** Whether a builder is sitting on something of a world's own (a seat), or flying a throw: not a body to bump into just now. */
+  isRiding(id: string): boolean {
+    const r = this.remotes.get(id);
+    return !!r && (r.ride !== null || r.fall !== null);
+  }
+
+  /** Whether a world has asked for a builder not to be drawn (see `conceal`). */
+  isConcealed(id: string): boolean {
+    return this.concealed.has(id);
+  }
+
   /** Everyone here (but this builder), as they introduced themselves. */
   list(): WirePlayer[] {
     return [...this.remotes.values()].map((r) => r.player);

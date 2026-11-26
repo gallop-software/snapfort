@@ -286,3 +286,24 @@ export class Solids {
     return null;
   }
 }
+
+/** A builder's body, for the questions below: radius and the reach of its straight middle up and down from its centre. */
+export const BUILDER_BODY = { r: 0.4, half: 0.5 } as const;
+
+/**
+ * Whether a piece would be built into a builder standing there (their body's
+ * centre at `centre`): its solid cuts into their body, more than a graze, and
+ * is not something low enough to be stepped onto (a floor laid at their feet
+ * lifts them onto it).
+ */
+export function cutsIntoBody(p: Piece, env: Environment, centre: Vec): boolean {
+  const r = BUILDER_BODY.r - 0.06, half = BUILDER_BODY.half;
+  const feet = centre[1] - half - BUILDER_BODY.r;
+  for (const col of columnsOf(p, env)) {
+    if (col.open || gap(col, centre, r, half) >= 0) continue;
+    const qx = Math.max(col.x0, Math.min(col.x1, centre[0])), qz = Math.max(col.z0, Math.min(col.z1, centre[2]));
+    if (topAt(col, qx, qz) <= feet + 0.35) continue;
+    return true;
+  }
+  return false;
+}

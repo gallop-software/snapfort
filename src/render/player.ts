@@ -75,6 +75,15 @@ export class Player {
     this.avatar = new Avatar(scene, shadows, outfit);
   }
 
+  /** A shove from someone the builder is pressed against (m/s, sideways): added to their own motion, and dying away. */
+  private readonly shove = new Vector3();
+
+  /** Shoves the builder this way (m/s, along the ground): they move by it as they walk, stopped by walls as they are. */
+  push(vx: number, vz: number): void {
+    this.shove.x = vx;
+    this.shove.z = vz;
+  }
+
   /** Advances the character. Call after each physics step. */
   step(dt: number, input: MoveInput): void {
     this.aloft = false;
@@ -136,6 +145,14 @@ export class Player {
       out.y = current.y + this.gravity.y * dt;
     }
 
+    // Pressed against someone: shoved, as far as walls allow (the controller's own collision does the stopping).
+    if (this.shove.x !== 0 || this.shove.z !== 0) {
+      out.x += this.shove.x;
+      out.z += this.shove.z;
+      const fade = Math.exp(-dt * 12);
+      this.shove.x = Math.abs(this.shove.x * fade) < 0.05 ? 0 : this.shove.x * fade;
+      this.shove.z = Math.abs(this.shove.z * fade) < 0.05 ? 0 : this.shove.z * fade;
+    }
     cc.setVelocity(out);
     cc.integrate(dt, support, this.gravity);
     this.settle();

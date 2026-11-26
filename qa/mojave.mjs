@@ -385,7 +385,7 @@ if (parked) {
   await wait(2200);
   await a.keyboard.up("w");
   const gap = await sf(a, ([x, z]) => { const p = window.snapfort.player.position; return Math.hypot(p.x - x, p.z - z); }, t);
-  const why = await sf(a, ([id]) => { const f = window.snapfort.feature, u = f.army.units.get(id), p = window.snapfort.player.position; return { tank: u ? [u.x.toFixed(1), u.z.toFixed(1), u.tumble ? "tumbling" : "", u.goneAt] : null, me: [p.x.toFixed(1), p.y.toFixed(2), p.z.toFixed(1)], inUse: f.bodies.inUse, first: f.bodies.slots.slice(0, 3).map((s) => [s.shape, s.node.position.x.toFixed(1), s.node.position.y.toFixed(1), s.node.position.z.toFixed(1)]), down: window.snapfort.player.knockedDown }; }, [parked[2]]);
+  const why = await sf(a, ([id]) => { const f = window.snapfort.feature, u = f.army.units.get(id), p = window.snapfort.player.position; return { tank: u ? [u.x.toFixed(1), u.z.toFixed(1), u.tumble ? "tumbling" : "", u.goneAt] : null, me: [p.x.toFixed(1), p.y.toFixed(2), p.z.toFixed(1)], inUse: window.snapfort.bodies.inUse, down: window.snapfort.player.knockedDown }; }, [parked[2]]);
   check("a general walking into a tank is stopped against its side, not let through", gap > 1.9 && gap < 3.5, `${gap.toFixed(2)} m from its middle ${JSON.stringify(why)}`);
 }
 

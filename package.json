@@ -38,7 +38,8 @@
     "qa:starship-mars": "node qa/starship-mars.mjs",
     "qa:keepout": "node qa/keepout.mjs",
     "qa:seats": "node qa/seats-page.mjs",
-    "qa:smoke": "node qa/smoke.mjs"
+    "qa:smoke": "node qa/smoke.mjs",
+    "qa:solid": "node qa/solid.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.37.1",

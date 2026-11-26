@@ -4,7 +4,7 @@ import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { fallEnd, planFall, type Fall } from "../src/game/fall";
 import type { Room } from "../src/worlds/serverDoors";
-import type { Box } from "../src/game/solids";
+import { cutsIntoBody, type Box } from "../src/game/solids";
 import { checkRange, findImpact, hitPoints, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import { halfCellsOf, saidName, type Environment } from "../src/game/environments";
@@ -450,7 +450,7 @@ export class World extends DurableObject<Env> {
       this.build,
       wire.map(decodeOp),
       (piece) => {
-        if (this.isFull(piece) || !materialAllowed(piece.type, piece.material, piece.y, this.environment) || this.keptOut(piece)) return false;
+        if (this.isFull(piece) || !materialAllowed(piece.type, piece.material, piece.y, this.environment) || this.keptOut(piece) || this.onSomeone(piece)) return false;
         if (!own.mayPlace) return true;
         asked = true;
         return own.mayPlace(this.room(), player.id, piece);
@@ -468,6 +468,15 @@ export class World extends DurableObject<Env> {
       const gone = [...done, ...extra].flatMap((d) => (d.inverse.kind === "place" ? [d.inverse.piece] : []));
       if (gone.length > 0) this.knock(null, gone);
     }
+  }
+
+  /** True when a new piece would be built into somebody standing there (where they last said they were). */
+  private onSomeone(piece: Piece): boolean {
+    for (const player of this.players.values()) {
+      const m = this.moves.get(player.id) ?? player.move;
+      if (m && cutsIntoBody(piece, this.environment, [m[1] / 100, m[2] / 100, m[3] / 100])) return true;
+    }
+    return false;
   }
 
   /** True when a new piece would cut into a siege engine (or a new engine into what is built), or into something of this world's own. */

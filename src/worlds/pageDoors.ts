@@ -8,6 +8,8 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import type { Environment } from "../game/environments";
 import type { MaterialId, Piece, PieceSpec, PieceType } from "../game/pieces";
+import type { Box } from "../game/solids";
+import type { BodyBox } from "../render/bodies";
 
 /**
  * The page half of a world: everything a world draws and plays itself. The
@@ -161,6 +163,13 @@ export interface PageGame {
   others(): { id: string; name: string; color: string; position: [number, number, number] | null }[];
   /** This player's own name and colour. */
   me(): { name: string; color: string };
+  /**
+   * The nearest spot to (x, y, z) where a builder can stand clear of
+   * everything (pieces as drawn, this world's own solids and bodies), on
+   * whatever is under it: the middle of their body there. Where to put a
+   * builder down getting out of something, say. Null when there is none near.
+   */
+  clearSpot(x: number, y: number, z: number): [number, number, number] | null;
   /** A sound of the shared set, by name ("deny", "select", "place"). */
   play(sound: "deny" | "select" | "place" | "remove" | "boom" | "launch" | "horn"): void;
   /**
@@ -233,6 +242,14 @@ export interface WorldFeature {
   look?(dx: number, dy: number): boolean;
   /** Where a player starts when they begin playing: their body's centre, or null for the usual place. */
   spawn?(): [number, number, number] | null;
+  /**
+   * The things of this world's own that move (vehicles, units), as drawn just
+   * now: boxes the builder bumps into instead of walking through. Asked for
+   * every frame; only those nearest the builder are made solid.
+   */
+  bodies?(): Iterable<BodyBox>;
+  /** This world's own solid things that stand still (a launcher, a parked ship, a building), as boxes in metres: for the shared questions a page asks of what is solid (see `PageGame.clearSpot`). */
+  solids?(): readonly Box[];
   /** The Remove tool is picked and the crosshair is not on a piece: called every frame, to show what of this world's own it would take away (if anything). */
   aimRemove?(): void;
   /** The player used Remove (the tool, or the right button) and the crosshair was not on a piece: take away what of this world's own is there. True when something was. */

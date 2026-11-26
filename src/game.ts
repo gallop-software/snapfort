@@ -9,7 +9,10 @@ import HavokPhysics from "@babylonjs/havok";
 import havokWasmUrl from "@babylonjs/havok/lib/esm/HavokPhysics.wasm?url";
 import { Sfx } from "./audio";
 import { BuildState, type BuildOp, type PlaceCheck, type PlaceProblem } from "./game/buildState";
+import { planFall } from "./game/fall";
 import { engineInTheWay } from "./game/keepOut";
+import { BUILDER_BODY, cutsIntoBody, Solids, type Box } from "./game/solids";
+import { Bodies } from "./render/bodies";
 import { CELL, LEVEL } from "./game/constants";
 import { editTileAt } from "./game/edit";
 import { History } from "./game/history";
@@ -477,6 +480,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** What to tell the builder when a piece cannot go where they aim. */
   function problemText(spec: PieceSpec, problem: PlaceProblem): string {
+    if (problem === "blocked" && onBody) return onBody === "you" ? "You are standing there" : `${onBody} is standing there`;
     const own = problem === "blocked" && feature?.blocks?.(spec) === true ? feature.whyBlocked?.(spec) : null;
     if (own) return own;
     if (problem === "blocked" && spec.type === "trebuchet") return `A ${engineName} needs clear space over it: nothing built in its way`;
@@ -495,10 +499,27 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    * cannot be built into in the way (a siege engine, or something of the
    * world's own).
    */
+  /** Who a piece just found in the way would have been built into (see `placeable`), for saying so. */
+  let onBody: string | null = null;
   function placeable(spec: PieceSpec): PlaceCheck {
+    onBody = null;
     const check = state.canPlace(spec);
     if (!check.ok) return check;
-    return engineInTheWay(state, spec, env) || feature?.blocks?.(spec) === true ? { ok: false, problem: "blocked" } : check;
+    if (engineInTheWay(state, spec, env) || feature?.blocks?.(spec) === true) return { ok: false, problem: "blocked" };
+    // Nothing is built into somebody: this builder, or anyone else standing there.
+    const trial = { ...spec, id: "", material: "wood" as const, edit: 0 };
+    if (cutsIntoBody(trial, env, [player.position.x, player.position.y, player.position.z])) {
+      onBody = "you";
+      return { ok: false, problem: "blocked" };
+    }
+    for (const r of remotes.list()) {
+      const at = remotes.positionOf(r.id);
+      if (at && cutsIntoBody(trial, env, at)) {
+        onBody = r.name;
+        return { ok: false, problem: "blocked" };
+      }
+    }
+    return check;
   }
 
   function placeAtAim(announce: boolean): void {
@@ -907,6 +928,13 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   };
 
+  // What moves of the world's own (vehicles, units) is solid to the builder near it: a few bodies, moved onto the nearest each step.
+  const bodies = new Bodies(scene);
+  scene.onBeforePhysicsObservable.add(() => {
+    const things = feature?.bodies?.();
+    if (things) bodies.update(player.position, things);
+  });
+
   // Character: stepped right after physics so it collides with this frame's world.
   scene.onAfterPhysicsObservable.add(() => {
     const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
@@ -924,9 +952,42 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       jump: on && input.isDown("Space"),
       yaw: rig.yaw,
     };
+    // Pressed against another builder: both are shoved apart (each page moves its own builder), so walking into
+    // someone pushes them along, and nobody stands inside anybody.
+    if (!player.knockedDown && !crewOn) shoveApart();
     // Riding something of the world's own moves the player in its own way; otherwise they walk.
     if (crewOn || player.knockedDown || !feature?.drive?.(dt, moving)) player.step(dt, moving);
   });
+
+  /** How far apart two builders' middles keep, m: their bodies side by side. */
+  const BUILDERS_APART = 0.85;
+  /** Moves this builder out of anyone they are pressed into, by half the overlap (the other's page does the other half). */
+  function shoveApart(): void {
+    const me = player.position;
+    let px = 0, pz = 0;
+    for (const r of remotes.list()) {
+      if (remotes.isRiding(r.id) || remotes.isConcealed(r.id)) continue;
+      const at = remotes.positionOf(r.id);
+      if (!at || Math.abs(at[1] - me.y) > 1.7) continue;
+      let dx = me.x - at[0], dz = me.z - at[2];
+      const d = Math.hypot(dx, dz);
+      if (d >= BUILDERS_APART) continue;
+      if (d < 0.01) {
+        // Exactly in one another: apart by who is who.
+        const a = (myId < r.id ? 0 : Math.PI) + 0.7;
+        dx = Math.sin(a);
+        dz = Math.cos(a);
+      } else {
+        dx /= d;
+        dz /= d;
+      }
+      // (Harder the deeper: a shove, not a nudge.)
+      const k = ((BUILDERS_APART - d) / BUILDERS_APART) * 22;
+      px += dx * k;
+      pz += dz * k;
+    }
+    if (px !== 0 || pz !== 0) player.push(px, pz);
+  }
 
   const ray = new PhysicsRaycastResult();
   const rayEnd = new Vector3();
@@ -1773,6 +1834,16 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         wornColor = color;
         player.avatar.setColor(color ?? identity.color);
       },
+      clearSpot: (x, y, z) => {
+        // (Clear of the world's own moving things too: each a box of its own.)
+        const moving = [...(feature?.bodies?.() ?? [])].map((b): Box => {
+          const r = Math.hypot(b.w, b.d) / 2;
+          return [b.x - r, b.y, b.z - r, b.x + r, b.y + b.h, b.z + r];
+        });
+        const solids = new Solids(state, env, () => [...(feature?.solids?.() ?? []), ...moving]);
+        const at = solids.nearestClear(x, z, y - BUILDER_BODY.half - BUILDER_BODY.r, BUILDER_BODY.r, BUILDER_BODY.half);
+        return at ? [at[0], at[1], at[2]] : null;
+      },
       row: (tiles, pick) => hud.setRow(tiles, pick),
       badge: (html) => hud.setBadge(html),
       shut: (why) => {
@@ -1865,7 +1936,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, bodies, Solids, planFall: (from: Vec, v: Vec) => planFall(state, from, v, env, () => feature?.solids?.() ?? []), history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
     });
   }
 }

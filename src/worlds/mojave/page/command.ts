@@ -17,7 +17,7 @@ import {
   type BuildingKind,
   type UnitKind,
 } from "../kit";
-import { BUILD_REACH, generalSight } from "../sim";
+import { ARMY_COLOR_NAMES, ARMY_COLORS, BUILD_REACH, generalSight } from "../sim";
 import type { ToPage, ToServer, WireGeneral, WireSpot, WireTarget } from "../wire";
 import { HALF_CELLS } from "../world";
 import { ArmyView, type SeenBuilding, type SeenField, type SeenUnit } from "./army";
@@ -82,6 +82,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   const panel = new Panel();
   panel.badge = (html) => game.badge(html);
   const reports = new Map<number, Report>();
+  /** Who is dressed in an army's colour now (see `PageGame.wear`). */
+  let wearing = new Set<string>();
 
   /** Who this player is here: a general's slot, or -1 (there is no place for them: they are kept out), and why. */
   let slot = -1;
@@ -613,6 +615,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           sight.clear();
           placed = false;
           if (slot >= 0) intro();
+          // Whose all this is: said every time a place is taken, since it is never the general's own colour that marks it.
+          if (slot >= 0) panel.note(`You command the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army: this base and everything ${ARMY_COLOR_NAMES[slot] ?? "grey"} is yours, as it stands.`, "ready");
           // Playing already: straight to the base.
           if (slot >= 0 && start && game.playing()) {
             placed = true;
@@ -914,6 +918,19 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         else if (r.lookedAt === 0) r.lookedAt = now;
         else if (now - r.lookedAt > 900) reports.delete(id);
       }
+      // Every general wears their army's colour while they command it (this one too): whose general is whose is plain.
+      const dressed = new Set<string>();
+      for (const g of generals) {
+        if (!g.pid) continue;
+        dressed.add(g.pid);
+        game.wear(g.pid, g.color);
+      }
+      if (slot >= 0 && game.myId()) {
+        dressed.add(game.myId());
+        game.wear(game.myId(), ARMY_COLORS[slot] ?? null);
+      }
+      for (const id of wearing) if (!dressed.has(id)) game.wear(id, null);
+      wearing = dressed;
       // Only generals in sight are drawn: where the others are is not this general's to know (and whoever is not a general is not here at all).
       for (const o of game.others()) {
         const g = generals.find((x) => x.pid === o.id);
@@ -980,7 +997,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       shownStatus = shown.status;
       game.row(shown.tiles, (id) => act(id));
       panel.setStatus(game.touch ? shown.status : null);
-      panel.setBank(slot >= 0 ? { lithium: bank.l, plasma: bank.p, used: bank.used, max: bank.max, upkeep: upkeep(bank.used) } : null);
+      panel.setBank(slot >= 0 ? { color: ARMY_COLORS[slot] ?? "#888888", lithium: bank.l, plasma: bank.p, used: bank.used, max: bank.max, upkeep: upkeep(bank.used) } : null);
     }
     // The line over the row: where a building would go or what an order waits for, else what is selected. (A phone has it under its bank: the row is at the top there.)
     game.panel(game.touch ? null : (hint ?? (shownStatus ? escapeHtml(shownStatus) : null)));

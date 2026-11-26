@@ -118,7 +118,7 @@ export class RemotePlayers {
     const renamed = remote.player.name !== player.name || remote.player.color !== player.color;
     remote.player = player;
     if (renamed) {
-      remote.avatar?.setColor(player.color);
+      remote.avatar?.setColor(this.colorOf(player));
       this.disposeTag(remote);
     }
   }
@@ -138,6 +138,25 @@ export class RemotePlayers {
 
   /** Builders a world has asked not to be drawn (see PageGame.conceal), by id. */
   private readonly concealed = new Set<string>();
+
+  /** Colours a world has dressed builders in, in place of their own (see PageGame.wear), by id. */
+  private readonly worn = new Map<string, string>();
+
+  /** The colour a builder is drawn in: the one a world has dressed them in, else their own. */
+  private colorOf(player: WirePlayer): string {
+    return this.worn.get(player.id) ?? player.color;
+  }
+
+  /** Dresses builder `id` in a colour of the world's choosing (their jacket and the dot by their name), or (null) in their own again. */
+  wear(id: string, color: string | null): void {
+    if ((this.worn.get(id) ?? null) === color) return;
+    if (color) this.worn.set(id, color);
+    else this.worn.delete(id);
+    const remote = this.remotes.get(id);
+    if (!remote) return;
+    remote.avatar?.setColor(this.colorOf(remote.player));
+    this.disposeTag(remote);
+  }
 
   /** Stops drawing builder `id`, or draws them again. */
   conceal(id: string, hidden: boolean): void {
@@ -209,7 +228,7 @@ export class RemotePlayers {
         this.placeStandIn(remote, dt);
         continue;
       }
-      const avatar = (remote.avatar ??= this.claim(remote.player.color));
+      const avatar = (remote.avatar ??= this.claim(this.colorOf(remote.player)));
       if (ride) avatar.sit(ride.x, ride.y, ride.z, ride.yaw, ride.pitch, ride.roll);
       else {
         const feet = remote.y - HALF_HEIGHT;
@@ -304,7 +323,7 @@ export class RemotePlayers {
     const bob = running ? Math.abs(Math.sin(remote.stride)) * 0.08 : 0;
     const yaw = running ? Math.atan2(remote.vx, remote.vz) : remote.yaw;
     const feet = remote.y - HALF_HEIGHT;
-    this.standIns.add(pose, remote.x, feet - wading(feet, this.wade(remote.x, remote.z)) + bob, remote.z, yaw, Color3.FromHexString(remote.player.color));
+    this.standIns.add(pose, remote.x, feet - wading(feet, this.wade(remote.x, remote.z)) + bob, remote.z, yaw, Color3.FromHexString(this.colorOf(remote.player)));
   }
 
   private claim(color: string): Avatar {
@@ -333,7 +352,7 @@ export class RemotePlayers {
     ctx.beginPath();
     ctx.roundRect(x, 12, width, 72, 36);
     ctx.fill();
-    ctx.fillStyle = player.color;
+    ctx.fillStyle = this.colorOf(player);
     ctx.beginPath();
     ctx.arc(x + 34, 48, 12, 0, Math.PI * 2);
     ctx.fill();

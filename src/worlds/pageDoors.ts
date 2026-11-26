@@ -173,6 +173,13 @@ export interface PageGame {
   /** Words of the world's own where the material badge is (HTML), or none (null). Only where `WorldPage.row.material` leaves that place free. */
   badge(html: string | null): void;
   /**
+   * Dresses a builder (this player or anyone else, by id) in a colour of the
+   * world's choosing in place of their own, for as long as it says: their
+   * jacket, and the dot by their name. Null: their own colour again. Only how
+   * they are drawn here: their own colour is not changed.
+   */
+  wear(playerId: string, color: string | null): void;
+  /**
    * Keeps this player out of the world (no place for them here now), or lets
    * them in again (null). Kept out, they are on the menu with `text` under
    * the button to play, which does not start a game; with `unlock`, it opens

@@ -264,7 +264,9 @@ export interface Host {
 /** Colours for armies whose general's own is too like another's: eight that are easy to tell apart. */
 /** A computer general's name, by slot. */
 export const COMPUTER_NAMES = ["Atlas", "Vega", "Orion", "Lyra", "Draco", "Nova", "Rigel", "Altair"];
-/** Each place's colour: its army wears it whoever commands there. */
+/** What each place's colour is called, as it goes in a sentence. */
+export const ARMY_COLOR_NAMES = ["red", "blue", "yellow", "green", "purple", "orange", "teal", "pink"];
+/** Each place's colour: its army wears it whoever commands there, and so does its general. */
 export const ARMY_COLORS = ["#e8463a", "#3a7be8", "#f2c230", "#3fbf5f", "#b455e0", "#f08a2a", "#27c4c4", "#f06aa8"];
 
 const dist2 = (ax: number, az: number, bx: number, bz: number) => (ax - bx) * (ax - bx) + (az - bz) * (az - bz);

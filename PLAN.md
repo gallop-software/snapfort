@@ -512,7 +512,7 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 
 **Chosen by me, where the user left it open** (change any of them)
 - A computer plays a place while it is kept for someone whose connection dropped, and hands it straight back.
-- A newcomer keeps the place's army colour (eight fixed colours, one a place); their own jacket may differ.
+- A newcomer keeps the place's army colour (eight fixed colours, one a place). The general wears it too while they command there, for everyone who sees them, and is told on taking the place ("You command the blue army…"), with the colour shown beside the bank (user, 2026-11-25, on arriving live among a computer's blue base in a pink jacket: "i just entered, but I'm surrounded with blue"; `PageGame.wear`).
 - Computer generals leave a person alone for their first 4 minutes in a place (`NEWCOMER_PEACE`). They have no easy or hard setting.
 - A routed general's free Core comes with at least 200 lithium, and taking down one's own last Core routs too: a place can never be left with no Core and no way to another. A computer puts its new Core where it first stood, or on the nearest clear ground.
 - Someone kept out sees the menu: "Mojave is full…" under the button, or the offer of the Full Game. They are let in the moment there is a place, without reloading.

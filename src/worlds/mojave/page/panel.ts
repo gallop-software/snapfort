@@ -16,6 +16,8 @@ body:not(.playing):not(.away) #mj { display: none; }
 body.scoped #mj-map { display: none; }
 #mj-bank { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: none; gap: 9px; align-items: center; padding: 3px 10px; border-radius: 999px; background: rgba(24, 30, 38, 0.82); font-size: 11px; white-space: nowrap; }
 #mj-bank[hidden], #mj-status[hidden] { display: none !important; }
+.mj-bank .sw { width: 18px; height: 18px; border-radius: 6px; border: 2px solid #fff8ea; flex: none; }
+body.touch .mj-bank .sw { width: 11px; height: 11px; border-radius: 4px; border-width: 1.5px; }
 .mj-bank b { font-weight: 900; font-variant-numeric: tabular-nums; }
 .mj-bank .li b { color: #8fe8e0; }
 .mj-bank .pl b { color: #c9a2ff; }
@@ -111,9 +113,9 @@ export class Panel {
   }
 
   /** The bank: beside the row on a computer, under it on a phone. Null: none (not a general). */
-  setBank(bank: { lithium: number; plasma: number; used: number; max: number; upkeep: number } | null): void {
+  setBank(bank: { color: string; lithium: number; plasma: number; used: number; max: number; upkeep: number } | null): void {
     const html = bank
-      ? `<span class="li"><i>Lithium</i><b>${bank.lithium}</b></span><span class="pl"><i>Plasma</i><b>${bank.plasma}</b></span>` +
+      ? `<span class="sw" style="background:${/^#[0-9a-f]{6}$/i.test(bank.color) ? bank.color : "#888888"}" title="Your army's colour"></span><span class="li"><i>Lithium</i><b>${bank.lithium}</b></span><span class="pl"><i>Plasma</i><b>${bank.plasma}</b></span>` +
         `<span class="su${bank.used >= bank.max ? " low" : ""}"><i>Supply</i><b>${bank.used} / ${bank.max}</b></span>` +
         (bank.upkeep < 1 ? `<span class="up">income ×${bank.upkeep}</span>` : "")
       : "";

@@ -70,6 +70,9 @@ await until(a, () => window.snapfort.feature.slot >= 0 && window.snapfort.featur
 let wa = await war(a);
 check("a general has a place at once: a computer's, with its Core and Haulers", wa.slot >= 0 && wa.buildings.some((b) => b.kind === "core" && b.owner === wa.slot) && wa.units.filter((u) => u.kind === "hauler" && u.owner === wa.slot).length >= 4, `slot ${wa.slot}, ${wa.buildings.length} buildings, ${wa.units.length} units`);
 check("there are eight generals, and this is the only person", (await until(a, () => window.snapfort.feature.generals.length === 8)) && (await war(a)).gens.filter((g) => !g.ai).length === 1, JSON.stringify((await war(a)).gens.map((g) => g.ai)));
+check("they are told whose all this is: the army's colour, by name", await sf(a, () => /You command the (red|blue|yellow|green|purple|orange|teal|pink) army/.test(document.getElementById("mj-notes").textContent)), await sf(a, () => document.getElementById("mj-notes").textContent.slice(0, 90)));
+const mine = await until(a, () => { const s = window.snapfort, f = s.feature; const g = f.generals.find((x) => x.slot === f.slot); const sw = document.querySelector("#material .sw"); if (!g || !sw) return null; const jacket = s.player.avatar.jacket.diffuseColor.toHexString().toLowerCase(); const css = getComputedStyle(sw).backgroundColor.match(/\d+/g).map((n) => Number(n).toString(16).padStart(2, "0")).join(""); return jacket === g.color.toLowerCase() ? { army: g.color, jacket, swatch: `#${css}`, own: s.feature && JSON.parse(localStorage.getItem("snapfort.identity") ?? "{}").color } : null; });
+check("the general wears their army's colour while they command it, and it is shown beside the bank", !!mine && mine.swatch === mine.army.toLowerCase(), JSON.stringify(mine));
 check("they arrive facing their Core: the crosshair is on it", await sf(a, () => { const p = window.snapfort.feature.pick(); return p?.k === "building" && p.b.kind === "core"; }));
 // (For the checks: the computers do nothing new, and this place is as a war begins it.)
 await dev(a, { do: "quiet" });
@@ -274,6 +277,7 @@ let wb = await war(b);
 wa = await war(a);
 check("a second person has a place of their own: the next computer's, in turn", wb.slot >= 0 && wb.slot !== wa.slot && Math.hypot(wb.pos[0] - coreX, wb.pos[2] - coreZ) > 250, `A ${wa.slot}, B ${wb.slot}`);
 check("both pages list eight generals, two of them people", (await until(a, () => { const g = window.snapfort.feature.generals; return g.length === 8 && g.filter((x) => !x.ai).length === 2; })) && (await until(b, () => { const g = window.snapfort.feature.generals; return g.length === 8 && g.filter((x) => !x.ai).length === 2; })));
+check("each sees the other general in that general's army colour, not their own jacket's", await until(a, (slot) => { const s = window.snapfort; const g = s.feature.generals.find((x) => x.slot === slot); return g?.pid && s.remotes.worn.get(g.pid) === g.color ? true : null; }, wb.slot) === true && await until(b, (slot) => { const s = window.snapfort; const g = s.feature.generals.find((x) => x.slot === slot); return g?.pid && s.remotes.worn.get(g.pid) === g.color ? true : null; }, wa.slot) === true);
 check("neither has been sent anything of the other's", wb.units.every((u) => u.owner === wb.slot || u.owner === 8) && wb.buildings.every((x) => x.owner === wb.slot) && (await war(a)).units.every((u) => u.owner !== wb.slot));
 const coreB = wb.buildings[0];
 const [bx, bz] = centreOf(coreB, 3);

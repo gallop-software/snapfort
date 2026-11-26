@@ -198,6 +198,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   });
 
   /** The selected hotbar slot, or -1 when nothing is selected (just running around). */
+  /** A colour the world has dressed this player in, in place of their own (see PageGame.wear). */
+  let wornColor: string | null = null;
   /** Kept out of this world by its own rules (see PageGame.shut), and why. */
   let shutOut: { text: string; unlock?: boolean } | null = null;
   let toolIndex = 0;
@@ -284,7 +286,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       identity.color = next.color;
       saveIdentity(identity);
       net.setIdentity(identity);
-      player.avatar.setColor(identity.color);
+      player.avatar.setColor(wornColor ?? identity.color);
     },
     menu() {
       mode = "menu";
@@ -1744,6 +1746,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       play: (sound) => {
         if (sound === "boom") sfx.boom(1);
         else sfx[sound]();
+      },
+      wear: (id, color) => {
+        if (id !== myId) return remotes.wear(id, color);
+        if (wornColor === color) return;
+        wornColor = color;
+        player.avatar.setColor(color ?? identity.color);
       },
       row: (tiles, pick) => hud.setRow(tiles, pick),
       badge: (html) => hud.setBadge(html),

@@ -1,10 +1,11 @@
 /**
- * Mojave at full size: eight generals (one a person, seven computers) with
- * about 210 units each, 1,700 in all, sent to fight in the middle of the map.
- * Measured: how long the server takes over each step of the war, the frame
- * rate of a real page that commands one of the armies, and the frame rate of a
- * phone-sized page in battery saver that is watching (a watcher is sent every
- * unit, so it is the most a page can ever be asked to draw).
+ * Mojave at full size: all eight generals (two of them people, six computers)
+ * with about 210 units each, 1,700 in all, three in eight of them Troopers,
+ * sent to fight in the middle of the map. Measured: how long the server takes
+ * over each step of the war, the frame rate of a real page that commands one
+ * of the armies, and the frame rate of a phone-sized page in battery saver
+ * that commands another and, for this test, is sent every unit in the world
+ * whether it sees it or not (the most a page could ever be asked to draw).
  * Needs the Gallop dev server with Stripe test keys in .dev.vars.
  * Run: npm run qa:mojave-load -- [seconds]
  */
@@ -19,7 +20,7 @@ const results = [];
 const errors = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`); };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const key = await paidKey(base, "/mojave");
+const key = await paidKey(base, "/mojave"), key2 = await paidKey(base, "/mojave");
 
 async function open(label, device, k) {
   const ctx = await browser.newContext(device);
@@ -61,9 +62,11 @@ const perf = async (p) => {
 };
 
 const a = await open("general", { viewport: { width: 1280, height: 760 } }, key);
-const phone = await open("watching phone", { ...devices["iPhone 13 landscape"] }, null);
+const phone = await open("phone", { ...devices["iPhone 13 landscape"] }, key2);
 await a.waitForFunction(() => window.snapfort.feature.slot >= 0);
-check("the phone-sized page is in battery saver, watching", await phone.evaluate(() => window.snapfort.graphics.effective === "saver" && window.snapfort.feature.slot === -1));
+await phone.waitForFunction(() => window.snapfort.feature.slot >= 0);
+await phone.evaluate(() => window.snapfort.net.sendWorld({ m: "dev", do: "all" }));
+check("the phone-sized page is in battery saver, a general, and is sent everything for this test", await phone.evaluate(() => window.snapfort.graphics.effective === "saver" && window.snapfort.feature.slot >= 0));
 const calm = { desk: await frameRate(a, 4000), phone: await frameRate(phone, 4000) };
 console.log(`before: desktop ${calm.desk.mean} fps, phone ${calm.phone.mean} fps`);
 
@@ -72,7 +75,7 @@ await wait(3000);
 await perf(a);
 const counts = async (p) => p.evaluate(() => { const f = window.snapfort.feature; return { units: f.army.units.size, gens: f.generals.length }; });
 const atStart = await counts(phone);
-check("eight generals and about 1,700 units are in the world, and the watcher is sent them all", atStart.gens === 8 && atStart.units >= 1600, JSON.stringify(atStart));
+check("eight generals and about 1,700 units are in the world, and the phone is sent them all", atStart.gens === 8 && atStart.units >= 1600, JSON.stringify(atStart));
 // The general goes to the middle of the map, where the armies meet, and watches from a tower's height.
 for (const p of [a, phone]) await p.evaluate(() => { const s = window.snapfort; s.player.teleport(-40, 30, -40); s.rig.yaw = Math.PI / 4; s.rig.pitch = 0.5; });
 await a.evaluate(() => window.snapfort.net.sendWorld({ m: "dev", do: "spawn", kind: "scout", n: 4, at: [-30, 0, -30] }));
@@ -86,6 +89,8 @@ while (Date.now() < end) {
   samples.push({ desk, ph, server, seen: seen.units, all: all.units });
   console.log(`  desktop ${desk.mean} fps (worst ${desk.worst}, longest frame ${desk.longest} ms) seeing ${seen.units} · phone ${ph.mean} fps (worst ${ph.worst}, longest frame ${ph.longest} ms) seeing ${all.units} · server ${server?.mean} ms a step (worst ${server?.worst}), ${server?.units} units, ${Math.round((server?.sentKb ?? 0) / 5 / (server?.viewers ?? 1))} KB/s a page`);
 }
+const people = await phone.evaluate(() => window.snapfort.scene.meshes.filter((m) => /^mojave-trooper-/.test(m.name) && !/-marks$/.test(m.name) && m.isEnabled()).reduce((n, m) => n + (m.thinInstanceCount || 0), 0));
+check("hundreds of Troopers are drawn as people, in their poses, on the phone", people >= 200, `${people} Troopers drawn at the end`);
 await a.screenshot({ path: "qa/shots/mojave-load.png" });
 await phone.screenshot({ path: "qa/shots/mojave-load-phone.png" });
 
@@ -95,7 +100,7 @@ const deskMean = mean(samples.map((s) => s.desk.mean)), phoneMean = mean(samples
 check("the server takes a small part of each 100 ms step", serverMean < 30, `mean ${serverMean.toFixed(1)} ms, worst ${serverWorst} ms`);
 check("no step ever takes longer than a step lasts three times over", serverWorst < 300, `worst ${serverWorst} ms`);
 check("the general's page stays smooth", deskMean >= 45, `${Math.round(deskMean)} fps (it was ${calm.desk.mean} with nothing going on)`);
-check("the watching phone keeps its battery-saver 30 frames a second", phoneMean >= 26, `${Math.round(phoneMean)} fps (it was ${calm.phone.mean})`);
+check("the phone-sized page keeps its battery-saver 30 frames a second", phoneMean >= 26, `${Math.round(phoneMean)} fps (it was ${calm.phone.mean})`);
 const longest = Math.max(...samples.map((s) => s.ph.longest));
 check("…with time to spare in every frame (a frame at 30 a second lasts 33 ms)", longest < 25, `the longest frame took ${longest} ms to work out and draw, with every unit in the world sent to it`);
 check("the armies fought: units were destroyed", samples[samples.length - 1].all < atStart.units - 100, `${atStart.units} → ${samples[samples.length - 1].all}`);

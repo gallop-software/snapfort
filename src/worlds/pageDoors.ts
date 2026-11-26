@@ -34,6 +34,13 @@ export interface WorldPage {
    * Picking one hands aiming and clicking to the world's feature (`aimTool`, `useTool`).
    */
   tools?: readonly WorldTool[];
+  /**
+   * What of the shared row this world does without. `siege: false`: no siege
+   * engine tile (nobody builds one here). `material`: the one material every
+   * piece here is made of (no badge, no key to change it; the badge's place
+   * is free for `PageGame.badge`).
+   */
+  row?: { siege?: false; material?: MaterialId };
   /** True when this world tells a new player how it is played itself: the first-game tips every world shares (place a wall, try another piece) are not shown here. */
   ownTips?: boolean;
   /** True when a builder here starts with no piece picked (a click builds nothing until they pick one). */
@@ -59,6 +66,25 @@ export interface WorldTool {
   key: string;
   /** Its picture: the inside of a 40 by 40 SVG, drawn in lines. */
   icon: string;
+  /** A button, not something to hold: pressing it only calls the feature's `useTool`, and whatever was picked stays picked. */
+  press?: boolean;
+}
+
+/** A tile of a world's own on the row, for a while (see `PageGame.row`). It looks as the tools do. */
+export interface RowTile {
+  /** Handed back when it is clicked or tapped. */
+  id: string;
+  label: string;
+  /** The key that does the same, as shown ("F"). The world's own `key` hook listens for it. */
+  key: string;
+  /** Its picture: the inside of a 40 by 40 SVG, drawn in lines. */
+  icon: string;
+  /** A few words under the label: what it costs, say. */
+  sub?: string;
+  /** Shown faded: it cannot be used now. */
+  off?: boolean;
+  /** Shown picked. */
+  on?: boolean;
 }
 
 /** The running game, as a world's own page code sees it. */
@@ -137,6 +163,22 @@ export interface PageGame {
   me(): { name: string; color: string };
   /** A sound of the shared set, by name ("deny", "select", "place"). */
   play(sound: "deny" | "select" | "place" | "remove" | "boom" | "launch" | "horn"): void;
+  /**
+   * Puts tiles of the world's own on the row in place of the tools (a menu of
+   * its own, in the same boxes), or the tools back (null). `pick` is told
+   * which one was clicked or tapped; their keys come through the feature's
+   * `key` hook as every key does.
+   */
+  row(tiles: readonly RowTile[] | null, pick?: (id: string) => void): void;
+  /** Words of the world's own where the material badge is (HTML), or none (null). Only where `WorldPage.row.material` leaves that place free. */
+  badge(html: string | null): void;
+  /**
+   * Keeps this player out of the world (no place for them here now), or lets
+   * them in again (null). Kept out, they are on the menu with `text` under
+   * the button to play, which does not start a game; with `unlock`, it opens
+   * the offer of the Full Game.
+   */
+  shut(why: { text: string; unlock?: boolean } | null): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */

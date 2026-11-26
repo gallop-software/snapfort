@@ -243,6 +243,16 @@ body.touch #world-panel { bottom: auto; top: 58px; font-size: 12px; padding: 5px
   box-shadow: 0 3px 0 rgba(31, 42, 55, 0.55), 0 0 0 3px var(--coral);
 }
 .slot.selected svg { fill: rgba(240, 118, 90, 0.45); }
+/* A world's own tiles on the row, for a while (a menu): the same boxes, with a few words under the label, and faded when they cannot be used. */
+.slot[hidden], #material[hidden] { display: none; }
+.slot.menu { height: auto; min-height: 72px; }
+.slot.menu .label { display: flex; flex-direction: column; align-items: center; line-height: 1.15; text-align: center; }
+.slot.menu .label small { font-size: 9.5px; font-weight: 700; opacity: 0.7; white-space: nowrap; }
+.slot.menu.off { opacity: 0.45; cursor: default; }
+.slot.menu.selected { transform: none; }
+/* (More than eight of them: a little narrower, so the row and what stands beside it still fit.) */
+#hotbar.menu:has(.slot:nth-child(9)) { gap: 7px; }
+#hotbar.menu:has(.slot:nth-child(9)) .slot { width: 62px; }
 
 /* Start and pause panel. */
 #overlay {
@@ -571,6 +581,10 @@ body.touch .mobile { display: revert; }
 body.touch .desk,
 body.touch .keys,
 body.touch #material { display: none; }
+/* A world with one material: no button for changing it. */
+body.one-material #t-material { display: none; }
+/* A world's own words in the badge's place. */
+#material.own { padding: 8px 14px; gap: 14px; }
 
 /* No page zooming, scrolling, bouncing, text selection or long-press menus while playing. */
 html, body { overscroll-behavior: none; }
@@ -681,6 +695,14 @@ body.touch #hotbar:has(.slot:nth-child(8)) .slot .label { font-size: 7px; }
   body.touch #hotbar:has(.slot:nth-child(8)) .slot .label { font-size: 6.5px; }
 }
 body.touch #online { top: calc(env(safe-area-inset-top, 0px) + 8px); right: var(--r, 14px); font-size: 11px; padding: 4px 8px; }
+/* A world's own tiles on a phone: the same small boxes, with no room for the words under the label. */
+body.touch .slot.menu { min-height: 0; }
+body.touch .slot.menu .label small { display: none; }
+body.touch .slot.menu .label { line-height: 1; }
+body.touch #hotbar:has(.slot:nth-child(9)) { gap: 3px; padding: 4px; }
+body.touch #hotbar:has(.slot:nth-child(9)) .slot { width: 33px; height: 42px; }
+body.touch #hotbar:has(.slot:nth-child(9)) .slot svg { width: 20px; height: 20px; }
+body.touch #hotbar:has(.slot:nth-child(9)) .slot .label { font-size: 6.5px; }
 /* The frame-rate readout, out of the hotbar's way. */
 body.touch #stats { top: auto; bottom: 4px; left: 50%; transform: translateX(-50%); font-size: 10px; }
 body.touch #net { top: calc(env(safe-area-inset-top, 0px) + 72px); white-space: normal; max-width: 70vw; text-align: center; }

@@ -8,7 +8,6 @@ import {
   BUILDING_KINDS,
   DIG_TIME,
   EMP,
-  ENGINE_COST,
   FLIGHT_HEIGHT,
   GENERAL_IMMUNE,
   GENERAL_SIGHT,
@@ -19,12 +18,12 @@ import {
   MAX_SUPPLY,
   MAX_UNITS,
   PIECE_COST,
+  ROUTED_LITHIUM,
   ROUTED_WAIT,
   SIGHT_PER_METRE,
   START_HAULERS,
   START_LITHIUM,
   TAP_RATE,
-  TRUCE,
   UNITS,
   UNIT_KINDS,
   UPGRADE_COST,
@@ -80,7 +79,7 @@ export interface General {
   tab: string | null;
   name: string;
   color: string;
-  /** Generals with the same number are allies. */
+  /** Their side: their own slot (there are no alliances; kept as a number of its own for what is worked out by side). */
   team: number;
   lithium: number;
   plasma: number;
@@ -89,15 +88,16 @@ export interface General {
   upgrades: Record<UpgradeKind, number>;
   /** Which start they were given. */
   start: number;
-  /** When they left (game seconds), or 0 while here. */
+  /** When the person who commanded here left (game seconds): the place is kept for their tab for a while. 0: nobody is waited for. */
   leftAt: number;
+  /** When a person last took this place over (game seconds): computers leave a newcomer alone for a while. */
+  joinedAt: number;
   /** When they lost their last Core, or 0. */
   routedAt: number;
+  /** A computer commands here now (no person does). */
   ai: boolean;
   /** Cannot be thrown again before this. */
   immuneUntil: number;
-  /** Generals they have asked to ally with. */
-  asked: number[];
   /** When they were last told they are under attack, and where. */
   alertAt: number;
 }
@@ -262,7 +262,10 @@ export interface Host {
 }
 
 /** Colours for armies whose general's own is too like another's: eight that are easy to tell apart. */
-const ARMY_COLORS = ["#e8463a", "#3a7be8", "#f2c230", "#3fbf5f", "#b455e0", "#f08a2a", "#27c4c4", "#f06aa8"];
+/** A computer general's name, by slot. */
+export const COMPUTER_NAMES = ["Atlas", "Vega", "Orion", "Lyra", "Draco", "Nova", "Rigel", "Altair"];
+/** Each place's colour: its army wears it whoever commands there. */
+export const ARMY_COLORS = ["#e8463a", "#3a7be8", "#f2c230", "#3fbf5f", "#b455e0", "#f08a2a", "#27c4c4", "#f06aa8"];
 
 const dist2 = (ax: number, az: number, bx: number, bz: number) => (ax - bx) * (ax - bx) + (az - bz) * (az - bz);
 const clampEdge = (v: number) => Math.max(-EDGE, Math.min(EDGE, v));
@@ -284,12 +287,11 @@ export class Sim {
   happened: Happened = emptyHappened();
   /** What each team can see now: 1 for each sight cell in view. */
   readonly sight = new Map<number, Uint8Array>();
-  /** Former allies who may not fire on each other yet: "low slot,high slot" → until when. */
-  private readonly truces = new Map<string, number>();
+  /** Which place a newcomer is given next: the computers are taken in turn. */
+  private nextTake = 0;
   private nextUnit = 1;
   private nextBuilding = 1;
   private nextGroup = 1;
-  private nextTeam = 100;
   private readonly flows = new Map<string, Flow & { used: number }>();
   /** Who is near whom: the first unit in each bucket, and the next after each unit (by place in `units`). */
   private readonly head = new Int32Array(BUCKETS * BUCKETS);
@@ -325,16 +327,12 @@ export class Sim {
   // ── Sides ──────────────────────────────────────────────────────────────
 
   teamOf(owner: number): number {
-    return owner === NEUTRAL ? -1 : (this.generals[owner]?.team ?? -2 - owner);
+    return owner === NEUTRAL ? -1 : owner;
   }
 
-  /** Whether one side's things fire on another's. */
+  /** Whether one side's things fire on another's: every general is against every other, and against the sentries. */
   hostile(a: number, b: number): boolean {
-    if (a === b) return false;
-    if (a === NEUTRAL || b === NEUTRAL) return true;
-    if (this.teamOf(a) === this.teamOf(b)) return false;
-    const until = this.truces.get(a < b ? `${a},${b}` : `${b},${a}`);
-    return !(until !== undefined && this.t < until);
+    return a !== b;
   }
 
   /** The general a builder is, or null (watching). */
@@ -351,46 +349,57 @@ export class Sim {
 
   // ── Arriving and leaving ───────────────────────────────────────────────
 
-  /**
-   * A builder who may command comes in: the general they were (the same tab
-   * back within the grace period), or a new one at a free start, or null when
-   * all eight places are taken.
-   */
-  join(pid: string, name: string, color: string, tab: string | null, random: () => number = Math.random): General | null {
-    const back = tab ? this.generals.find((g) => g && !g.ai && g.tab === tab && g.pid === null) : null;
-    if (back) {
-      back.pid = pid;
-      back.pids.push(pid);
-      back.leftAt = 0;
-      back.name = name;
-      back.color = this.distinct(color, back.slot);
-      this.slotOfPid.set(pid, back.slot);
-      return back;
-    }
-    let slot = this.generals.findIndex((g) => g === null);
-    if (slot < 0) {
-      // A computer general makes way for a person.
-      const ai = this.generals.find((g) => g?.ai);
-      if (!ai) return null;
-      this.wipe(ai.slot);
-      slot = ai.slot;
-    }
-    return this.seat(slot, pid, name, color, tab, false, random);
+  /** Whether a place is being kept for the person who left it a moment ago. */
+  private held(g: General): boolean {
+    return g.pid === null && g.tab !== null && g.leftAt > 0 && this.t - g.leftAt < LEAVE_GRACE;
   }
 
-  /** Puts a general (a person or a computer) on a free slot, at a free start, with a Core and its first Haulers. */
-  seat(slot: number, pid: string | null, name: string, color: string, tab: string | null, ai: boolean, random: () => number = Math.random): General {
+  /**
+   * A person who may command comes in. They take over a computer's place as it
+   * stands, base, army, lithium and walls: the one they left a moment ago (the
+   * same tab, within the grace period), else the next computer in turn. Null
+   * when a person holds every place.
+   */
+  join(pid: string, name: string, tab: string | null): General | null {
+    let g: General | null = (tab ? this.generals.find((x) => x && this.held(x) && x.tab === tab) : null) ?? null;
+    for (let i = 0; i < MAX_GENERALS && !g; i++) {
+      const c = this.generals[(this.nextTake + i) % MAX_GENERALS];
+      if (c && c.pid === null && !this.held(c)) g = c;
+    }
+    if (!g) return null;
+    if (g.tab !== tab || !this.held(g)) {
+      this.nextTake = (g.slot + 1) % MAX_GENERALS;
+      g.joinedAt = this.t;
+    }
+    return this.take(g.slot, pid, name, tab);
+  }
+
+  /** A person takes a place over, as it stands. Null when a person holds it already. */
+  take(slot: number, pid: string, name: string, tab: string | null): General | null {
+    const g = this.generals[slot];
+    if (!g || g.pid !== null) return null;
+    g.pid = pid;
+    if (!g.pids.includes(pid)) g.pids.push(pid);
+    g.tab = tab;
+    g.leftAt = 0;
+    g.ai = false;
+    g.name = name;
+    g.pending = 0;
+    this.slotOfPid.set(pid, g.slot);
+    return g;
+  }
+
+  /** Puts a computer general on an empty slot, at a free start, with a Core and its first Haulers. */
+  seat(slot: number): General {
     const used = new Set(this.generals.flatMap((g) => (g ? [g.start] : [])));
-    const free = STARTS.map((_, i) => i).filter((i) => !used.has(i));
-    const start = free[Math.floor(random() * free.length)] ?? 0;
+    // Its own start when that is free (it always is in a war begun with eight); else any that is.
+    const start = !used.has(slot) ? slot : (STARTS.map((_, i) => i).find((i) => !used.has(i)) ?? slot);
     const g: General = {
-      slot, pid, pids: pid ? [pid] : [], tab, name, color: this.distinct(color, slot), team: this.nextTeam++, lithium: START_LITHIUM, plasma: 0, pending: 0,
-      upgrades: { weapons: 0, armour: 0 }, start, leftAt: 0, routedAt: 0, ai, immuneUntil: 0, asked: [], alertAt: -100,
+      slot, pid: null, pids: [], tab: null, name: COMPUTER_NAMES[slot % COMPUTER_NAMES.length]!, color: ARMY_COLORS[slot % ARMY_COLORS.length]!, team: slot, lithium: START_LITHIUM, plasma: 0, pending: 0,
+      upgrades: { weapons: 0, armour: 0 }, start, leftAt: 0, joinedAt: -1e9, routedAt: 0, ai: true, immuneUntil: 0, alertAt: -100,
     };
     this.generals[slot] = g;
-    if (pid) this.slotOfPid.set(pid, slot);
     const s = STARTS[start]!;
-    // Clear the ground for the Core: nothing of anyone's is left standing where a new general's base goes.
     const core = this.addBuilding("core", slot, s.cx - 1, s.cz - 1, true);
     for (let i = 0; i < START_HAULERS; i++) {
       const u = this.spawnBeside(core, "hauler");
@@ -399,36 +408,28 @@ export class Sim {
     return g;
   }
 
-  /**
-   * The colour a general's army wears: their own, unless another general's is
-   * too like it to tell apart across a battlefield; then the one of a fixed
-   * set that is least like any in use.
-   */
-  distinct(color: string, slot: number): string {
-    const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) || 0);
-    const apart = (a: string, b: string) => Math.hypot(...rgb(a).map((v, i) => v - rgb(b)[i]!));
-    const used = this.generals.flatMap((g) => (g && g.slot !== slot ? [g.color] : []));
-    if (used.every((u) => apart(u, color) > 90)) return color;
-    let best = color, bestGap = -1;
-    for (const c of ARMY_COLORS) {
-      const gap = Math.min(...used.map((u) => apart(u, c)));
-      if (gap > bestGap) {
-        bestGap = gap;
-        best = c;
-      }
-    }
-    return best;
+  /** Every place has a general: a computer is put on each empty one. */
+  fill(): void {
+    for (let slot = 0; slot < MAX_GENERALS; slot++) if (!this.generals[slot]) this.seat(slot);
   }
 
-  /** A general's builder has gone: their things stay for the grace period, in case they come back. */
+  /**
+   * The person commanding here has gone: a computer takes over at once and
+   * plays on with everything as it stands. The place is kept for them (their
+   * tab) for the grace period; after that anyone may be given it.
+   */
   leave(pid: string): void {
     const g = this.generalOf(pid);
     if (!g) return;
     g.pid = null;
-    g.leftAt = this.t;
+    g.ai = true;
+    // (Never 0, which says nobody is waited for: a war's very first moment counts too.)
+    g.leftAt = Math.max(this.t, DT / 2);
+    g.pending = 0;
+    g.name = COMPUTER_NAMES[g.slot % COMPUTER_NAMES.length]!;
   }
 
-  /** Everything a general built disappears, and their place is free. */
+  /** Everything of a place disappears, and it is empty (see `fill`). */
   wipe(slot: number): void {
     const g = this.generals[slot];
     if (!g) return;
@@ -444,43 +445,7 @@ export class Sim {
     }
     if (ids.length > 0) this.host.removePieces(ids, "left");
     for (const pid of g.pids) this.slotOfPid.delete(pid);
-    for (const other of this.generals) if (other) other.asked = other.asked.filter((s) => s !== slot);
     this.generals[slot] = null;
-  }
-
-  // ── Alliances ──────────────────────────────────────────────────────────
-
-  /** Asks another general to ally; when they have asked too, the two are allies (the asker joins their team). */
-  ally(slot: number, with_: number): string {
-    const a = this.generals[slot], b = this.generals[with_];
-    if (!a || !b || a === b) return "No such general";
-    if (a.team === b.team) return "You are already allies";
-    if (!a.asked.includes(with_)) a.asked.push(with_);
-    if (!b.asked.includes(slot)) {
-      this.note(with_, `${a.name} asks to be your ally`, "info");
-      return "";
-    }
-    a.asked = a.asked.filter((s) => s !== with_);
-    b.asked = b.asked.filter((s) => s !== slot);
-    a.team = b.team;
-    for (const g of this.generals) if (g && g.team === b.team) this.note(g.slot, g === a ? `You are now allied with ${b.name}` : `${a.name} is now your ally`, "info");
-    return "";
-  }
-
-  /** Leaves every alliance: solo again. Former allies cannot fire on each other for a little while. */
-  unally(slot: number): string {
-    const a = this.generals[slot];
-    if (!a) return "No such general";
-    const mates = this.generals.filter((g): g is General => !!g && g !== a && g.team === a.team);
-    a.asked = [];
-    if (mates.length === 0) return "You have no allies";
-    a.team = this.nextTeam++;
-    for (const m of mates) {
-      this.truces.set(a.slot < m.slot ? `${a.slot},${m.slot}` : `${m.slot},${a.slot}`, this.t + TRUCE);
-      this.note(m.slot, `${a.name} has left your alliance: ${TRUCE} seconds until you can fight`, "info");
-    }
-    this.note(slot, `You have left your alliance: ${TRUCE} seconds until you can fight`, "info");
-    return "";
   }
 
   // ── Money and supply ───────────────────────────────────────────────────
@@ -515,13 +480,15 @@ export class Sim {
 
   /** What a piece costs. */
   priceOf(piece: Piece): number {
-    return piece.type === "trebuchet" ? ENGINE_COST : PIECE_COST[piece.material];
+    void piece;
+    return PIECE_COST;
   }
 
   /** Whether this builder may put this piece in (see WorldServer.mayPlace): a general, with the lithium, and not into a building or a field. */
   mayPlace(pid: string, piece: Piece): boolean {
     const g = this.generalOf(pid);
-    if (!g || !piece.id.startsWith(`${pid}-`) || this.blocks(piece)) return false;
+    // (Nobody builds a siege engine here.)
+    if (!g || piece.type === "trebuchet" || !piece.id.startsWith(`${pid}-`) || this.blocks(piece)) return false;
     const price = this.priceOf(piece);
     if (g.lithium - g.pending < price) return false;
     g.pending += price;
@@ -607,7 +574,7 @@ export class Sim {
     if (!(kind === "core" && this.routedFree(g))) {
       const short = this.pay(g, def.lithium, def.plasma);
       if (short) return short;
-    }
+    } else g.lithium = Math.max(g.lithium, ROUTED_LITHIUM);
     this.addBuilding(kind, slot, cx, cz, false);
     return "";
   }
@@ -660,7 +627,8 @@ export class Sim {
     if (b.kind !== "tap") this.nav.fill(b.cx, b.cz, def.size, false);
     this.happened.gone.push({ unit: false, id: b.id, at: this.centreOf(b), kind: b.kind, owner: b.owner, left });
     const g = this.generals[b.owner];
-    if (g && !left && b.kind === "core" && !this.hasAnyCore(b.owner)) {
+    // (Taken down by its own general too: a place is never left with no Core and no way to another.)
+    if (g && b.kind === "core" && !this.hasAnyCore(b.owner)) {
       g.routedAt = this.t;
       this.note(g.slot, `Your last Core is gone: you may drop a new one, free, in ${ROUTED_WAIT} seconds`, "attack");
     }
@@ -1397,7 +1365,7 @@ export class Sim {
       if (d > radius) return;
       const near = 1 - 0.6 * Math.max(0, d / radius);
       this.hurtUnit(o, damage * near, owner, at[0], at[2]);
-      if (!o.dead && !def.air) this.throwUnit(o, at, near);
+      if (!o.dead && !def.air) this.throwUnit(o, at, near, damage);
     });
     if (air) return;
     for (const b of [...this.buildings.values()]) {
@@ -1458,11 +1426,16 @@ export class Sim {
     this.note(g.slot, "You are under attack", "attack", x, z);
   }
 
-  /** A unit is thrown away from a blast: it rolls and tumbles to where it lands, and lies there a moment. */
-  private throwUnit(u: Unit, from: Vec, near: number): void {
+  /**
+   * A unit is thrown away from a blast: a vehicle rolls and tumbles to where
+   * it lands, a Trooper flies there flailing, and both lie a moment. The
+   * bigger the hit, the further. (Bullets throw nobody: only blasts come here.)
+   */
+  private throwUnit(u: Unit, from: Vec, near: number, damage: number): void {
     const def = UNITS[u.kind];
+    const force = Math.max(0.8, Math.min(2.1, 0.6 + damage / 50));
     // The heavier, the less far.
-    const far = ((3 + 6 * near) / Math.sqrt(def.radius)) * (u.kind === "titan" ? 0.3 : 1);
+    const far = ((3 + 6 * near) / Math.sqrt(def.radius)) * force * (u.kind === "titan" ? 0.3 : 1);
     let dx = u.x - from[0], dz = u.z - from[2];
     const len = Math.hypot(dx, dz);
     if (len < 0.05) {
@@ -1476,7 +1449,7 @@ export class Sim {
     const start: Vec = [u.x, u.y, u.z];
     // A metre at a time, so a wall stops it.
     for (let d = 0; d < far; d += 1) this.shift(u, u.x + dx, u.z + dz, classOf(def));
-    const time = 0.7 + far * 0.09;
+    const time = Math.min(2.4, 0.7 + far * 0.09);
     u.downUntil = this.t + time + 0.6;
     u.goal = u.goal ? { ...u.goal, set: false } : null;
     if (def.deploy) {
@@ -1946,8 +1919,14 @@ export class Sim {
 
   private housekeeping(): void {
     // A general who left and has not come back: everything of theirs goes.
-    for (const g of this.generals) if (g && !g.ai && g.pid === null && this.t - g.leftAt >= LEAVE_GRACE) this.wipe(g.slot);
-    for (const [key, until] of this.truces) if (this.t >= until) this.truces.delete(key);
+    // A place kept for someone who has not come back is anyone's now.
+    for (const g of this.generals) {
+      if (g && g.pid === null && g.leftAt > 0 && this.t - g.leftAt >= LEAVE_GRACE) {
+        g.leftAt = 0;
+        g.tab = null;
+      }
+    }
+    if (this.step % 600 === 0) this.forgetIds();
     // Units whose floor has gone come down to what is under them; idle Haulers by crystals go back to work.
     for (const u of this.units) {
       if (u.dead || u.inside || UNITS[u.kind].air) continue;
@@ -1999,27 +1978,33 @@ export class Sim {
       v: 1,
       t: this.t,
       step: this.step,
-      next: [this.nextUnit, this.nextBuilding, this.nextGroup, this.nextTeam],
+      next: [this.nextUnit, this.nextBuilding, this.nextGroup, this.nextTake],
       generals: this.generals,
       units: this.units.filter((u) => !u.dead).map((u) => ({ ...u, goal: null, tk: 0, tid: 0 })),
       buildings: [...this.buildings.values()].map((b) => ({ ...b, tk: 0, tid: 0 })),
       fields: this.fields.map((f) => [f.id, Math.round(f.amount), f.refillAt]),
       posts: this.posts.map((p) => [p.unit, p.deadAt]),
-      truces: [...this.truces],
     };
   }
 
   /** Takes up where a snapshot left off. Returns false (and stays empty) when it cannot be read. */
   restore(data: unknown): boolean {
     try {
-      const s = data as { v: number; t: number; step: number; next: number[]; generals: (General | null)[]; units: Unit[]; buildings: Building[]; fields: [number, number, number][]; posts: [number, number][]; truces: [string, number][] };
+      const s = data as { v: number; t: number; step: number; next: number[]; generals: (General | null)[]; units: Unit[]; buildings: Building[]; fields: [number, number, number][]; posts: [number, number][] };
       if (!s || s.v !== 1 || !Array.isArray(s.units) || !Array.isArray(s.buildings) || s.generals.length !== MAX_GENERALS) return false;
       this.t = s.t;
       this.step = s.step;
-      [this.nextUnit, this.nextBuilding, this.nextGroup, this.nextTeam] = s.next as [number, number, number, number];
+      [this.nextUnit, this.nextBuilding, this.nextGroup] = s.next as [number, number, number];
+      this.nextTake = (s.next[3] ?? 0) % MAX_GENERALS;
       s.generals.forEach((g, i) => {
         this.generals[i] = g;
-        if (g) for (const pid of g.pids) this.slotOfPid.set(pid, g.slot);
+        if (!g) return;
+        // (A war saved before there were always eight: each place has its own side and its own colour now.)
+        g.team = g.slot;
+        g.color = ARMY_COLORS[g.slot % ARMY_COLORS.length]!;
+        g.joinedAt ??= -1e9;
+        delete (g as { asked?: unknown }).asked;
+        for (const pid of g.pids) this.slotOfPid.set(pid, g.slot);
       });
       for (const [id, amount, refillAt] of s.fields) {
         const f = this.fieldById.get(id);
@@ -2053,12 +2038,28 @@ export class Sim {
           post.deadAt = deadAt;
         }
       });
-      for (const [k, until] of s.truces) this.truces.set(k, until);
       // The owners of walls are known again now: the paths are read afresh.
       this.nav.version++;
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Ids no piece is built under any more are forgotten (a place has a new id
+   * with every person who takes it, and keeps the old ones for their walls).
+   */
+  private forgetIds(): void {
+    const used = new Set<string>();
+    for (const p of this.build.all()) {
+      const dash = p.id.lastIndexOf("-");
+      if (dash > 0) used.add(p.id.slice(0, dash));
+    }
+    for (const g of this.generals) {
+      if (!g) continue;
+      for (const pid of g.pids) if (pid !== g.pid && !used.has(pid)) this.slotOfPid.delete(pid);
+      g.pids = g.pids.filter((pid) => pid === g.pid || used.has(pid));
     }
   }
 

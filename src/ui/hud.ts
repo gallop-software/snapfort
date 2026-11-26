@@ -11,6 +11,19 @@ export interface HotbarItem {
   icon?: string;
 }
 
+/** A tile a world puts on the row for a while, in place of the tools. */
+export interface MenuTile {
+  id: string;
+  label: string;
+  key: string;
+  icon: string;
+  sub?: string;
+  off?: boolean;
+  on?: boolean;
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
 export interface HudActions {
   selectTool(index: number): void;
   play(mode: "siege" | "free"): void;
@@ -285,6 +298,55 @@ export class Hud {
 
   select(index: number): void {
     this.slots.forEach((slot, i) => slot.classList.toggle("selected", i === index));
+  }
+
+  /** What the row last showed in place of the tools, so it is only rebuilt when that changes. */
+  private rowHtml = "";
+  private rowPick: (id: string) => void = () => {};
+
+  /**
+   * Tiles of a world's own on the row in place of the tools (a menu), or the
+   * tools back (null). They are the same boxes; `pick` is told which was
+   * clicked or tapped.
+   */
+  setRow(tiles: readonly MenuTile[] | null, pick?: (id: string) => void): void {
+    const bar = el("hotbar");
+    this.rowPick = pick ?? (() => {});
+    const html = tiles
+      ? tiles
+          .map(
+            (t) =>
+              `<button type="button" class="slot menu${t.off ? " off" : ""}${t.on ? " selected" : ""}" data-id="${escapeHtml(t.id)}">` +
+              `<span class="key">${escapeHtml(t.key)}</span><svg viewBox="0 0 40 40" aria-hidden="true">${t.icon}</svg>` +
+              `<span class="label">${escapeHtml(t.label)}${t.sub ? `<small>${escapeHtml(t.sub)}</small>` : ""}</span></button>`,
+          )
+          .join("")
+      : "";
+    if (html === this.rowHtml) return;
+    if (!this.rowHtml && html) {
+      // The first time: one listener for whatever tiles there are.
+      if (!bar.dataset.menu) {
+        bar.dataset.menu = "1";
+        bar.addEventListener("click", (e) => {
+          const slot = (e.target as HTMLElement).closest<HTMLElement>(".slot.menu");
+          if (slot && !slot.classList.contains("off") && slot.dataset.id) this.rowPick(slot.dataset.id);
+        });
+      }
+    }
+    this.rowHtml = html;
+    // (The tools are taken off the row while a menu is on it, not only hidden: the row is sized by how many tiles it holds.)
+    for (const old of [...bar.querySelectorAll(".slot")]) old.remove();
+    bar.classList.toggle("menu", !!tiles);
+    if (html) bar.insertAdjacentHTML("beforeend", html);
+    else for (const slot of this.slots) bar.appendChild(slot);
+  }
+
+  /** A world's own words where the material badge is (HTML), or none (null). */
+  setBadge(html: string | null): void {
+    const badge = el("material");
+    badge.classList.add("own");
+    badge.hidden = html === null;
+    if (html !== null && badge.innerHTML !== html) badge.innerHTML = html;
   }
 
   /** Puts the mouse speed slider at a saved value. */

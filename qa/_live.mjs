@@ -1,4 +1,4 @@
-// A look at the live site after a deploy: every world loads and joins, and Mojave shows a visitor the war.
+// A look at the live site after a deploy: every world loads and joins, and Mojave keeps out someone without the Full Game (nobody watches there).
 import { chromium } from "playwright-core";
 const base = "https://snapfort.io";
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
@@ -20,20 +20,19 @@ for (const path of ["/", "/moon", "/mars", "/mojave"]) {
   await page.click("#play-free");
   await wait(3500);
   const playing = await page.evaluate(() => ({ playing: document.body.classList.contains("playing") || document.body.classList.contains("away"), online: document.getElementById("online")?.textContent ?? "", visit: !document.getElementById("visit-bar")?.hidden }));
-  say(playing.playing && /online/.test(playing.online), `${path}: joined the live world (${playing.online})`);
   if (path === "/mojave") {
-    const m = await page.evaluate(() => ({ watch: document.getElementById("mj-watch")?.textContent ?? "", map: !!document.getElementById("mj-map"), bank: document.getElementById("mj-bank")?.hidden, dark: !!document.querySelector("#mj") }));
-    say(/Full Game/.test(m.watch) && m.map && m.bank === true, `/mojave: a visitor is told they are watching ("${m.watch.slice(0, 60)}…"), with the map and no bank`);
-    await wait(2500);
+    const m = await page.evaluate(() => ({ unlock: !document.getElementById("view-unlock").hidden, note: document.getElementById("touch-note").textContent, tiles: [...document.querySelectorAll("#hotbar .slot .label")].map((l) => l.textContent).join(",") }));
+    say(!playing.playing && m.unlock && /Full Game/.test(m.note), `/mojave: someone without the Full Game is not let in: the button opens the offer ("${m.note}")`);
+    say(m.tiles === "Wall,Floor,Ramp,Canopy,Remove,Command", `/mojave: the row has Command where the siege engine was, and no more (${m.tiles})`);
     await page.screenshot({ path: "qa/shots/live-mojave.png" });
-  }
+  } else say(playing.playing && /online/.test(playing.online), `${path}: joined the live world (${playing.online})`);
   say(errors.length === 0, `${path}: no errors${errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""}`);
   await context.close();
 }
 const pic = await fetch("https://cdn.snapfort.io/worlds/mojave.jpg");
 say(pic.ok, `the card's picture is on the CDN (${pic.status})`);
 const terms = await (await fetch(base + "/terms")).text();
-say(/Mojave/.test(terms), "the terms name Mojave");
+say(/Mojave/.test(terms) && /always eight/.test(terms), "the terms say how Mojave is now: always eight generals");
 const store = await (await fetch(base + "/api/store", { cache: "no-store" })).json();
 console.log("live build:", store.build, "· payments live:", store.live);
 const worlds = await (await fetch(base + "/api/worlds", { cache: "no-store" })).json();

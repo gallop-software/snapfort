@@ -3,7 +3,7 @@ import { BuildState } from "../../game/buildState";
 import { CELL, LEVEL } from "../../game/constants";
 import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
-import { BUILDINGS, LEAVE_GRACE, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, TRUCE, UNITS } from "./kit";
+import { BUILDINGS, LEAVE_GRACE, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
 import { STARTS } from "./map";
 import { DT, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
 import { HALF_CELLS, world } from "./world";
@@ -39,13 +39,11 @@ function setup() {
   const run = (seconds: number) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) sim.tick();
   };
-  /** A general at start `start`, standing by their Core. */
+  /** A person commanding the place at start `start` (a computer's until now, begun afresh), standing by their Core. */
   let r = 0;
   const general = (pid: string, start: number) => {
-    // Picks the start asked for: the nth free one.
-    const used = new Set(sim.generals.flatMap((g) => (g ? [g.start] : [])));
-    const free = STARTS.map((_, i) => i).filter((i) => !used.has(i));
-    const g = sim.join(pid, pid, "#ff0000", `tab${pid}${r++}`.padEnd(8, "x"), () => (free.indexOf(start) + 0.5) / free.length)!;
+    if (!sim.generals[start]) sim.seat(start);
+    const g = sim.take(start, pid, pid, `tab${pid}${r++}`.padEnd(8, "x"))!;
     host.at.set(pid, [STARTS[g.start]!.spawn[0], 0.9, STARTS[g.start]!.spawn[1]]);
     return g;
   };
@@ -57,7 +55,7 @@ function setup() {
 const OPEN: [number, number] = [200, 150];
 
 describe("a general arrives", () => {
-  it("at a free start, with a Core and Haulers that go to work by themselves", () => {
+  it("in a place with a Core and Haulers that go to work by themselves", () => {
     const { sim, general, run, mine } = setup();
     const g = general("p1", 2);
     expect(g.start).toBe(2);
@@ -73,12 +71,28 @@ describe("a general arrives", () => {
     expect(g.lithium).toBeGreaterThan(START_LITHIUM + 100);
   });
 
-  it("eight at most, each at a start of their own; a ninth has no place", () => {
+  it("there are always eight, each at a start of their own; a person takes a computer's place as it stands, in turn; a ninth person has none", () => {
     const { sim } = setup();
-    const starts = new Set<number>();
-    for (let i = 0; i < MAX_GENERALS; i++) starts.add(sim.join(`p${i}`, `G${i}`, "#00ff00", `tabtab0${i}`)!.start);
-    expect(starts.size).toBe(MAX_GENERALS);
-    expect(sim.join("p9", "Late", "#00ff00", "tabtab99")).toBeNull();
+    sim.fill();
+    expect(sim.generals.every((g) => g?.ai)).toBe(true);
+    expect(new Set(sim.generals.map((g) => g!.start)).size).toBe(MAX_GENERALS);
+    expect(new Set(sim.generals.map((g) => g!.color)).size).toBe(MAX_GENERALS);
+    // What a computer had is the newcomer's: nothing is taken away, nothing begun afresh.
+    const first = sim.generals[0]!;
+    first.lithium = 4321;
+    const tank = sim.addUnit("tank", 0, STARTS[first.start]!.spawn[0], STARTS[first.start]!.spawn[1]);
+    const cores = sim.buildings.size, units = sim.units.length;
+    const taken: number[] = [];
+    for (let i = 0; i < MAX_GENERALS; i++) taken.push(sim.join(`p${i}`, `G${i}`, `tabtab0${i}`)!.slot);
+    expect(taken).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(first.pid).toBe("p0");
+    expect(first.ai).toBe(false);
+    expect(first.name).toBe("G0");
+    expect(first.lithium).toBe(4321);
+    expect(tank.owner).toBe(0);
+    expect(sim.buildings.size).toBe(cores);
+    expect(sim.units.length).toBe(units);
+    expect(sim.join("p9", "Late", "tabtab99")).toBeNull();
   });
 
   it("makes units at a building: paid for, counted against supply, there after their time", () => {
@@ -350,12 +364,17 @@ describe("pieces", () => {
     const g = general("p1", 0), other = general("p2", 4);
     const s = STARTS[g.start]!;
     const wall: Piece = { id: "p1-a", type: "wall", x: 10, y: 0, z: 10, rot: 0, material: "metal", edit: 0 };
-    g.lithium = PIECE_COST.metal * 2 - 1;
+    // One price, whatever slot a piece is saved under; and nobody builds a siege engine.
+    expect(sim.priceOf(wall)).toBe(sim.priceOf({ ...wall, material: "wood" }));
+    g.lithium = 10_000;
+    expect(sim.mayPlace("p1", { ...wall, id: "p1-t", type: "trebuchet" })).toBe(false);
+    g.pending = 0;
+    g.lithium = PIECE_COST * 2 - 1;
     expect(sim.mayPlace("p1", wall)).toBe(true);
     // A second in the same action: the first is already promised.
     expect(sim.mayPlace("p1", { ...wall, id: "p1-b", x: 11 })).toBe(false);
     sim.placed("p1", [wall]);
-    expect(g.lithium).toBe(PIECE_COST.metal - 1);
+    expect(g.lithium).toBe(PIECE_COST - 1);
     // Someone else's id, or someone who is not a general.
     expect(sim.mayPlace("p1", { ...wall, id: "p2-a" })).toBe(false);
     expect(sim.mayPlace("nobody", { ...wall, id: "nobody-a" })).toBe(false);
@@ -375,62 +394,105 @@ describe("pieces", () => {
 });
 
 describe("leaving, and coming back", () => {
-  it("everything a general built goes after the grace period, pieces too", () => {
+  it("a computer takes over at once and plays on: nothing built is removed, pieces neither", () => {
     const { sim, general, run, piece, host } = setup();
     const g = general("p1", 0);
     const wall = piece("p1", "wall", 10, 0, 10);
     const slot = g.slot;
+    g.lithium = 600;
+    const tank = sim.addUnit("tank", slot, OPEN[0], OPEN[1]);
     sim.leave("p1");
-    run(LEAVE_GRACE - 5);
-    expect(sim.generals[slot]).not.toBeNull();
-    run(8);
-    expect(sim.generals[slot]).toBeNull();
-    expect(sim.units.filter((u) => u.owner === slot)).toHaveLength(0);
-    expect([...sim.buildings.values()].filter((b) => b.owner === slot)).toHaveLength(0);
-    expect(host.removed).toContain(wall.id);
-    expect(sim.happened.gone.every((x) => x.left)).toBe(true);
+    expect(g.ai).toBe(true);
+    expect(g.pid).toBeNull();
+    expect(g.name).not.toBe("p1");
+    run(LEAVE_GRACE + 10);
+    expect(sim.generals[slot]).toBe(g);
+    expect(tank.dead).toBe(false);
+    expect([...sim.buildings.values()].filter((b) => b.owner === slot && b.kind === "core")).toHaveLength(1);
+    expect(host.removed).toHaveLength(0);
+    // The wall is still that place's: whoever commands it next may change it, and nobody else.
+    expect(sim.ownerOfPiece(wall.id)).toBe(slot);
+    const next = sim.join("p2", "Bea", "tab-of-bea")!;
+    expect(next).toBe(g);
+    expect(sim.mayChange("p2", wall)).toBe(true);
   });
 
-  it("the same tab back in time is the same general, with everything as it was", () => {
+  it("the place is kept for the same tab for the grace period, and is anyone's after it", () => {
     const { sim, run } = setup();
-    const g = sim.join("p1", "Ann", "#112233", "tabtabtab")!;
+    sim.fill();
+    const g = sim.join("p1", "Ann", "tabtabtab")!;
     g.lithium = 777;
     sim.leave("p1");
     run(20);
-    const back = sim.join("p7", "Ann", "#112233", "tabtabtab")!;
+    // Someone else in the meantime is given another place, not the one being kept.
+    const other = sim.join("p5", "Cy", "tab-of-cy")!;
+    expect(other).not.toBe(g);
+    const back = sim.join("p7", "Ann", "tabtabtab")!;
     expect(back).toBe(g);
     expect(back.pid).toBe("p7");
+    expect(back.ai).toBe(false);
     expect(back.lithium).toBeGreaterThanOrEqual(777);
-    run(LEAVE_GRACE + 5);
-    expect(sim.generals[g.slot]).toBe(g);
     // Pieces built under the old id are still theirs.
     expect(sim.ownerOfPiece("p1-zz")).toBe(g.slot);
     expect(sim.ownerOfPiece("p7-zz")).toBe(g.slot);
+    // Gone for longer than the grace period: the place is no longer kept, and the next person may be given it.
+    sim.leave("p7");
+    for (let i = 0; i < MAX_GENERALS - 2; i++) sim.join(`q${i}`, `Q${i}`, `tab-q-${i}`);
+    expect(sim.join("late", "Late", "tab-late")).toBeNull();
+    run(LEAVE_GRACE + 2);
+    expect(sim.join("late", "Late", "tab-late")).toBe(g);
+    // And the one who left it comes back to whatever is open, like anyone: nothing is.
+    expect(sim.join("p8", "Ann", "tabtabtab")).toBeNull();
   });
 });
 
-describe("alliances", () => {
-  it("allies do not fight; leaving an alliance gives a truce first", () => {
+describe("sides", () => {
+  it("every general is against every other, and against the sentries: there are no alliances", () => {
     const { sim, general, run } = setup();
     const a = general("pa", 0), b = general("pb", 4);
     const ua = sim.addUnit("trooper", a.slot, OPEN[0], OPEN[1]);
     const ub = sim.addUnit("trooper", b.slot, OPEN[0], OPEN[1] + 10);
     sim.command(a.slot, [ua.id], { k: "hold" });
     sim.command(b.slot, [ub.id], { k: "hold" });
-    expect(sim.ally(a.slot, b.slot)).toBe("");
     expect(sim.hostile(a.slot, b.slot)).toBe(true);
-    expect(sim.ally(b.slot, a.slot)).toBe("");
-    expect(sim.hostile(a.slot, b.slot)).toBe(false);
-    const hp = [ua.hp, ub.hp];
-    run(5);
-    expect([ua.hp, ub.hp]).toEqual(hp);
-    expect(sim.unally(a.slot)).toBe("");
-    run(TRUCE - 2);
-    expect([ua.hp, ub.hp]).toEqual(hp);
-    run(6);
-    expect(ua.hp + ub.hp).toBeLessThan(hp[0]! + hp[1]!);
-    // Neutral sentries are everyone's enemy.
+    expect(sim.hostile(a.slot, a.slot)).toBe(false);
     expect(sim.hostile(a.slot, NEUTRAL)).toBe(true);
+    const hp = ua.hp + ub.hp;
+    run(5);
+    expect(ua.hp + ub.hp).toBeLessThan(hp);
+  });
+});
+
+describe("being thrown", () => {
+  it("bullets throw nobody; a shell throws a Trooper, further the bigger the hit", () => {
+    const { sim, general, run } = setup();
+    const a = general("pa", 0), b = general("pb", 4);
+    // Rifles: hurt, never thrown.
+    const shooter = sim.addUnit("trooper", a.slot, OPEN[0], OPEN[1]);
+    const shot = sim.addUnit("trooper", b.slot, OPEN[0], OPEN[1] + 12);
+    sim.command(a.slot, [shooter.id], { k: "hold" });
+    sim.command(b.slot, [shot.id], { k: "hold" });
+    sim.happened.tumbles.length = 0;
+    run(4);
+    expect(shot.hp).toBeLessThan(UNITS.trooper.hp);
+    expect(sim.happened.tumbles).toHaveLength(0);
+    // Blasts: thrown, and the heavier shell throws further.
+    const far = (damage: number) => {
+      const u = sim.addUnit("trooper", b.slot, OPEN[0] + 60, OPEN[1] + 60);
+      u.hp = 10_000;
+      // (A step, so the war knows where it stands.)
+      sim.tick();
+      const from = u.x;
+      sim.happened.tumbles.length = 0;
+      sim.blast([u.x - 1, 0.5, u.z], 5, damage, a.slot, { air: false, ground: true, wear: 0 });
+      expect(sim.happened.tumbles).toHaveLength(1);
+      const d = u.x - from;
+      sim.kill(u, false);
+      return d;
+    };
+    const tank = far(UNITS.tank.weapon!.damage), shell = far(UNITS.artillery.weapon!.damage);
+    expect(tank).toBeGreaterThan(5);
+    expect(shell).toBeGreaterThan(tank * 1.3);
   });
 });
 
@@ -494,7 +556,8 @@ describe("transports", () => {
 describe("at full size", () => {
   it("1,700 units fighting take a few milliseconds a step", () => {
     const { sim } = setup();
-    const gens = Array.from({ length: MAX_GENERALS }, (_, i) => sim.join(`p${i}`, `G${i}`, "#00ff00", `tabtab0${i}`)!);
+    sim.fill();
+    const gens = sim.generals.map((g) => g!);
     const kinds = ["trooper", "trooper", "trooper", "tank", "scout", "gunship", "artillery", "missile"] as const;
     for (const g of gens) {
       const s = STARTS[g.start]!;

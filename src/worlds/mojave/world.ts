@@ -9,10 +9,13 @@ export const HALF_CELLS = 96;
  * in the same view as everywhere else (see sim.ts for the rules of the war,
  * and PLAN.md for what was decided with the user).
  *
- * The building rules, the pull and the three material slots are the ones every
- * world has; the pull is the Earth's, as in the Meadow. Built from what a
- * forward base of that time would be made of: carbon lattice, printed concrete
- * and stainless steel. The siege slot is a rail battery, worked by the general.
+ * The building rules and the pull are the ones every world has; the pull is
+ * the Earth's, as in the Meadow. There is one material here, printed
+ * concrete: the three slots every world's builds are saved in are all filled
+ * with it, so a piece is the same whichever it was saved under. Nobody builds
+ * a siege engine here (the server refuses one, and the row has no tile for
+ * it): armies do the breaking. The siege rules below are only what the shared
+ * shape of a world asks for.
  *
  * Copied from the Meadow (2026-11-25) and changed from there; the two share no code.
  */
@@ -26,7 +29,7 @@ export const world: Environment = {
   card: {
     blurb: "Be the general: mine, build an army and command it from the ground. Eight generals, one desert.",
     picture: "https://cdn.snapfort.io/worlds/mojave.jpg",
-    perks: ["Mine lithium and plasma, build an army", "Tanks, drones, artillery and Titans", "Ally with other generals, or go alone"],
+    perks: ["Mine lithium and plasma, build an army", "Tanks, drones, artillery and Titans", "Eight generals, always: take one over and fight"],
   },
 
   // No ship lands here and none leaves: what a general has, they made here.
@@ -44,13 +47,13 @@ export const world: Environment = {
   rubbleGravity: 9.81,
 
   materials: {
-    // The same three slots, limits and strengths as everywhere; Mojave's own stuff in them.
-    wood: { label: "Lattice", color: [0.3, 0.33, 0.37], maxLevel: Infinity, hits: 2 },
-    brick: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: 29, hits: 4 },
-    metal: { label: "Steel", color: [0.74, 0.78, 0.82], maxLevel: 9, hits: 6 },
+    // One material, in all three slots: built to any height, four hits.
+    wood: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 4 },
+    brick: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 4 },
+    metal: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 4 },
   },
 
-  // The rail battery: the general's own gun. Fast and nearly straight, so it hits the first thing in its line.
+  // (Never built here: see above.)
   siege: {
     name: "Rail battery",
     minRange: 0,

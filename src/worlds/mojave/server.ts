@@ -1,12 +1,12 @@
 import type { WorldServer } from "../serverDoors";
-import { openWar, warBlocks, warJoined, warLeft, warMayChange, warMayPlace, warMessage, warPlaced, warShotHits, warStruck } from "./armies";
+import { openWar, warBlocks, warJoined, warLeft, warMayChange, warMayPlace, warMessage, warPlaced } from "./armies";
 
 /**
- * What Mojave does on the server beyond the shared rules: the war. Every
- * builder who may command is a general with an army (sim.ts is the rules,
- * armies.ts runs them in the room and tells each page what its side can see).
- * Pieces cost lithium here and belong to whoever built them, and nothing is
- * built into a building or a field.
+ * What Mojave does on the server beyond the shared rules: the war. There are
+ * always eight generals, people or computers (sim.ts is the rules, armies.ts
+ * runs them in the room and tells each page what its general can see). Pieces
+ * cost lithium here and belong to the place they were built for, nothing is
+ * built into a building or a field, and nobody builds a siege engine.
  */
 export const server: WorldServer = {
   open(room) {
@@ -32,11 +32,5 @@ export const server: WorldServer = {
   },
   blocks(room, piece) {
     return warBlocks(room, piece);
-  },
-  shotHits(room, flight) {
-    return warShotHits(room, flight);
-  },
-  struck(room, point) {
-    warStruck(room, point);
   },
 };

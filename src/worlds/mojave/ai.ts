@@ -1,5 +1,5 @@
 import { CELL } from "../../game/constants";
-import { BUILDINGS, MAX_SUPPLY, UNITS, type BuildingKind, type UnitKind } from "./kit";
+import { BUILDINGS, MAX_SUPPLY, NEWCOMER_PEACE, UNITS, type BuildingKind, type UnitKind } from "./kit";
 import { mid, STARTS } from "./map";
 import { NEUTRAL, T_BUILDING, type Building, type General, type Sim } from "./sim";
 
@@ -7,12 +7,14 @@ import { NEUTRAL, T_BUILDING, type Building, type General, type Sim } from "./si
  * A computer general: plays by the same rules as a person, through the same
  * orders (it has no body, so it is never thrown, and it builds no walls). It
  * mines, builds up, raises an army, and sends it at the nearest enemy when it
- * is big enough. Deliberately not clever: something to fight when few people
- * are on, and to learn against.
+ * is big enough. Deliberately not clever: something to fight, and to learn
+ * against.
+ *
+ * Every place no person commands is played by one: a place a person has just
+ * left is taken up as it stands, whatever they had built, and a place a
+ * person takes over simply stops being played here. So nothing is remembered
+ * that cannot be made up afresh from what stands on the map.
  */
-
-const NAMES = ["Atlas", "Vega", "Orion", "Lyra", "Draco", "Nova", "Rigel", "Altair"];
-const COLORS = ["#8d6bff", "#2fb8a0", "#e9a23b", "#d64f8c", "#4f8fe6", "#9bc53d", "#e0603a", "#7a7f8a"];
 
 interface Mind {
   /** How big the army must be before the next attack (supply). */
@@ -26,30 +28,13 @@ export class Bots {
 
   constructor(private readonly sim: Sim) {}
 
-  /** How many computer generals there are. */
-  get count(): number {
-    return this.sim.generals.filter((g) => g?.ai).length;
-  }
-
-  /** Brings the number of computer generals to `want` (as far as there are free places). */
-  setCount(want: number): void {
-    const sim = this.sim;
-    while (this.count > want) {
-      const last = [...sim.generals].reverse().find((g) => g?.ai);
-      if (!last) break;
-      sim.wipe(last.slot);
-      this.minds.delete(last.slot);
-    }
-    while (this.count < want) {
-      const slot = sim.generals.findIndex((g) => g === null);
-      if (slot < 0) break;
-      sim.seat(slot, null, NAMES[slot % NAMES.length]!, COLORS[slot % COLORS.length]!, null, true);
-    }
-  }
-
   /** Called every couple of seconds: each computer general does the next sensible thing. */
   think(): void {
-    for (const g of this.sim.generals) if (g?.ai) this.run(g);
+    for (const g of this.sim.generals) {
+      if (g?.ai) this.run(g);
+      // (A person commands here now: what the computer was in the middle of is forgotten.)
+      else if (g) this.minds.delete(g.slot);
+    }
   }
 
   private run(g: General): void {
@@ -64,12 +49,9 @@ export class Bots {
     const cores = done("core");
     const home = cores[0] ?? any("core")[0];
 
-    // Routed: a new Core as soon as it is free, back where it started.
+    // Routed: it begins again with a new Core as soon as that is free, back where it started (or on the nearest clear ground).
     if (!home) {
-      if (sim.routedFree(g)) {
-        const s = STARTS[g.start]!;
-        this.place(g, "core", s.cx, s.cz);
-      }
+      if (sim.routedFree(g)) this.restart(g);
       return;
     }
     const used = sim.supplyUsed(g.slot), max = sim.supplyMax(g.slot);
@@ -178,6 +160,9 @@ export class Bots {
     let best: Building | null = null, bestD = Infinity;
     for (const b of this.sim.buildings.values()) {
       if (b.dead || !this.sim.hostile(g.slot, b.owner)) continue;
+      // A person who has only just taken a place over is left alone for a while.
+      const theirs = this.sim.generals[b.owner];
+      if (theirs && !theirs.ai && this.sim.t - theirs.joinedAt < NEWCOMER_PEACE) continue;
       const c = this.sim.centreOf(b);
       const d = Math.hypot(c[0] - x, c[2] - z) - (b.kind === "core" ? 60 : 0);
       if (d < bestD) {
@@ -186,6 +171,20 @@ export class Bots {
       }
     }
     return best;
+  }
+
+  /** A new Core where this general first stood, or as near to it as there is clear ground. */
+  private restart(g: General): boolean {
+    const s = STARTS[g.start]!;
+    for (let r = 0; r <= 16; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (this.place(g, "core", s.cx - 1 + dx, s.cz - 1 + dz)) return true;
+        }
+      }
+    }
+    return false;
   }
 
   private place(g: General, kind: BuildingKind, cx: number, cz: number): boolean {

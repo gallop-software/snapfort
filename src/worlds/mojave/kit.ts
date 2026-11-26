@@ -190,9 +190,8 @@ export function upkeep(supplyUsed: number): number {
   return supplyUsed > 150 ? 0.6 : supplyUsed > 100 ? 0.8 : 1;
 }
 
-/** What a built piece costs in lithium, by material slot (light, middle, heavy). The siege engine has its own price. */
-export const PIECE_COST = { wood: 4, brick: 8, metal: 14 } as const;
-export const ENGINE_COST = 150;
+/** What a built piece costs in lithium: there is one material here. */
+export const PIECE_COST = 8;
 
 /** How high drones fly, m. */
 export const FLIGHT_HEIGHT = 14;
@@ -205,9 +204,11 @@ export const GENERAL_SIGHT = 60;
 export const SIGHT_PER_METRE = 1.2;
 /** Units and buildings on an upper storey see and shoot this much further. */
 export const HIGH_GROUND = 1.3;
-/** Everything of a general who left is removed after this long (a dropped connection may come back before then), seconds. */
+/** A place is kept for the person who left it for this long (a dropped connection may come back before then), seconds: a computer plays it meanwhile, and after that anyone may be given it. */
 export const LEAVE_GRACE = 60;
-/** Former allies cannot fire on each other for this long after an alliance ends, seconds. */
-export const TRUCE = 10;
 /** A routed general may drop a new Core, free, after this long. */
 export const ROUTED_WAIT = 20;
+/** A routed general's free Core comes with at least this much lithium: enough for the first Haulers. */
+export const ROUTED_LITHIUM = 200;
+/** Computer generals leave a person who has just taken a place over alone for this long, seconds. */
+export const NEWCOMER_PEACE = 240;

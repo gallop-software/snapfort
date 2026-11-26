@@ -1,11 +1,10 @@
 import { CELL, LEVEL } from "../../../game/constants";
 import { gridBox, type Piece, type PieceSpec } from "../../../game/pieces";
-import type { PageGame, WorldFeature } from "../../pageDoors";
+import type { PageGame, RowTile, WorldFeature } from "../../pageDoors";
 import {
   BUILDING_KINDS,
   BUILDINGS,
   EMP,
-  ENGINE_COST,
   HIGH_GROUND,
   MAKES,
   PIECE_COST,
@@ -22,8 +21,9 @@ import { BUILD_REACH, generalSight } from "../sim";
 import type { ToPage, ToServer, WireGeneral, WireSpot, WireTarget } from "../wire";
 import { HALF_CELLS } from "../world";
 import { ArmyView, type SeenBuilding, type SeenField, type SeenUnit } from "./army";
-import { Dark } from "./dark";
-import { Panel, type CardButton, type MapDot } from "./panel";
+import { ICONS } from "./icons";
+import { Panel, type MapDot } from "./panel";
+import { Sight } from "./sight";
 
 /**
  * Commanding, from the ground. The general keeps the view every world has and
@@ -35,11 +35,21 @@ import { Panel, type CardButton, type MapDot } from "./panel";
  *
  * What the keys mean depends on what is selected, as in StarCraft:
  * nothing (the building keys of every world), units (orders), or a building
- * (what it makes).
+ * (what it makes). Whatever they mean now is shown on the row, in the same
+ * boxes the pieces are picked from: the Command tile opens the general's own
+ * menu there, and a selection puts its orders there.
+ *
+ * The land is never dark, but an enemy is known of only while it is in sight.
+ * What was seen and is no longer in sight stays on the map as a report, where
+ * it was last seen, fading with age, until that ground is looked at again.
  */
 
 type Pending = "move" | "amove" | "patrol" | "gather" | "unload" | "emp" | "rally";
-type Mode = null | { k: "target"; what: Pending } | { k: "menu"; page: 0 | 1 } | { k: "place"; kind: BuildingKind } | { k: "gens" };
+/** A menu on the row: the general's own (what the Command tile opens), or the buildings (basic, advanced). */
+type Menu = "cmd" | 0 | 1;
+type Mode = null | { k: "target"; what: Pending } | { k: "menu"; page: Menu } | { k: "place"; kind: BuildingKind };
+/** An enemy unit seen and no longer in sight: where it was, and when. */
+interface Report { x: number; z: number; owner: number; kind: UnitKind; at: number; lookedAt: number }
 type Picked = { k: "unit"; u: SeenUnit } | { k: "building"; b: SeenBuilding } | { k: "field"; f: SeenField } | { k: "general"; slot: number } | null;
 
 const HALF = HALF_CELLS * CELL;
@@ -52,6 +62,8 @@ const PENDING_TEXT: Record<Pending, string> = {
   emp: "EMP: click where",
   rally: "Rally point: click where",
 };
+/** A report is as faint as it gets after this long, ms (it is never dropped for its age: only when the spot is seen again). */
+const REPORT_FADES_MS = 5 * 60_000;
 const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string][] = [
   ["KeyM", "M", "move", "Move"],
   ["KeyF", "F", "amove", "Attack"],
@@ -59,17 +71,19 @@ const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string]
   ["KeyH", "H", "hold", "Hold"],
   ["KeyP", "P", "patrol", "Patrol"],
   ["KeyG", "G", "gather", "Gather"],
-  ["KeyC", "C", "return", "Return cargo"],
+  ["KeyC", "C", "return", "Return"],
   ["KeyU", "U", "unload", "Unload"],
   ["KeyE", "E", "emp", "EMP"],
 ];
 
 export function startCommand(game: PageGame): WorldFeature & Record<string, unknown> {
   const army = new ArmyView(game);
-  const dark = new Dark(game.scene);
+  const sight = new Sight();
   const panel = new Panel();
+  panel.badge = (html) => game.badge(html);
+  const reports = new Map<number, Report>();
 
-  /** Who this player is here: a general's slot, or -1 (watching), and why. */
+  /** Who this player is here: a general's slot, or -1 (there is no place for them: they are kept out), and why. */
   let slot = -1;
   let why: "full" | "visitor" | undefined;
   let start: [number, number] | null = null;
@@ -77,7 +91,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   const myPids = new Set<string>();
   let generals: WireGeneral[] = [];
   let bank = { l: 0, p: 0, used: 0, max: 0, up: [0, 0] as [number, number], routed: -1 };
-  let bots = 1;
 
   const selected = new Set<number>();
   const selectedBuildings = new Set<number>();
@@ -96,18 +109,25 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   let cardDirty = true;
   let lookAt = 0, mapAt = 0, cardAt = 0, shotAt = 0, boomAt = 0;
   let lastHint: string | null = null;
+  /** What the row and the line over it last showed (for the checks that read them). */
+  let shownRow: RowTile[] | null = null;
+  let shownStatus: string | null = null;
   /** Frames left in which a general who has just arrived is turned to face their base. */
   let faceHome = 0;
   /** What a hint says, without its markup. */
   const plain = (html: string | null) => (html ?? "").replace(/<[^>]+>/g, "");
 
   const general = (s: number) => generals.find((g) => g.slot === s);
-  const teamOf = (s: number) => general(s)?.team ?? -1 - s;
-  const myTeam = () => teamOf(slot);
+  /** Mine, or not: there are no allies. */
   const mine = (owner: number) => slot >= 0 && owner === slot;
-  const friendly = (owner: number) => slot >= 0 && owner < 8 && teamOf(owner) === myTeam();
   army.colorOf = (owner) => general(owner)?.color ?? "#8a8f98";
-  army.inSight = (x, z) => dark.sees(x, z);
+  army.inSight = (x, z) => sight.sees(x, z);
+  // An enemy that goes out of sight stays on the map where it was last seen.
+  army.onUnseen = (u) => {
+    if (mine(u.owner)) return;
+    reports.set(u.id, { x: u.x, z: u.z, owner: u.owner, kind: u.kind, at: performance.now(), lookedAt: 0 });
+    if (reports.size > 2500) reports.delete(reports.keys().next().value as number);
+  };
 
   const send = (msg: ToServer) => game.send(msg);
   const shift = () => game.held("ShiftLeft") || game.held("ShiftRight");
@@ -146,7 +166,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (best) return best;
     for (const o of game.others()) {
       const g = generals.find((x) => x.pid === o.id);
-      if (!g || !o.position || !dark.sees(o.position[0], o.position[2])) continue;
+      if (!g || !o.position || !sight.sees(o.position[0], o.position[2])) continue;
       const cx = o.position[0] - from[0], cy = o.position[1] - from[1], cz = o.position[2] - from[2];
       const along = cx * dir[0] + cy * dir[1] + cz * dir[2];
       if (along < 0.5 || along > reach) continue;
@@ -296,10 +316,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       send({ m: "order", ids, k: "attack", on, q: queue });
       if (at) mark(at, [1, 0.3, 0.25]);
     };
-    if (p?.k === "unit" && !friendly(p.u.owner)) return attack([1, p.u.id], [p.u.x, p.u.y, p.u.z]);
-    if (p?.k === "building" && !friendly(p.b.o)) return attack([2, p.b.i], spot);
-    if (p?.k === "general" && !friendly(p.slot)) return attack([3, p.slot], spot);
-    if (p?.k === "unit" && p.u.kind === "transport" && friendly(p.u.owner) && !selected.has(p.u.id)) {
+    if (p?.k === "unit" && !mine(p.u.owner)) return attack([1, p.u.id], [p.u.x, p.u.y, p.u.z]);
+    if (p?.k === "building" && !mine(p.b.o)) return attack([2, p.b.i], spot);
+    if (p?.k === "general" && !mine(p.slot)) return attack([3, p.slot], spot);
+    if (p?.k === "unit" && p.u.kind === "transport" && mine(p.u.owner) && !selected.has(p.u.id)) {
       send({ m: "order", ids, k: "load", into: p.u.id, q: queue });
       return mark([p.u.x, 0, p.u.z], [0.6, 0.8, 1]);
     }
@@ -405,8 +425,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         if (k === "stop" || k === "hold" || k === "return") return order(k, null, many);
         return setMode({ k: "target", what: k });
       }
-      case "menu":
-        return setMode(mode?.k === "menu" && mode.page === Number(arg) ? null : { k: "menu", page: arg === "1" ? 1 : 0 });
+      case "menu": {
+        const page: Menu = arg === "cmd" ? "cmd" : arg === "1" ? 1 : 0;
+        return setMode(mode?.k === "menu" && mode.page === page ? null : { k: "menu", page });
+      }
       case "b":
         if (BUILDING_KINDS.includes(arg as BuildingKind)) setMode({ k: "place", kind: arg as BuildingKind });
         return;
@@ -425,24 +447,20 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         for (const b of selectedBuildings) send({ m: "cancel", id: b });
         return;
       case "army":
+        if (mode?.k === "menu") setMode(null);
         return selectArmy();
       case "idle":
+        if (mode?.k === "menu") setMode(null);
         return idleHauler();
       case "desel":
         setMode(null);
         return deselect();
       case "map":
+        if (mode?.k === "menu") setMode(null);
         return toggleMap();
-      case "gens":
-        return setMode(mode?.k === "gens" ? null : { k: "gens" });
-      case "ally":
-        return send({ m: "ally", slot: Number(arg) });
-      case "unally":
-        return send({ m: "unally" });
-      case "bots":
-        bots = Math.max(0, Math.min(3, bots + (arg === "+" ? 1 : -1)));
-        cardDirty = true;
-        return send({ m: "bots", n: bots });
+      case "back":
+        // Out of the buildings to the general's own menu; out of that, or anything else, to the pieces.
+        return setMode(mode?.k === "menu" && mode.page !== "cmd" && selected.size === 0 && selectedBuildings.size === 0 ? { k: "menu", page: "cmd" } : null);
     }
   }
 
@@ -455,50 +473,46 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
   }
 
-  /** The command card for what is selected, or for the menu that is open. */
-  function card(): { title: string; text?: string; buttons: CardButton[] } | null {
-    if (slot < 0) return null;
-    const cost = (lithium: number, plasma: number) => (plasma > 0 ? `${lithium} · ${plasma} plasma` : `${lithium}`);
+  /**
+   * What the row shows now in place of the pieces, and the line over it: the
+   * menu that is open, or what is selected and what it can be told. Null row:
+   * the pieces (nothing selected, nothing open).
+   */
+  function row(): { tiles: RowTile[] | null; status: string | null } {
+    if (slot < 0) return { tiles: null, status: null };
+    const cost = (lithium: number, plasma: number) => (plasma > 0 ? `${lithium} · ${plasma} pl` : `${lithium}`);
     const has = (kind: BuildingKind) => [...army.buildings.values()].some((b) => mine(b.o) && b.kind === kind && b.d === 0);
+    const tile = (id: string, key: string, label: string, icon: string, more: Partial<RowTile> = {}): RowTile => ({ id, key, label, icon: ICONS[icon] ?? "", ...more });
+    const back = (label = "Back") => tile(label === "Back" ? "back" : "desel", "⌫", label, label === "Back" ? "back" : "cancel");
+    const building = (k: BuildingKind, more: Partial<RowTile> = {}) => {
+      const def = BUILDINGS[k];
+      const free = k === "core" && bank.routed === 0;
+      const lacks = (def.needs ?? []).find((n) => !has(n));
+      return tile(`b:${k}`, def.key, def.label, k, { sub: free ? "free" : lacks ? `needs ${BUILDINGS[lacks].label}` : cost(def.lithium, def.plasma), off: !free && (!!lacks || bank.l < def.lithium || bank.p < def.plasma), ...more });
+    };
+    const routed = bank.routed >= 0 ? (bank.routed === 0 ? "You are routed: your new Core is free. " : `You are routed: a free Core in ${bank.routed} s. `) : "";
     if (mode?.k === "place") {
       const def = BUILDINGS[mode.kind];
-      if (game.touch) return { title: plain(lastHint) || `Place ${def.label}`, buttons: [{ id: "desel", key: "⌫", label: "Cancel" }] };
-      return { title: `Place ${def.label}`, text: `${def.blurb}. Click to put it down (Shift for more), right click to cancel.`, buttons: [{ id: "desel", key: "⌫", label: "Cancel" }] };
+      return { tiles: [building(mode.kind, { on: true, off: false }), back("Cancel")], status: plain(lastHint) || `${def.label}: ${def.blurb}` };
     }
-    if (mode?.k === "target") return { title: PENDING_TEXT[mode.what].replace("click", game.touch ? "aim and tap Go" : "click"), text: "Right click cancels.", buttons: [{ id: "desel", key: "⌫", label: "Cancel" }] };
+    if (mode?.k === "target") {
+      const what = mode.what;
+      const found = ORDER_KEYS.find(([, , k]) => k === what);
+      const tiles = [found ? tile(`o:${what}`, found[1], found[3], what, { on: true }) : tile("rally", "R", "Rally point", "rally", { on: true }), back("Cancel")];
+      return { tiles, status: PENDING_TEXT[what].replace("click", game.touch ? "aim and tap Go" : "click") };
+    }
+    if (mode?.k === "menu" && mode.page === "cmd") {
+      return {
+        tiles: [tile("menu:0", "N", "Build", "build"), tile("army", "`", "Whole army", "army"), tile("idle", "I", "Idle Hauler", "idle"), tile("map", "Tab", "Map", "map"), back()],
+        status: `${routed}${general(slot)?.name ?? "General"}: your own orders. Click a unit or building of yours to select it; right click sends what is selected.`,
+      };
+    }
     if (mode?.k === "menu") {
       const page = mode.page;
       const kinds = BUILDING_KINDS.filter((k) => !!BUILDINGS[k].advanced === (page === 1));
       return {
-        title: page === 1 ? "Build: advanced" : "Build",
-        text: bank.routed >= 0 ? (bank.routed === 0 ? "You are routed: your new Core is free." : `You are routed: a free Core in ${bank.routed} s.`) : "Pick one, then click where it goes.",
-        buttons: [
-          ...kinds.map((k) => {
-            const def = BUILDINGS[k];
-            const free = k === "core" && bank.routed === 0;
-            const lacks = (def.needs ?? []).find((n) => !has(n));
-            return { id: `b:${k}`, key: def.key, label: def.label, sub: free ? "free" : lacks ? `needs ${BUILDINGS[lacks].label}` : cost(def.lithium, def.plasma), off: !free && (!!lacks || bank.l < def.lithium || bank.p < def.plasma) };
-          }),
-          { id: `menu:${page === 1 ? 0 : 1}`, key: page === 1 ? "B" : "V", label: page === 1 ? "Basic" : "Advanced" },
-        ],
-      };
-    }
-    if (mode?.k === "gens") {
-      const mates = generals.filter((g) => g.slot !== slot);
-      const me = general(slot);
-      return {
-        title: "Generals",
-        text: mates.length === 0 ? "You are alone here." : "Press a number to ask for an alliance (or to accept one). 0 leaves your alliance.",
-        buttons: [
-          ...mates.map((g) => {
-            const ally = g.team === myTeam();
-            const asked = me?.asked.includes(g.slot), asks = g.asked.includes(slot);
-            return { id: `ally:${g.slot}`, key: `${g.slot + 1}`, label: g.name + (g.ai ? " (computer)" : ""), sub: ally ? "your ally" : asks ? "asks to ally: accept" : asked ? "asked" : "ask to ally", on: ally, off: ally || g.ai };
-          }),
-          { id: "unally", key: "0", label: "Leave alliance", off: !mates.some((g) => g.team === myTeam()) },
-          { id: "bots:+", key: "+", label: "More computers", sub: `${bots} now`, off: bots >= 3 },
-          { id: "bots:-", key: "−", label: "Fewer computers", off: bots <= 0 },
-        ],
+        tiles: [...kinds.map((k) => building(k)), tile(`menu:${page === 1 ? 0 : 1}`, "V", page === 1 ? "Basic" : "Advanced", page === 1 ? "less" : "more"), back()],
+        status: `${routed}Build${page === 1 ? ", advanced" : ""}: pick one, then ${game.touch ? "aim and tap Place" : "click where it goes"}.`,
       };
     }
     if (selected.size > 0) {
@@ -509,62 +523,49 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       const kinds = [...counts.keys()];
       const only = selected.size === 1 ? army.units.get([...selected][0]!) : undefined;
-      const title = only ? `${UNITS[only.kind].label} · ${only.hp}%` : `${selected.size} selected`;
-      const text = only ? UNITS[only.kind].blurb : [...counts].map(([k, n]) => `${n} ${UNITS[k].label}`).join(", ");
-      const buttons: CardButton[] = ORDER_KEYS.filter(([, , k]) => {
+      const status = only ? `${UNITS[only.kind].label} · ${only.hp}% · ${UNITS[only.kind].blurb}` : `${selected.size} selected: ${[...counts].map(([k, n]) => `${n} ${UNITS[k].label}`).join(", ")}`;
+      const tiles = ORDER_KEYS.filter(([, , k]) => {
         if (k === "gather" || k === "return") return kinds.includes("hauler");
         if (k === "unload") return kinds.includes("transport");
         if (k === "emp") return kinds.includes("emp");
         // (Phones have room for the orders that matter most.)
         if (k === "patrol" && game.touch) return false;
         return true;
-      }).map(([, key, k, label]) => ({ id: `o:${k}`, key, label }));
-      buttons.push({ id: "menu:0", key: "B", label: "Build" }, { id: "desel", key: "⌫", label: "Deselect" });
-      return { title, text, buttons };
+      }).map(([, key, k, label]) => tile(`o:${k}`, key, label, k));
+      tiles.push(tile("menu:0", "B", "Build", "build"), back("Deselect"));
+      return { tiles, status };
     }
     if (selectedBuildings.size > 0) {
       const list = [...selectedBuildings].flatMap((id) => army.buildings.get(id) ?? []);
       const first = list[0];
-      if (!first) return null;
+      if (!first) return { tiles: null, status: null };
       const def = BUILDINGS[first.kind];
       const now = performance.now();
       const left = (s: number) => Math.max(0, Math.ceil(s - (now - first.at) / 1000));
-      const text =
-        first.d > 0 ? `Printing: ${left(first.d)} s` : first.r > 0 ? `Working on ${UPGRADES[first.r - 1]}: ${left(first.rl)} s` : first.q.length > 0 ? `Making ${first.q.map((k) => UNITS[UNIT_KIND_AT(k)].label).join(", ")} · ${left(first.ql)} s` : def.blurb;
+      const doing =
+        first.d > 0 ? `printing, ${left(first.d)} s` : first.r > 0 ? `working on ${UPGRADES[first.r - 1]}, ${left(first.rl)} s` : first.q.length > 0 ? `making ${first.q.map((k) => UNITS[UNIT_KIND_AT(k)].label).join(", ")} · ${left(first.ql)} s` : def.blurb;
       const kinds = new Set(list.map((b) => b.kind));
-      const buttons: CardButton[] = [];
+      const tiles: RowTile[] = [];
       for (const kind of kinds) {
         for (const unit of MAKES[kind]) {
           const u = UNITS[unit];
           const lacks = (u.needs ?? []).find((n) => !has(n));
-          buttons.push({ id: `make:${unit}`, key: u.key, label: u.label, sub: lacks ? `needs ${BUILDINGS[lacks].label}` : `${cost(u.lithium, u.plasma)} · ${u.supply} supply`, off: !!lacks || bank.l < u.lithium || bank.p < u.plasma || bank.used + u.supply > bank.max });
+          tiles.push(tile(`make:${unit}`, u.key, u.label, unit === "emp" ? "emp_unit" : unit, { sub: lacks ? `needs ${BUILDINGS[lacks].label}` : cost(u.lithium, u.plasma), off: !!lacks || bank.l < u.lithium || bank.p < u.plasma || bank.used + u.supply > bank.max }));
         }
         if (kind === "armory") {
           UPGRADES.forEach((up, i) => {
             const level = bank.up[i]!;
             const price = UPGRADE_COST[level];
-            buttons.push({ id: `up:${up}`, key: UPGRADE_KEYS[up], label: `${up === "weapons" ? "Weapons" : "Armour"} ${Math.min(UPGRADE_LEVELS, level + 1)}`, sub: price === undefined ? "done" : `${price} · ${price} plasma`, off: price === undefined || bank.l < price || bank.p < price });
+            tiles.push(tile(`up:${up}`, UPGRADE_KEYS[up], `${up === "weapons" ? "Weapons" : "Armour"} ${Math.min(UPGRADE_LEVELS, level + 1)}`, up, { sub: price === undefined ? "done" : `${price} · ${price} pl`, off: price === undefined || bank.l < price || bank.p < price }));
           });
         }
       }
-      if ([...kinds].some((k) => MAKES[k].length > 0)) buttons.push({ id: "rally", key: kinds.has("armory") ? "Y" : "R", label: "Rally point" }, { id: "cancel", key: "Z", label: "Cancel last" });
-      else if (first.r > 0) buttons.push({ id: "cancel", key: "Z", label: "Cancel" });
-      buttons.push({ id: "desel", key: "⌫", label: "Deselect" });
-      return { title: list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`, text, buttons };
+      if ([...kinds].some((k) => MAKES[k].length > 0)) tiles.push(tile("rally", kinds.has("armory") ? "Y" : "R", "Rally point", "rally"), tile("cancel", "Z", "Cancel last", "cancel"));
+      else if (first.r > 0) tiles.push(tile("cancel", "Z", "Cancel", "cancel"));
+      tiles.push(back("Deselect"));
+      return { tiles, status: `${list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`} · ${doing}` };
     }
-    // (A phone has its own buttons for these, and no room to spare.)
-    if (game.touch) return null;
-    return {
-      title: general(slot)?.name ?? "General",
-      text: "Click a unit or building of yours to select it; right click sends what is selected.",
-      buttons: [
-        { id: "menu:0", key: "N", label: "Build" },
-        { id: "army", key: "`", label: "Whole army" },
-        { id: "idle", key: "I", label: "Idle Hauler" },
-        { id: "map", key: "Tab", label: "Map" },
-        { id: "gens", key: "J", label: "Generals" },
-      ],
-    };
+    return { tiles: null, status: routed ? `${routed}${game.touch ? "Tap Build" : "Press N"} to put it down.` : null };
   }
   const UNIT_KIND_AT = (i: number): UnitKind => (Object.keys(UNITS) as UnitKind[])[i] ?? "trooper";
 
@@ -577,8 +578,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return;
     }
     const lines = game.touch
-      ? ["You are a general. Your Haulers are mining lithium for you.", "Aim at your Core and tap Select, then tap Hauler for more of them.", "Build opens the build menu: a Foundry makes your first Troopers.", "Army picks every fighting unit; aim at the ground and tap Order to send them."]
-      : ["You are a general. Your Haulers are mining lithium for you.", "Click your Core, then press H for more Haulers.", "N opens the build menu: a Foundry makes your first Troopers.", "Click a unit to select it (twice for all of its kind); right click sends them. Tab is the map."];
+      ? ["You are a general: you have taken over this base and its army, as they stand.", "Aim at your Core and tap Select, then tap Hauler for more of them.", "Build opens the build menu: a Foundry makes Troopers.", "Army picks every fighting unit; aim at the ground and tap Order to send them."]
+      : ["You are a general: you have taken over this base and its army, as they stand.", "Click your Core, then press H for more Haulers. Command (B) is your own menu.", "N opens the build menu: a Foundry makes Troopers.", "Click a unit to select it (twice for all of its kind); right click sends them. Tab is the map."];
     lines.forEach((text, i) => setTimeout(() => panel.note(text, "info"), 1500 + i * 6500));
   }
 
@@ -593,19 +594,27 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         const was = slot;
         slot = msg.slot;
         why = msg.why;
-        bots = msg.bots;
         for (const pid of msg.pids ?? []) myPids.add(pid);
         start = msg.start ?? null;
+        // No place here for them now: kept out, with why on the menu. Let in the moment there is one.
+        game.shut(
+          slot >= 0
+            ? null
+            : why === "visitor"
+              ? { text: "Commanding an army in Mojave comes with the Full Game.", unlock: true }
+              : { text: "Mojave is full: eight generals are commanding. You are let in the moment a place opens." },
+        );
+        // Whatever was known is forgotten: after saying who this is, the server sends everything afresh.
+        army.clear();
+        reports.clear();
+        deselect();
+        setMode(null);
         if (was !== slot) {
-          // Another side now (a watcher become a general): what was seen as a watcher is forgotten.
-          army.clear();
-          deselect();
-          setMode(null);
-          dark.forget();
-          dark.off = slot < 0;
+          sight.clear();
+          placed = false;
           if (slot >= 0) intro();
           // Playing already: straight to the base.
-          if (slot >= 0 && start && game.playing() && !placed) {
+          if (slot >= 0 && start && game.playing()) {
             placed = true;
             game.player.teleport(start[0], 0.95, start[1]);
             faceHome = 3;
@@ -633,7 +642,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         game.toast(msg.text);
         return game.play("deny");
       case "tick": {
-        if (msg.u) army.seeUnits(msg.u, now);
+        if (msg.u) {
+          army.seeUnits(msg.u, now);
+          // Seen again: the old report of it is done with.
+          if (reports.size > 0) for (let i = 0; i < msg.u.length; i += 9) reports.delete(msg.u[i]!);
+        }
         if (msg.k) army.tumbles(msg.k, now);
         if (msg.x) {
           army.loseUnits(msg.x, now);
@@ -704,14 +717,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
     if (slot < 0) return false;
     const digit = code.startsWith("Digit") ? Number(code.slice(5)) : -1;
-    if (mode?.k === "gens") {
-      if (digit >= 1 && digit <= 8) act(`ally:${digit - 1}`);
-      else if (digit === 0) act("unally");
-      else if (code === "Equal" || code === "NumpadAdd") act("bots:+");
-      else if (code === "Minus" || code === "NumpadSubtract") act("bots:-");
-      else setMode(null);
-      return true;
-    }
     if (digit >= 0) {
       // (Ctrl, Alt or Shift saves: some browsers keep Ctrl + number for themselves.)
       if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) saveGroup(digit);
@@ -721,15 +726,19 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (event.ctrlKey || event.metaKey || event.altKey) return false;
     if (code === "Backquote") return act("army"), true;
     if (code === "Backspace") return act("desel"), true;
-    if (code === "KeyJ") return act("gens"), true;
     if (code === "KeyI") return act("idle"), true;
+    if (mode?.k === "menu" && mode.page === "cmd") {
+      // The general's own menu: its tiles' keys, and anything else closes it.
+      if (code === "KeyN") act("menu:0");
+      else setMode(null);
+      return true;
+    }
     if (mode?.k === "menu") {
       const key = code.replace("Key", "");
       const page = mode.page;
       const kind = BUILDING_KINDS.find((k) => !!BUILDINGS[k].advanced === (page === 1) && BUILDINGS[k].key === key);
       if (kind) act(`b:${kind}`);
-      else if (code === "KeyB") act("menu:0");
-      else if (code === "KeyV") act("menu:1");
+      else if (code === "KeyV") act(`menu:${page === 1 ? 0 : 1}`);
       else setMode(null);
       return true;
     }
@@ -810,9 +819,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         } else if (what === "amove") {
           // On an enemy: that one. On the ground: there, fighting on the way.
           const p = pick();
-          if (p?.k === "unit" && !friendly(p.u.owner)) send({ m: "order", ids: [...selected], k: "attack", on: [1, p.u.id], q: shift() });
-          else if (p?.k === "building" && !friendly(p.b.o)) send({ m: "order", ids: [...selected], k: "attack", on: [2, p.b.i], q: shift() });
-          else if (p?.k === "general" && !friendly(p.slot)) send({ m: "order", ids: [...selected], k: "attack", on: [3, p.slot], q: shift() });
+          if (p?.k === "unit" && !mine(p.u.owner)) send({ m: "order", ids: [...selected], k: "attack", on: [1, p.u.id], q: shift() });
+          else if (p?.k === "building" && !mine(p.b.o)) send({ m: "order", ids: [...selected], k: "attack", on: [2, p.b.i], q: shift() });
+          else if (p?.k === "general" && !mine(p.slot)) send({ m: "order", ids: [...selected], k: "attack", on: [3, p.slot], q: shift() });
           else order("amove", spot, shift());
         } else order(what, spot, shift());
         if (!shift()) setMode(null);
@@ -858,7 +867,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     } else if (id === "t-army") act("army");
     else if (id === "t-menu") act("menu:0");
     else if (id === "t-map") act("map");
-    else if (id === "t-gens") act("gens");
     else act(id);
   };
 
@@ -887,28 +895,31 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
 
     if (now - lookAt > 250) {
       lookAt = now;
-      dark.off = slot < 0;
       // (Not before the general has arrived at their base: where they stood on the menu is not seen.)
       if (slot >= 0 && placed) {
         const sources: [number, number, number][] = [];
         for (const u of army.units.values()) {
-          if (!friendly(u.owner)) continue;
+          if (!mine(u.owner)) continue;
           const def = UNITS[u.kind];
           sources.push([u.x, u.z, def.sight * (!def.air && u.y > 1.5 ? HIGH_GROUND : 1)]);
         }
-        for (const b of army.buildings.values()) if (friendly(b.o)) sources.push([(b.x + BUILDINGS[b.kind].size / 2) * CELL, (b.z + BUILDINGS[b.kind].size / 2) * CELL, BUILDINGS[b.kind].sight * (b.d > 0 ? 0.4 : 1)]);
+        for (const b of army.buildings.values()) if (mine(b.o)) sources.push([(b.x + BUILDINGS[b.kind].size / 2) * CELL, (b.z + BUILDINGS[b.kind].size / 2) * CELL, BUILDINGS[b.kind].sight * (b.d > 0 ? 0.4 : 1)]);
         const p = game.player.position;
         sources.push([p.x, p.z, generalSight(p.y)]);
-        for (const o of game.others()) {
-          const g = generals.find((x) => x.pid === o.id);
-          if (g && o.position && g.team === myTeam()) sources.push([o.position[0], o.position[2], generalSight(o.position[1])]);
-        }
-        dark.look(sources);
+        sight.look(sources);
       }
-      // Other generals out of sight are not drawn (their place is not this side's to know).
-      for (const o of game.others()) game.conceal(o.id, slot >= 0 && !!o.position && !dark.sees(o.position[0], o.position[2]));
+      // A report holds until its spot has been looked at again for a moment: then what is there now is what shows.
+      for (const [id, r] of reports) {
+        if (!sight.sees(r.x, r.z)) r.lookedAt = 0;
+        else if (r.lookedAt === 0) r.lookedAt = now;
+        else if (now - r.lookedAt > 900) reports.delete(id);
+      }
+      // Only generals in sight are drawn: where the others are is not this general's to know (and whoever is not a general is not here at all).
+      for (const o of game.others()) {
+        const g = generals.find((x) => x.pid === o.id);
+        game.conceal(o.id, !g || slot < 0 || (!!o.position && !sight.sees(o.position[0], o.position[2])));
+      }
     }
-    dark.update();
 
     let hint: string | null = null;
     if (mode?.k === "place" && game.playing()) {
@@ -917,8 +928,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         const size = BUILDINGS[mode.kind].size * CELL;
         const c: [number, number, number] = at.why ? [1, 0.3, 0.25] : [0.4, 1, 0.5];
         const x = at.cx * CELL + size / 2, z = at.cz * CELL + size / 2;
-        army.mark(x, 0, z, size * 0.72, c);
-        // Its corners, so the square it takes is plain.
+        // The building itself, see-through, where it would stand; and its corners, so the square it takes is plain.
+        army.ghost(mode.kind, x, z, !at.why);
         for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) army.mark(at.cx * CELL + dx * size, 0, at.cz * CELL + dz * size, 0.6, c);
         hint = at.why ? `<span class="bad">${at.why}</span>` : `<span class="ok">${BUILDINGS[mode.kind].label}: ${game.touch ? "tap Place" : "click"} to put it here</span>`;
       } else hint = `<span class="bad">Aim at the ground</span>`;
@@ -927,8 +938,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       lastHint = hint;
       cardDirty = true;
     }
-    // (On a phone the hint is the card's title: there is no room above the hotbar, which is at the top there.)
-    game.panel(game.touch ? null : hint);
     panel.setTouch(mode?.k === "place" ? "Place" : mode?.k === "target" ? "Go" : mapOn ? "Face" : "Select", mode || mapOn ? (mapOn ? "Send" : "Cancel") : "Order");
 
     // Rally points of what is selected.
@@ -942,18 +951,20 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (now - mapAt > (mapOn ? 60 : 220)) {
       mapAt = now;
       const dots: MapDot[] = [];
-      for (const f of army.fields.values()) if (dark.knows((f.cx + 0.5) * CELL, (f.cz + 0.5) * CELL)) dots.push({ x: (f.cx + 0.5) * CELL, z: (f.cz + 0.5) * CELL, color: f.vent ? "#b98cff" : f.amount > 0 ? "#6fe0d6" : "#52605f", size: 2 });
-      for (const b of army.buildings.values()) dots.push({ x: (b.x + BUILDINGS[b.kind].size / 2) * CELL, z: (b.z + BUILDINGS[b.kind].size / 2) * CELL, color: army.colorOf(b.o), size: 2 + BUILDINGS[b.kind].size * 1.6 });
+      const fresh = (since: number) => Math.max(0, 1 - (now - since) / REPORT_FADES_MS);
+      for (const f of army.fields.values()) dots.push({ x: (f.cx + 0.5) * CELL, z: (f.cz + 0.5) * CELL, color: f.vent ? "#8a4fe0" : f.amount > 0 ? "#1f9e94" : "#8f8a78", size: 2 });
+      // Buildings out of sight are as they were last seen: a report, as old as that.
+      for (const b of army.buildings.values()) dots.push({ x: (b.x + BUILDINGS[b.kind].size / 2) * CELL, z: (b.z + BUILDINGS[b.kind].size / 2) * CELL, color: army.colorOf(b.o), size: 2 + BUILDINGS[b.kind].size * 1.6, ...(b.stale && !mine(b.o) ? { report: fresh(b.staleAt || now) } : {}) });
+      for (const r of reports.values()) dots.push({ x: r.x, z: r.z, color: army.colorOf(r.owner), size: UNITS[r.kind].radius > 1.9 ? 4 : 3, report: fresh(r.at) });
       for (const u of army.units.values()) dots.push({ x: u.x, z: u.z, color: selected.has(u.id) ? "#ffffff" : army.colorOf(u.owner), size: UNITS[u.kind].radius > 1.9 ? 3 : 2 });
       for (const o of game.others()) {
         const g = generals.find((x) => x.pid === o.id);
-        if (g && o.position && dark.sees(o.position[0], o.position[2])) dots.push({ x: o.position[0], z: o.position[2], color: g.color, size: 4 });
+        if (g && o.position && sight.sees(o.position[0], o.position[2])) dots.push({ x: o.position[0], z: o.position[2], color: g.color, size: 4 });
       }
       while (pings.length > 0 && now - pings[0]!.at > 2500) pings.shift();
       const p = game.player.position;
       panel.drawMap({
-        visible: slot >= 0 ? dark.visible : null,
-        explored: slot >= 0 ? dark.explored : null,
+        visible: slot >= 0 ? sight.visible : null,
         dots,
         me: { x: p.x, z: p.z, yaw: game.viewYaw() },
         pings: pings.map((q) => ({ x: q.x, z: q.z, age: ((now - q.at) % 1250) / 1250, color: q.color })),
@@ -964,10 +975,15 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (cardDirty || now - cardAt > 500) {
       cardDirty = false;
       cardAt = now;
-      panel.setCard(card());
+      const shown = row();
+      shownRow = shown.tiles;
+      shownStatus = shown.status;
+      game.row(shown.tiles, (id) => act(id));
+      panel.setStatus(game.touch ? shown.status : null);
       panel.setBank(slot >= 0 ? { lithium: bank.l, plasma: bank.p, used: bank.used, max: bank.max, upkeep: upkeep(bank.used) } : null);
-      panel.setWatching(slot >= 0 ? null : why === "full" ? "All eight generals' places are taken: you are watching, and take the next one that comes free" : why === "visitor" ? "You are watching: commanding an army here comes with the Full Game" : null);
     }
+    // The line over the row: where a building would go or what an order waits for, else what is selected. (A phone has it under its bank: the row is at the top there.)
+    game.panel(game.touch ? null : (hint ?? (shownStatus ? escapeHtml(shownStatus) : null)));
   }
 
   // ── Pieces: whose they are, and what is in their way ───────────────────
@@ -986,12 +1002,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (spec.type === "wall") return spec.rot % 2 === 0 ? full(x0, z0 - 1) && full(x0, z0) : full(x0 - 1, z0) && full(x0, z0);
     return full(x0, z0);
   }
-  const priceOf = (spec: PieceSpec) => (spec.type === "trebuchet" ? ENGINE_COST : PIECE_COST.wood);
+  const escapeHtml = (text: string) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
 
   return {
     message: onMessage,
     joined() {
-      // Joined again (a dropped connection): the server sends everything afresh. What was seen stays seen.
+      // Joined again (a dropped connection): the server sends everything afresh.
       army.clear();
       deselect();
       mode = null;
@@ -1014,17 +1030,21 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         faceHome = 3;
         return [start[0], 0.95, start[1]];
       }
-      // Watching: from the middle of the map.
+      // (Not a general: they are kept on the menu, and this is only where the menu looks from.)
       return [2.5, 0.95, -62.5];
     },
-    blocks: (spec) => slot < 0 || cutsIn(spec) || bank.l < priceOf(spec),
+    useTool(id) {
+      // The Command tile: the general's own menu, on the row.
+      if (id === "command") act("menu:cmd");
+    },
+    blocks: (spec) => slot < 0 || cutsIn(spec) || bank.l < PIECE_COST,
     whyBlocked(spec) {
-      if (slot < 0) return why === "full" ? "All eight places are taken: you are watching" : "You are watching";
+      if (slot < 0) return "You are not a general here";
       if (cutsIn(spec)) return "A building or a field is in the way";
-      return `Not enough lithium: that costs ${priceOf(spec)}${spec.type === "trebuchet" ? "" : " or more"}`;
+      return `Not enough lithium: a piece costs ${PIECE_COST}`;
     },
     keeps(piece) {
-      if (slot < 0) return "You are watching";
+      if (slot < 0) return "You are not a general here";
       return myPids.has(ownerPid(piece.id)) || ownerPid(piece.id) === game.myId() ? null : "That is another general's: your army can shoot it down";
     },
     aimRemove() {
@@ -1044,8 +1064,18 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     },
     // (Kept in reach for the checks that drive the game.)
     army,
-    dark,
+    sight,
+    reports,
     panel,
+    get row() {
+      return shownRow;
+    },
+    get status() {
+      return shownStatus;
+    },
+    get why() {
+      return why;
+    },
     get slot() {
       return slot;
     },

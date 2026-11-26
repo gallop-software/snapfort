@@ -1,5 +1,6 @@
 import type { WorldPage } from "../../pageDoors";
 import { startCommand } from "./command";
+import { ICONS } from "./icons";
 import { outfit } from "./outfit";
 import { scenery } from "./scenery";
 import { siegeModel } from "./siege";
@@ -17,6 +18,10 @@ export const page: WorldPage = {
   dust: [0.9, 0.86, 0.76],
   // A general starts with nothing picked: pieces cost lithium here, and the first clicks are on the army.
   emptyHanded: true,
+  // No siege engine here (armies do the breaking) and one material: in the engine's place on the row is Command,
+  // which opens the general's own menu in the same boxes.
+  row: { siege: false, material: "brick" },
+  tools: [{ id: "command", label: "Command", key: "B", icon: ICONS.command!, press: true }],
   // (And is told how a general plays by Mojave's own first notes, not to try placing walls.)
   ownTips: true,
   controls: {
@@ -26,18 +31,18 @@ export const page: WorldPage = {
       ["M / F / X", "Move · Attack (then click) · Stop"],
       ["H / P", "Hold position · Patrol"],
       ["G / C", "Gather · Return cargo (Haulers)"],
-      ["N", "Build menu (B and V with units selected)"],
+      ["B", "Command: your own menu, on the row (Build, Whole army, Idle Hauler, Map)"],
+      ["N", "Build menu (B with units selected; V for the advanced buildings)"],
       ["Ctrl + 1–9", "Save a group (Alt or Shift work too)"],
       ["1–9", "Recall a group (twice: face it)"],
       ["`", "Select the whole army"],
       ["I", "Next idle Hauler"],
       ["Shift", "Add to the selection · queue orders"],
       ["Tab", "The map: right click sends the selected there"],
-      ["J", "Generals: alliances, computer generals"],
       ["Backspace", "Deselect"],
     ],
-    touch: ["Select and Order act on what the crosshair is on", "Army picks every fighting unit · Build opens the build menu", "Tap the buttons on the card to give orders"],
-    note: "In Mojave you are a general: mine lithium with Haulers, build an army, and command it. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes.",
+    touch: ["Select and Order act on what the crosshair is on", "Army picks every fighting unit · Build opens the build menu", "Tap the tiles along the top to give orders"],
+    note: "Mojave always has eight generals: you take over a computer's base and army as they stand, and a computer takes yours when you leave. Mine lithium with Haulers, build an army, and command it. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which.",
   },
   // The war: armies, the dark, the map, and commanding from the ground.
   start(game) {

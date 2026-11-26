@@ -12,7 +12,7 @@
  * the Terraformer running behind it, the sky paling and green spreading over
  * the red ground, a builder on their wings and a helicopter lifting off.
  * Mojave: a general's base, their army drawn up before it and firing on an
- * enemy line, drones overhead, and the dark beyond.
+ * enemy line, and drones overhead.
  * Everything is built the way a builder builds it (pieces through the page,
  * parts by the world's own messages from close by), so the server agrees.
  *
@@ -379,7 +379,7 @@ async function mars() {
 /**
  * A general's base (Core, Foundry, Armory, Skyport, masts and turrets, a
  * watchtower of all three materials) with their army drawn up in front of it
- * and firing on an enemy line, drones overhead, and the dark beyond. The
+ * and firing on an enemy line, and drones overhead. The
  * buildings are ordered as a general orders them; the army is put there by
  * the dev server's own shortcut (it would take half an hour to make).
  */
@@ -388,7 +388,9 @@ async function mojave() {
   const world = `art-j-${stamp}`;
   const page = await open("/mojave", world);
   await page.waitForFunction(() => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.buildings.size > 0);
-  await send(page, { m: "bots", n: 0 });
+  await send(page, { m: "dev", do: "quiet" });
+  await send(page, { m: "dev", do: "fresh" });
+  await wait(800);
   await send(page, { m: "dev", do: "rich" });
   await send(page, { m: "dev", do: "speed", n: 15 });
   const core = await page.evaluate(() => { const b = [...window.snapfort.feature.army.buildings.values()][0]; return [b.x + 1, b.z + 1]; });

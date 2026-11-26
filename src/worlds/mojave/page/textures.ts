@@ -1,11 +1,11 @@
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import type { Scene } from "@babylonjs/core/scene";
 import type { MaterialId, PieceType } from "../../../game/pieces";
-import { canvas, line, rng, toTexture } from "../../../render/paint";
+import { canvas, rng, toTexture } from "../../../render/paint";
 import type { PieceSkin } from "../../pageDoors";
 
 /**
- * Mojave's art: carbon lattice, printed concrete and welded stainless plate,
+ * Mojave's art: printed concrete (the one material here),
  * a cracked white lakebed and a hard blue desert sky. Piece textures are
  * near-white line work; the material colour is multiplied in per piece. The
  * texture spans the whole face of a piece, so its border outlines each piece
@@ -19,68 +19,7 @@ import type { PieceSkin } from "../../pageDoors";
 const S = 256;
 
 /**
- * Carbon lattice (the "wood" slot): an open truss. The members stay light, so
- * they take the graphite colour; the openings between them are darkened to
- * near black. A solid woven spar runs across the middle (the plain spot is on it).
- */
-function lattice(g: CanvasRenderingContext2D, r: () => number): void {
-  // Two bays of triangles, above and below the spar.
-  const bays: [number, number][] = [[12, 124], [178, 244]];
-  const posts = 4;
-  const w = (S - 24) / posts;
-  const strut = 7;
-  for (const [top, bottom] of bays) {
-    for (let i = 0; i < posts; i++) {
-      const x0 = 12 + i * w, x1 = x0 + w;
-      // Each panel between two posts is cut by one diagonal into two triangular openings.
-      const up = i % 2 === 0;
-      const openings = up
-        ? [[[x0 + strut, top + strut * 2.2], [x0 + strut, bottom - strut], [x1 - strut * 2.2, bottom - strut]], [[x0 + strut * 2.2, top + strut], [x1 - strut, top + strut], [x1 - strut, bottom - strut * 2.2]]]
-        : [[[x1 - strut, top + strut * 2.2], [x1 - strut, bottom - strut], [x0 + strut * 2.2, bottom - strut]], [[x1 - strut * 2.2, top + strut], [x0 + strut, top + strut], [x0 + strut, bottom - strut * 2.2]]];
-      for (const tri of openings) {
-        g.beginPath();
-        tri.forEach(([x, y], k) => (k === 0 ? g.moveTo(x!, y!) : g.lineTo(x!, y!)));
-        g.closePath();
-        g.fillStyle = `rgba(8, 10, 14, ${0.62 + r() * 0.08})`;
-        g.fill();
-        // A lit lip along the opening, so the members read as raised.
-        g.strokeStyle = "rgba(255, 255, 255, 0.5)";
-        g.lineWidth = 1.5;
-        g.stroke();
-      }
-    }
-  }
-  // The weave on the spar and the members: fine twill, too faint to count as lines.
-  g.save();
-  g.beginPath();
-  g.rect(12, 124, S - 24, 54);
-  g.clip();
-  g.lineWidth = 2;
-  for (let d = -S; d < S * 2; d += 8) {
-    g.strokeStyle = "rgba(10, 12, 16, 0.07)";
-    line(g, d, 124, d + 54, 178);
-    g.strokeStyle = "rgba(255, 255, 255, 0.10)";
-    line(g, d + 4, 124, d + 58, 178);
-  }
-  g.restore();
-  // Bolted nodes where the posts meet the spar and the rim.
-  for (let i = 0; i <= posts; i++) {
-    const x = 12 + i * w;
-    for (const y of [12, 124, 178, 244]) {
-      g.fillStyle = "rgba(8, 10, 14, 0.5)";
-      g.beginPath();
-      g.arc(x, y, 3.2, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = "rgba(255, 255, 255, 0.7)";
-      g.beginPath();
-      g.arc(x - 0.8, y - 0.8, 1.2, 0, Math.PI * 2);
-      g.fill();
-    }
-  }
-}
-
-/**
- * Printcrete (the "brick" slot): concrete laid down by a printer in fine
+ * Printcrete: concrete laid down by a printer in fine
  * beads, one on another, with the seam where each pass
  * began, grit in the mix and two lifting sockets. The plain spot falls in the middle of a bead.
  */
@@ -126,74 +65,19 @@ function printcrete(g: CanvasRenderingContext2D, r: () => number): void {
   }
 }
 
-/**
- * Stainless steel (the "metal" slot): brushed plate in rings, as a rocket's
- * hull is built: a welded seam between the rings with the heat's tint either
- * side of it, staggered upright seams, and a row of rivets under each weld.
- */
-function stainless(g: CanvasRenderingContext2D, r: () => number): void {
-  // Brushing: many short level streaks, light and dark.
-  for (let i = 0; i < 420; i++) {
-    g.fillStyle = r() > 0.4 ? `rgba(255, 255, 255, ${r() * 0.16})` : `rgba(40, 50, 65, ${r() * 0.07})`;
-    g.fillRect(r() * S - 30, r() * S, 30 + r() * 90, 1);
-  }
-  const ring = S / 4;
-  // Each ring catches the sky a little differently.
-  for (let i = 0; i < 4; i++) {
-    g.fillStyle = i % 2 === 0 ? "rgba(40, 55, 80, 0.05)" : "rgba(255, 255, 255, 0.06)";
-    g.fillRect(0, i * ring, S, ring);
-  }
-  const weld = (x0: number, y0: number, x1: number, y1: number) => {
-    // Heat tint: straw then blue, either side of the bead.
-    g.strokeStyle = "rgba(150, 110, 50, 0.07)";
-    g.lineWidth = 16;
-    line(g, x0, y0, x1, y1);
-    g.strokeStyle = "rgba(60, 80, 140, 0.08)";
-    g.lineWidth = 8;
-    line(g, x0, y0, x1, y1);
-    g.strokeStyle = "rgba(30, 38, 50, 0.36)";
-    g.lineWidth = 3;
-    line(g, x0, y0, x1, y1);
-    g.strokeStyle = "rgba(255, 255, 255, 0.55)";
-    g.lineWidth = 1;
-    line(g, x0 + (y0 === y1 ? 0 : 2), y0 + (y0 === y1 ? 2 : 0), x1 + (y0 === y1 ? 0 : 2), y1 + (y0 === y1 ? 2 : 0));
-  };
-  for (let i = 1; i < 4; i++) weld(0, i * ring, S, i * ring);
-  for (let i = 0; i < 4; i++) {
-    // Upright seams, staggered from ring to ring (and never through the plain spot).
-    const x = i % 2 === 0 ? 180 : 62;
-    weld(x, i * ring, x, (i + 1) * ring);
-  }
-  // Rivets: a row just under each weld and round the rim.
-  const rivet = (x: number, y: number) => {
-    g.fillStyle = "rgba(30, 38, 50, 0.42)";
-    g.beginPath();
-    g.arc(x, y, 2.6, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = "rgba(255, 255, 255, 0.75)";
-    g.beginPath();
-    g.arc(x - 0.8, y - 0.8, 1.1, 0, Math.PI * 2);
-    g.fill();
-  };
-  for (let x = 18; x < S - 8; x += 20) {
-    for (let i = 1; i < 4; i++) rivet(x, i * ring + 10);
-    rivet(x, 16);
-    rivet(x, S - 16);
-  }
-}
-
-const PATTERNS: Record<MaterialId, (g: CanvasRenderingContext2D, r: () => number) => void> = { wood: lattice, brick: printcrete, metal: stainless };
+// (One material here: every slot a piece may have been saved under looks the same.)
+const PATTERNS: Record<MaterialId, (g: CanvasRenderingContext2D, r: () => number) => void> = { wood: printcrete, brick: printcrete, metal: printcrete };
 
 /** The look of one kind of piece in one material. Steel shines, carbon has a sheen, concrete is matt. */
 export function pieceSkin(type: PieceType, material: MaterialId, scene: Scene): PieceSkin {
-  return { texture: pieceTexture(type, material, scene), specular: material === "metal" ? 0.45 : material === "wood" ? 0.18 : 0 };
+  return { texture: pieceTexture(type, material, scene), specular: 0 };
 }
 
 function pieceTexture(type: PieceType, material: MaterialId, scene: Scene): Texture {
   const [c, g] = canvas(S);
   g.fillStyle = "#fbfbfb";
   g.fillRect(0, 0, S, S);
-  const r = rng(material.length * 151 + type.charCodeAt(0) * 11 + material.charCodeAt(0));
+  const r = rng(151 + type.charCodeAt(0) * 11);
   PATTERNS[material](g, r);
 
   if (type === "ramp") {

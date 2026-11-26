@@ -82,9 +82,9 @@ for (const [id, path, shift = [0, 0]] of WORLDS) {
   const p = await open(path, world, "Ada", "#f07356");
   const [sx, sz] = shift;
   if (id === "mojave") {
-    // A general, alone (no computer generals), with lithium to spare; then to where the pictures are taken, so it is in sight.
+    // A general in a place begun afresh, the computers doing nothing new (so every picture is the same), with lithium to spare; then to where the pictures are taken, so it is in sight.
     await p.waitForFunction(() => window.snapfort.feature.slot >= 0, null, { timeout: 15000 });
-    await p.evaluate(() => { const n = window.snapfort.net; n.sendWorld({ m: "bots", n: 0 }); n.sendWorld({ m: "dev", do: "rich" }); });
+    await p.evaluate(() => { const n = window.snapfort.net; n.sendWorld({ m: "dev", do: "quiet" }); n.sendWorld({ m: "dev", do: "fresh" }); n.sendWorld({ m: "dev", do: "rich" }); });
     await p.evaluate(([x, z]) => window.snapfort.player.teleport(12.5 + x * 5, 0.95, 9 + z * 5), shift);
     await p.waitForFunction(() => window.snapfort.feature.bank.l > 10000, null, { timeout: 15000 });
     await p.waitForTimeout(600);

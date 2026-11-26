@@ -42,22 +42,25 @@ export interface WireBuilding {
 
 export interface WireGeneral {
   slot: number;
-  /** The builder who is this general now ("" for a computer, or one who has stepped away). */
+  /** The builder who is this general now ("" where a computer commands). */
   pid: string;
   name: string;
+  /** The colour of this place's army, whoever commands it. */
   color: string;
-  team: number;
   ai: boolean;
-  /** The generals this one has asked to ally with. */
-  asked: number[];
 }
 
 /** One field: id, kind (0 crystal, 1 vent), cell x, cell z, what is left, what it holds. */
 export type WireField = [number, number, number, number, number, number];
 
 export type ToPage =
-  /** Who you are here: a general (`slot`), or watching (-1: every place is taken, or building here needs the Full Game). */
-  | { m: "you"; slot: number; why?: "full" | "visitor"; start?: [number, number]; bots: number; /** Every id this general has built under (pieces carry the id of whoever built them). */ pids?: string[] }
+  /**
+   * Who you are here: a general (`slot`), in a place a computer had until now,
+   * with where to stand on arriving; or nobody (-1: a person holds every
+   * place, or commanding here needs the Full Game), and then nothing more of
+   * the war is sent.
+   */
+  | { m: "you"; slot: number; why?: "full" | "visitor"; start?: [number, number]; /** Every id this place has been built under (pieces carry the id of whoever built them). */ pids?: string[] }
   | { m: "gens"; g: WireGeneral[] }
   | { m: "fields"; f: WireField[] }
   /** Your bank: lithium, plasma, supply in use and the limit, upgrade levels, and seconds until a routed general's free Core (-1: not routed). */
@@ -108,11 +111,7 @@ export type ToServer =
   | { m: "research"; id: number; kind: UpgradeKind }
   | { m: "rally"; ids: number[]; at: WireSpot }
   | { m: "scrap"; id: number }
-  | { m: "ally"; slot: number }
-  | { m: "unally" }
-  /** How many computer generals there should be (0 to 3). */
-  | { m: "bots"; n: number }
   /** For checks, on a developer's own computer only. */
-  | { m: "dev"; do: "rich" | "spawn" | "stress" | "kill" | "speed" | "perf"; kind?: UnitKind; n?: number; at?: WireSpot; slot?: number };
+  | { m: "dev"; do: "rich" | "spawn" | "stress" | "kill" | "speed" | "perf" | "fresh" | "quiet" | "all"; kind?: UnitKind; n?: number; at?: WireSpot; slot?: number; on?: boolean };
 
 export const LOOKS = ["bullet", "shell", "missile", "laser"] as const;

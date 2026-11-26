@@ -5,7 +5,7 @@ import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
@@ -15,14 +15,21 @@ import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
 import type { PageGame } from "../../pageDoors";
 import { BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
-import { F_DOWN, F_HIT, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
+import { F_DOWN, F_FIRING, F_HIT, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
+import { Many, place, rgbOf, turn } from "./many";
 import { buildingModel, crystalModel, unitModel, ventModel } from "./models";
+import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, runFrame, TROOPER_MIDDLE, Troopers } from "./troopers";
 
 /**
  * Draws Mojave's war: every unit and building the server has told this page
  * of, the crystal fields and vents, and the shots, blasts and sparks between
  * them. Each kind of unit is two meshes drawn as many times as there are units
- * (thin instances): its body, and its trim in its general's colour.
+ * (thin instances): its body, and its trim in its general's colour. Troopers
+ * are people, not machines: they are drawn by troopers.ts, in poses.
+ *
+ * The land always shows; an enemy shows only while this general sees it. So
+ * units come into view and go out of it in the open: they grow in and shrink
+ * away over a moment, never popping.
  *
  * Nothing is decided here. Units are drawn a fifth of a second behind what
  * the server last said, blended between its updates, and everything timed
@@ -53,8 +60,12 @@ export interface SeenUnit {
   extra: number;
   /** Thrown: tumbling from one spot to another. */
   tumble: { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; spin: number; axis: number } | null;
-  /** When it was last hit (for its flash). */
+  /** When it was last hit (for its flash), and whether a blast did it (a Trooper flinches at a bullet, flies from a blast). */
   hitAt: number;
+  /** When it came into view (ms): it grows in from then. */
+  seenAt: number;
+  /** When it went out of view (ms), or 0: it shrinks away from then, and is forgotten. */
+  goneAt: number;
 }
 
 export interface SeenBuilding extends WireBuilding {
@@ -63,6 +74,8 @@ export interface SeenBuilding extends WireBuilding {
   at: number;
   /** Not in sight now: drawn as it was last seen. */
   stale: boolean;
+  /** Since when it has been out of sight (ms), or 0 while in sight: how old the report of it is. */
+  staleAt: number;
   body: PhysicsBody | null;
   node: TransformNode | null;
 }
@@ -78,95 +91,8 @@ export interface SeenField {
 
 /** How long a unit takes to reach where the server last put it, ms (a little more than the time between its words). */
 const BLEND_MS = 230;
-
-/** A mesh drawn many times: where each one is, and (for trim) its colour. */
-class Many {
-  matrices: Float32Array;
-  colors: Float32Array | null;
-  count = 0;
-  private ready = false;
-  private capacity: number;
-
-  constructor(readonly mesh: Mesh, tinted: boolean, capacity = 64) {
-    this.capacity = capacity;
-    this.matrices = new Float32Array(capacity * 16);
-    this.colors = tinted ? new Float32Array(capacity * 4) : null;
-    mesh.isPickable = false;
-    mesh.alwaysSelectAsActiveMesh = true;
-    mesh.setEnabled(false);
-  }
-
-  begin(): void {
-    this.count = 0;
-  }
-
-  /** Room for one more: its place in the lists. */
-  add(): number {
-    if (this.count === this.capacity) {
-      this.capacity *= 2;
-      const m = new Float32Array(this.capacity * 16);
-      m.set(this.matrices);
-      this.matrices = m;
-      if (this.colors) {
-        const c = new Float32Array(this.capacity * 4);
-        c.set(this.colors);
-        this.colors = c;
-      }
-      this.ready = false;
-    }
-    return this.count++;
-  }
-
-  end(): void {
-    const n = this.count;
-    if (n > 0 && !this.ready) {
-      this.ready = true;
-      this.mesh.thinInstanceSetBuffer("matrix", this.matrices, 16, false);
-      if (this.colors) this.mesh.thinInstanceSetBuffer("color", this.colors, 4, false);
-    }
-    if (!this.ready) return;
-    // The count first: only that many are sent to the graphics chip.
-    this.mesh.thinInstanceCount = n;
-    if (n > 0) {
-      this.mesh.thinInstanceBufferUpdated("matrix");
-      if (this.colors) this.mesh.thinInstanceBufferUpdated("color");
-    }
-    this.mesh.setEnabled(n > 0);
-  }
-}
-
-/** Writes a placement: turned `yaw` about the vertical, then tipped (`pitch` nose down, `roll` over sideways), scaled and put at a spot. */
-function place(m: Float32Array, i: number, x: number, y: number, z: number, yaw: number, pitch = 0, roll = 0, sx = 1, sy = 1, sz = 1): void {
-  const o = i * 16;
-  const cy = Math.cos(yaw), sn = Math.sin(yaw);
-  const cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
-  // Rows of (roll · pitch · yaw), for vectors written as rows.
-  const ax = cy, ay = 0, az = -sn;
-  const bx = sp * sn, by = cp, bz = sp * cy;
-  const cx = cp * sn, cyy = -sp, cz = cp * cy;
-  m[o] = (cr * ax + sr * bx) * sx; m[o + 1] = (cr * ay + sr * by) * sx; m[o + 2] = (cr * az + sr * bz) * sx; m[o + 3] = 0;
-  m[o + 4] = (-sr * ax + cr * bx) * sy; m[o + 5] = (-sr * ay + cr * by) * sy; m[o + 6] = (-sr * az + cr * bz) * sy; m[o + 7] = 0;
-  m[o + 8] = cx * sz; m[o + 9] = cyy * sz; m[o + 10] = cz * sz; m[o + 11] = 0;
-  m[o + 12] = x; m[o + 13] = y; m[o + 14] = z; m[o + 15] = 1;
-}
-
-const hexColor = new Map<string, [number, number, number]>();
-function rgbOf(hex: string): [number, number, number] {
-  let c = hexColor.get(hex);
-  if (!c) {
-    const col = Color3.FromHexString(/^#[0-9a-f]{6}$/i.test(hex) ? hex : "#888888");
-    hexColor.set(hex, (c = [col.r, col.g, col.b]));
-  }
-  return c;
-}
-
-/** Turns the shorter way round from one heading to another. */
-function turn(from: number, to: number, k: number): number {
-  let d = (to - from) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return from + d * k;
-}
+/** How long a unit takes to come into view or go out of it, ms. */
+const APPEAR_MS = 450;
 
 interface Tracer { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; until: number; color: [number, number, number]; wide: number }
 interface Shell { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; arc: number }
@@ -182,8 +108,10 @@ export class ArmyView {
   /** Which units are selected (rings are drawn under them), and which buildings. */
   selected: ReadonlySet<number> = new Set();
   selectedBuildings: ReadonlySet<number> = new Set();
-  /** Whether a spot is in this side's sight now (things out of it are drawn dim). */
+  /** Whether a spot is in this general's sight now (buildings out of it are drawn dim: as they were last seen). */
   inSight: (x: number, z: number) => boolean = () => true;
+  /** A unit has gone out of view (not destroyed: only no longer seen): for whoever keeps reports of what was last seen. */
+  onUnseen: (unit: SeenUnit) => void = () => {};
 
   private readonly scene: Scene;
   private readonly unitBody = new Map<UnitKind, Many>();
@@ -203,6 +131,14 @@ export class ArmyView {
   private readonly flashes: Flash[] = [];
   private readonly sparks: Spark[] = [];
   private readonly solid: PhysicsShapeBox[] = [];
+  private readonly troopers: Troopers;
+  /** Units that have gone out of view, shrinking away. */
+  private readonly leaving: SeenUnit[] = [];
+  /** A building shown where it would go, before it is placed: asked for each frame it is wanted. */
+  private readonly ghosts = new Map<BuildingKind, Mesh>();
+  private ghostWanted: { kind: BuildingKind; x: number; z: number; ok: boolean } | null = null;
+  private readonly ghostOk: StandardMaterial;
+  private readonly ghostBad: StandardMaterial;
 
   constructor(game: PageGame) {
     const scene = (this.scene = game.scene);
@@ -219,7 +155,19 @@ export class ArmyView {
       if (shadow) game.shadows.addShadowCaster(mesh);
       return new Many(mesh, tinted);
     };
+    this.troopers = new Troopers(scene, game.shadows);
+    const seeThrough = (name: string, r: number, g: number, b: number) => {
+      const m = new StandardMaterial(name, scene);
+      m.disableLighting = true;
+      m.emissiveColor = new Color3(r, g, b);
+      m.alpha = 0.4;
+      return m;
+    };
+    this.ghostOk = seeThrough("mojave-ghost-ok", 0.35, 1, 0.5);
+    this.ghostBad = seeThrough("mojave-ghost-bad", 1, 0.3, 0.25);
     for (const kind of UNIT_KINDS) {
+      // (Troopers are drawn as people, in poses: see troopers.ts.)
+      if (kind === "trooper") continue;
       const model = unitModel(kind, scene);
       this.unitBody.set(kind, prepare(model.body, false, matt, true));
       this.unitTrim.set(kind, prepare(model.trim, true, matt, false));
@@ -247,6 +195,7 @@ export class ArmyView {
   /** Forgets everything (joined again: the server sends it afresh). */
   clear(): void {
     this.units.clear();
+    this.leaving.length = 0;
     for (const b of this.buildings.values()) this.unsolid(b);
     this.buildings.clear();
     this.tracers.length = this.shells.length = this.flashes.length = this.sparks.length = 0;
@@ -265,7 +214,7 @@ export class ArmyView {
       const x = u[i + 2]! / 10, y = u[i + 3]! / 10, z = u[i + 4]! / 10, h = (u[i + 5]! / 255) * Math.PI * 2;
       let unit = this.units.get(id);
       if (!unit) {
-        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9 };
+        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0 };
         this.units.set(id, unit);
       } else {
         unit.fx = unit.x;
@@ -292,6 +241,12 @@ export class ArmyView {
       const unit = this.units.get(x[i]!);
       if (!unit) continue;
       this.units.delete(unit.id);
+      if (x[i + 1] === 0) {
+        // Out of view, not destroyed: it shrinks away, and whoever keeps reports is told where it was.
+        unit.goneAt = now;
+        this.leaving.push(unit);
+        this.onUnseen(unit);
+      }
       if (x[i + 1] === 1) this.burst(unit.x, unit.y + UNITS[unit.kind].height * 0.5, unit.z, UNITS[unit.kind].radius, rgbOf(this.colorOf(unit.owner)), now);
     }
   }
@@ -301,7 +256,7 @@ export class ArmyView {
       const kind = BUILDING_KINDS[b.k];
       if (!kind) continue;
       const old = this.buildings.get(b.i);
-      const seen: SeenBuilding = { ...b, kind, at: now, stale: false, body: old?.body ?? null, node: old?.node ?? null };
+      const seen: SeenBuilding = { ...b, kind, at: now, stale: false, staleAt: 0, body: old?.body ?? null, node: old?.node ?? null };
       this.buildings.set(b.i, seen);
       if (!seen.body) this.makeSolid(seen);
     }
@@ -415,55 +370,22 @@ export class ArmyView {
     const time = now / 1000;
     for (const m of [...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
-    for (const u of this.units.values()) {
-      const def = UNITS[u.kind];
-      let pitch = 0, roll = 0, lift = 0;
-      if (u.tumble && now - u.tumble.start < u.tumble.ms + 500) {
-        // Thrown: over and over through the air to where it lands, then a moment on its side before it rights itself.
-        const t = u.tumble, p = Math.min(1, (now - t.start) / t.ms);
-        u.x = t.fx + (t.tx - t.fx) * p;
-        u.z = t.fz + (t.tz - t.fz) * p;
-        const hop = Math.hypot(t.tx - t.fx, t.tz - t.fz) * 0.35 + 1.2;
-        u.y = t.fy + (t.ty - t.fy) * p + Math.sin(Math.PI * p) * hop;
-        const settle = p < 1 ? 1 : Math.max(0, 1 - (now - t.start - t.ms) / 500);
-        const angle = (p < 1 ? t.spin * p : t.spin) * settle;
-        pitch = angle * (1 - t.axis);
-        roll = angle * t.axis;
-        lift = def.radius * 0.5 * Math.min(1, Math.abs(Math.sin(angle)) + (p < 1 ? 0.3 : 0)) * settle;
-      } else {
-        u.tumble = null;
-        const k = Math.min(1, (now - u.at) / BLEND_MS);
-        u.x = u.fx + (u.tx - u.fx) * k;
-        u.y = u.fy + (u.ty - u.fy) * k;
-        u.z = u.fz + (u.tz - u.fz) * k;
-        u.h = turn(u.fh, u.th, k);
-        if (u.flags & F_DOWN) roll = 1.2;
-      }
-      const moving = (u.flags & F_MOVING) !== 0;
-      // Drones hover; a Trooper bounces along; a Titan sways as it walks.
-      let bob = 0;
-      if (def.air) bob = Math.sin(time * 2.2 + u.id) * 0.25;
-      else if (moving && u.kind === "trooper") bob = Math.abs(Math.sin(time * 9 + u.id)) * 0.16;
-      else if (moving && u.kind === "titan") roll += Math.sin(time * 3 + u.id) * 0.05;
-      const y = u.y + bob + lift;
-      const body = this.unitBody.get(u.kind)!, trim = this.unitTrim.get(u.kind)!;
-      const i = body.add();
-      place(body.matrices, i, u.x, y, u.z, u.h, pitch, roll);
-      const j = trim.add();
-      trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
-      const c = rgbOf(this.colorOf(u.owner));
-      // A flash of white when hit; cold and dim when stopped by an EMP.
-      const flash = Math.max(0, 1 - (now - u.hitAt) / 160);
-      const stun = u.flags & F_STUNNED ? 0.45 : 1;
-      trim.colors!.set([(c[0] + (1 - c[0]) * flash) * stun, (c[1] + (1 - c[1]) * flash) * stun, (c[2] + (1 - c[2]) * flash) * stun + (stun < 1 ? 0.25 : 0), 1], j * 4);
-      if (this.selected.has(u.id)) this.ring(u.x, def.air ? Math.max(0.12, u.y - FLIGHT_HEIGHT + 0.12) : u.y + 0.12, u.z, def.radius + 0.5, u.hp);
+    this.troopers.begin();
+    for (const u of this.units.values()) this.drawUnit(u, now, time, Math.min(1, 0.15 + (0.85 * (now - u.seenAt)) / APPEAR_MS));
+    for (let i = this.leaving.length - 1; i >= 0; i--) {
+      const u = this.leaving[i]!;
+      const k = 1 - (now - u.goneAt) / APPEAR_MS;
+      if (k <= 0) this.leaving.splice(i, 1);
+      else this.drawUnit(u, now, time, k);
     }
+    this.troopers.end();
 
     for (const b of this.buildings.values()) {
       const def = BUILDINGS[b.kind];
       const size = def.size * CELL;
       const x = b.x * CELL + size / 2, z = b.z * CELL + size / 2;
       b.stale = !this.inSight(x, z);
+      b.staleAt = b.stale ? b.staleAt || now : 0;
       // Printing: it rises out of the ground as it is made.
       const left = b.d > 0 ? Math.max(0, b.d - (now - b.at) / 1000) : 0;
       const grown = b.d > 0 ? 0.12 + 0.88 * (1 - left / def.time) : 1;
@@ -487,7 +409,113 @@ export class ArmyView {
     }
 
     this.effects(now);
+    this.drawGhost();
     for (const m of [...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
+  }
+
+  /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
+  private drawUnit(u: SeenUnit, now: number, time: number, grown: number): void {
+    const def = UNITS[u.kind];
+    const person = u.kind === "trooper";
+    let pitch = 0, roll = 0, lift = 0;
+    /** A Trooper's pose (see troopers.ts). */
+    let pose = POSE_STAND;
+    let flying = false;
+    if (u.tumble && now - u.tumble.start < u.tumble.ms + 500) {
+      // Thrown: over and over through the air to where it lands, then a moment down before it rights itself.
+      const t = u.tumble, p = Math.min(1, (now - t.start) / t.ms);
+      u.x = t.fx + (t.tx - t.fx) * p;
+      u.z = t.fz + (t.tz - t.fz) * p;
+      const far = Math.hypot(t.tx - t.fx, t.tz - t.fz);
+      // (A person is flung higher than a machine rolls.)
+      const hop = person ? far * 0.45 + 2 : far * 0.35 + 1.2;
+      u.y = t.fy + (t.ty - t.fy) * p + Math.sin(Math.PI * p) * hop;
+      if (person) {
+        if (p < 1) {
+          flying = true;
+          pose = flailFrame((now - t.start) / 1000, u.id);
+          pitch = t.spin * p * 1.4 * (1 - t.axis * 0.5);
+          roll = t.spin * p * t.axis;
+        } else pose = POSE_DOWN;
+      } else {
+        const settle = p < 1 ? 1 : Math.max(0, 1 - (now - t.start - t.ms) / 500);
+        const angle = (p < 1 ? t.spin * p : t.spin) * settle;
+        pitch = angle * (1 - t.axis);
+        roll = angle * t.axis;
+        lift = def.radius * 0.5 * Math.min(1, Math.abs(Math.sin(angle)) + (p < 1 ? 0.3 : 0)) * settle;
+      }
+    } else if (u.goneAt === 0) {
+      u.tumble = null;
+      const k = Math.min(1, (now - u.at) / BLEND_MS);
+      u.x = u.fx + (u.tx - u.fx) * k;
+      u.y = u.fy + (u.ty - u.fy) * k;
+      u.z = u.fz + (u.tz - u.fz) * k;
+      u.h = turn(u.fh, u.th, k);
+      if (u.flags & F_DOWN) {
+        if (person) pose = POSE_DOWN;
+        else roll = 1.2;
+      }
+    }
+    const moving = (u.flags & F_MOVING) !== 0;
+    const c = rgbOf(this.colorOf(u.owner));
+    // A flash of white when hit; cold and dim when stopped by an EMP.
+    const flash = Math.max(0, 1 - (now - u.hitAt) / 160);
+    const stun = u.flags & F_STUNNED ? 0.45 : 1;
+    const r = (c[0] + (1 - c[0]) * flash) * stun, g = (c[1] + (1 - c[1]) * flash) * stun, b = (c[2] + (1 - c[2]) * flash) * stun + (stun < 1 ? 0.25 : 0);
+    if (person) {
+      let x = u.x, z = u.z, y = u.y;
+      if (flying) y += TROOPER_MIDDLE;
+      else if (pose === POSE_DOWN) y += 0.24;
+      else if (now - u.hitAt < 220) {
+        // A bullet: knocked back a step, on their heels, and on with it.
+        pose = POSE_FLINCH;
+        const back = 0.3 * Math.sin((Math.PI * (now - u.hitAt)) / 220);
+        x -= Math.sin(u.h) * back;
+        z -= Math.cos(u.h) * back;
+      } else if (moving) pose = runFrame(time, u.id);
+      else if (u.flags & F_FIRING) pose = POSE_AIM;
+      this.troopers.add(pose, x, y, z, u.h, pitch, roll, r, g, b, grown);
+    } else {
+      // Drones hover; a Titan sways as it walks.
+      let bob = 0;
+      if (def.air) bob = Math.sin(time * 2.2 + u.id) * 0.25;
+      else if (moving && u.kind === "titan") roll += Math.sin(time * 3 + u.id) * 0.05;
+      const body = this.unitBody.get(u.kind)!, trim = this.unitTrim.get(u.kind)!;
+      const i = body.add();
+      place(body.matrices, i, u.x, u.y + bob + lift, u.z, u.h, pitch, roll, grown, grown, grown);
+      const j = trim.add();
+      trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
+      trim.colors!.set([r, g, b, 1], j * 4);
+    }
+    if (u.goneAt === 0 && this.selected.has(u.id)) this.ring(u.x, def.air ? Math.max(0.12, u.y - FLIGHT_HEIGHT + 0.12) : u.y + 0.12, u.z, def.radius + 0.5, u.hp);
+  }
+
+  /**
+   * Shows a building where it would go, before it is placed: its own shape,
+   * see-through, green where it may go and red where it may not. Asked for
+   * each frame it is wanted; gone the frame it is not.
+   */
+  ghost(kind: BuildingKind, x: number, z: number, ok: boolean): void {
+    this.ghostWanted = { kind, x, z, ok };
+  }
+
+  private drawGhost(): void {
+    const want = this.ghostWanted;
+    this.ghostWanted = null;
+    for (const [kind, mesh] of this.ghosts) if (kind !== want?.kind) mesh.setEnabled(false);
+    if (!want) return;
+    let mesh = this.ghosts.get(want.kind);
+    if (!mesh) {
+      const model = buildingModel(want.kind, this.scene);
+      for (const part of [model.body, model.trim]) if (part.isVerticesDataPresent(VertexBuffer.ColorKind)) part.removeVerticesData(VertexBuffer.ColorKind);
+      mesh = Mesh.MergeMeshes([model.body, model.trim], true, true)!;
+      mesh.name = `mojave-ghost-${want.kind}`;
+      mesh.isPickable = false;
+      this.ghosts.set(want.kind, mesh);
+    }
+    mesh.material = want.ok ? this.ghostOk : this.ghostBad;
+    mesh.position.set(want.x, 0.02, want.z);
+    mesh.setEnabled(true);
   }
 
   /** A ring on the ground under something selected: green, through amber, to red as it is worn down. */

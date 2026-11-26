@@ -1,8 +1,9 @@
 /**
- * Mojave on phones and tablets: its own controls (the bank, the map, the
- * command card, and the six buttons by the right thumb) fit every screen with
- * nothing covering anything else, and a general can do everything by touch:
- * select, order a unit made, put a building down, pick the army, send it.
+ * Mojave on phones and tablets: its own controls (the bank, the map, the row
+ * with its menus, the line of what is selected, and the five buttons by the
+ * right thumb) fit every screen with nothing covering anything else, and a
+ * general can do everything by touch: select, order a unit made, put a
+ * building down, pick the army, send it.
  * Needs the Gallop dev server with Stripe test keys in .dev.vars.
  * Run: npm run qa:mojave-mobile
  */
@@ -28,6 +29,10 @@ async function open(device, n) {
   await p.waitForSelector("body.ready", { timeout: 30000 });
   await p.tap("#play-free");
   await p.waitForFunction(() => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4, null, { timeout: 15000 });
+  // (For the checks: the computers do nothing new, and this place is as a war begins it.)
+  const old = await p.evaluate(() => [...window.snapfort.feature.army.buildings.keys()]);
+  await p.evaluate(() => { window.snapfort.net.sendWorld({ m: "dev", do: "quiet" }); window.snapfort.net.sendWorld({ m: "dev", do: "fresh" }); });
+  await p.waitForFunction((old) => { const f = window.snapfort.feature; const mine = [...f.army.buildings.values()].filter((b) => b.o === f.slot); return mine.length === 1 && !old.includes(mine[0].i) && [...f.army.units.values()].filter((u) => u.owner === f.slot).length === 4; }, old, { timeout: 15000 });
   await wait(600);
   return { p, ctx };
 }
@@ -50,7 +55,7 @@ const layoutProblems = (p) => p.evaluate(() => {
     const r = el.getBoundingClientRect();
     if (r.left < -1 || r.top < -1 || r.right > W + 1 || r.bottom > H + 1) problems.push(`${el.id || el.dataset.id || el.className || el.tagName} off screen (${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)})`);
   }
-  const ids = ["hotbar-wrap", "online", "t-chat", "t-ping", "t-settings", "t-undo", "t-redo", "t-jump", "t-place", "t-remove", "t-edit", "t-turn", "t-material", "t-board", "mj-bank", "mj-map", "mj-card", "mj-touch", "mj-watch", "world-panel"];
+  const ids = ["hotbar-wrap", "online", "t-chat", "t-ping", "t-settings", "t-undo", "t-redo", "t-jump", "t-place", "t-remove", "t-edit", "t-turn", "t-material", "t-board", "mj-bank", "mj-status", "mj-map", "mj-touch", "world-panel"];
   const boxes = ids.map((id) => [id, document.getElementById(id)]).filter(([, el]) => shown(el)).map(([id, el]) => [id, el.getBoundingClientRect()]);
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const [a, ra] = boxes[i], [b, rb] = boxes[j];
@@ -60,7 +65,7 @@ const layoutProblems = (p) => p.evaluate(() => {
   return problems;
 });
 
-// ── 1. Fit on many screens, in every state the card has ──────────────────
+// ── 1. Fit on many screens, in every state the row has ───────────────────
 const screens = ["iPhone 13 landscape", "iPhone SE landscape", "iPhone 14 Pro Max landscape", "Pixel 5 landscape", "Galaxy S9+ landscape", "iPad Mini landscape", "iPad Pro 11 landscape"];
 let n = 0;
 for (const name of screens) {
@@ -70,18 +75,25 @@ for (const name of screens) {
   check(`${name}: it is a phone or tablet to the game, playing`, await p.evaluate(() => document.body.classList.contains("touch") && document.body.classList.contains("playing")));
   const states = [];
   states.push(["nothing selected", await layoutProblems(p)]);
+  check(`${name}: there is no material button (one material), and the bank is on screen`, await p.evaluate(() => getComputedStyle(document.getElementById("t-material")).display === "none" && /Lithium/.test(document.getElementById("mj-bank").textContent) && document.getElementById("mj-bank").getBoundingClientRect().width > 50));
   await p.evaluate(() => window.snapfort.feature.run("menu:0"));
-  await frames(p, 4);
+  await wait(700);
   states.push(["the build menu", await layoutProblems(p)]);
+  const most = await p.evaluate(() => document.querySelectorAll("#hotbar .slot").length);
+  check(`${name}: the build menu's eight tiles fit across the top`, most === 8 && await p.evaluate(() => { const b = document.getElementById("hotbar").getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth; }), `${most} tiles`);
   await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); for (const u of f.army.units.values()) f.selected.add(u.id); f.run("o:move"); f.run("desel"); for (const u of f.army.units.values()) f.selected.add(u.id); });
   await wait(700);
   states.push(["Haulers selected", await layoutProblems(p)]);
   await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); f.selectedBuildings.add([...f.army.buildings.keys()][0]); });
   await wait(700);
   states.push(["the Core selected", await layoutProblems(p)]);
-  await p.evaluate(() => window.snapfort.feature.run("gens"));
-  await frames(p, 4);
-  states.push(["the generals", await layoutProblems(p)]);
+  await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); f.run("menu:cmd"); });
+  await wait(700);
+  states.push(["the general's own menu", await layoutProblems(p)]);
+  await p.evaluate(() => window.snapfort.feature.run("b:foundry"));
+  await wait(700);
+  states.push(["placing a building", await layoutProblems(p)]);
+  check(`${name}: the row's tiles are all on the screen, none under another`, await p.evaluate(() => { const r = [...document.querySelectorAll("#hotbar .slot")].map((x) => x.getBoundingClientRect()); return r.length >= 2 && r.every((b, i) => b.width > 20 && b.left >= 0 && b.right <= innerWidth && (i === 0 || b.left >= r[i - 1].right - 1)); }));
   const bad = states.filter(([, list]) => list.length > 0);
   check(`${name}: everything fits, nothing covers anything else`, bad.length === 0, bad.map(([s, list]) => `${s}: ${list.slice(0, 3).join("; ")}`).join(" | "));
   if (name === "iPhone 13 landscape") await p.screenshot({ path: "qa/shots/mojave-phone.png" });
@@ -96,14 +108,15 @@ await p.tap('[data-id="t-select"]');
 check("Select, with the crosshair on the Core, selects it", await until(p, (id) => window.snapfort.feature.selectedBuildings.has(id), core.id));
 await until(p, () => window.snapfort.feature.bank.l >= 50, null, 20000);
 await frames(p, 30);
-await p.tap('#mj-card button[data-id="make:hauler"]');
-check("a tap on the card's Hauler orders one", await until(p, (id) => window.snapfort.feature.army.buildings.get(id).q.length === 1, core.id));
+await p.tap('#hotbar .slot[data-id="make:hauler"]');
+check("a tap on the row's Hauler tile orders one", await until(p, (id) => window.snapfort.feature.army.buildings.get(id).q.length === 1, core.id));
 await p.evaluate(() => window.snapfort.net.sendWorld({ m: "dev", do: "rich" }));
 await until(p, () => window.snapfort.feature.bank.l > 10000);
 await p.tap('[data-id="t-menu"]');
 await frames(p, 4);
-check("Build opens the build menu on the card", await p.evaluate(() => !!document.querySelector('#mj-card button[data-id="b:foundry"]')));
-await p.tap('#mj-card button[data-id="b:foundry"]');
+await wait(600);
+check("Build opens the build menu on the row", await p.evaluate(() => !!document.querySelector('#hotbar .slot[data-id="b:foundry"]')));
+await p.tap('#hotbar .slot[data-id="b:foundry"]');
 await frames(p, 4);
 check("picking a building turns the main button into Place", await p.evaluate(() => document.querySelector('[data-id="t-select"]').textContent === "Place"));
 const site = [core.x - Math.sign(core.x || 1) * 30, core.z - Math.sign(core.z || 1) * 30];
@@ -116,8 +129,8 @@ await p.evaluate(([x, z]) => window.snapfort.net.sendWorld({ m: "dev", do: "spaw
 await until(p, () => [...window.snapfort.feature.army.units.values()].filter((u) => u.kind === "trooper").length >= 8);
 await p.tap('[data-id="t-army"]');
 check("Army picks every fighting unit", await until(p, () => window.snapfort.feature.selected.size === 8));
-await frames(p, 6);
-check("the card shows their orders as buttons to tap", await p.evaluate(() => ["o:move", "o:amove", "o:stop", "o:hold"].every((id) => document.querySelector(`#mj-card button[data-id="${id}"]`))));
+await wait(600);
+check("the row shows their orders as tiles to tap, and what is selected is said under the bank", await p.evaluate(() => ["o:move", "o:amove", "o:stop", "o:hold"].every((id) => document.querySelector(`#hotbar .slot[data-id="${id}"]`)) && /8 selected/.test(document.getElementById("mj-status").textContent)));
 const from = await p.evaluate(() => { const f = window.snapfort.feature; const us = [...f.army.units.values()].filter((u) => f.selected.has(u.id)); return [us.reduce((s, u) => s + u.x, 0) / us.length, us.reduce((s, u) => s + u.z, 0) / us.length]; });
 const dest = [from[0], from[1] - Math.sign(core.z || 1) * 30];
 await p.evaluate(([x, z]) => window.snapfort.player.teleport(x, 0.95, z), [from[0] + 12, from[1] + Math.sign(core.z || 1) * 14]);
@@ -125,8 +138,11 @@ await aim(p, [dest[0], 0, dest[1]]);
 await p.tap('[data-id="t-order"]');
 const moved = await until(p, ([x, z]) => { const f = window.snapfort.feature; const us = [...f.army.units.values()].filter((u) => f.selected.has(u.id)); const cx = us.reduce((s, u) => s + u.x, 0) / us.length, cz = us.reduce((s, u) => s + u.z, 0) / us.length; return Math.hypot(cx - x, cz - z) < 10; }, dest, 12000);
 check("Order, with the crosshair on the ground, sends them there", moved === true);
-await p.tap('#mj-card button[data-id="desel"]');
-check("Deselect lets go", await until(p, () => window.snapfort.feature.selected.size === 0));
+await p.tap('#hotbar .slot[data-id="desel"]');
+check("Deselect lets go, and the pieces are back on the row", await until(p, () => window.snapfort.feature.selected.size === 0) && await until(p, () => [...document.querySelectorAll("#hotbar .slot .label")].some((l) => l.textContent === "Wall")));
+await p.tap("#hotbar .slot:last-child");
+check("a tap on Command opens the general's own menu", await until(p, () => !!document.querySelector('#hotbar .slot[data-id="army"]')));
+await p.tap('#hotbar .slot[data-id="back"]');
 await p.tap('[data-id="t-map"]');
 check("Map opens the map", await until(p, () => document.getElementById("mj").classList.contains("big")));
 await p.tap('[data-id="t-map"]');

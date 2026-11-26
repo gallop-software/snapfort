@@ -198,8 +198,11 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   });
 
   /** The selected hotbar slot, or -1 when nothing is selected (just running around). */
+  /** Kept out of this world by its own rules (see PageGame.shut), and why. */
+  let shutOut: { text: string; unlock?: boolean } | null = null;
   let toolIndex = 0;
-  let materialIndex = 0;
+  /** (Where a world has one material, that one, for good.) */
+  let materialIndex = page.row?.material ? Math.max(0, MATERIALS.indexOf(page.row.material)) : 0;
   let rotation = 0;
   /** The direction of the last ramp placed straight ahead, and when (for ramp rushing). */
   let rushRot: number | null = null;
@@ -216,17 +219,33 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
 
   /** The hotbar: the shared tools, then the world's own. A world's tool is not a piece: its feature does the aiming and placing. */
   const ownTools = page.tools ?? [];
-  const TOOLS: readonly string[] = [...SHARED_TOOLS, ...ownTools.map((t) => t.id)];
-  const ownTool = (index: number) => ownTools[index - SHARED_TOOLS.length];
+  // (A world may do without the siege engine: its tile is then not on the row at all.)
+  const sharedTools = page.row?.siege === false ? SHARED_TOOLS.filter((t) => t !== "trebuchet") : SHARED_TOOLS;
+  const TOOLS: readonly string[] = [...sharedTools, ...ownTools.map((t) => t.id)];
+  const ownTool = (index: number) => ownTools[index - sharedTools.length];
   const keyOf = (tool: string) => TOOL_KEYS[tool as Tool] ?? ownTools.find((t) => t.id === tool)?.key ?? "";
   const items: HotbarItem[] = [
-    ...SHARED_TOOLS.map((tool) => ({ id: tool, label: tool === "remove" ? "Remove" : pieceLabel(tool, env), key: TOOL_KEYS[tool] })),
+    ...sharedTools.map((tool) => ({ id: tool, label: tool === "remove" ? "Remove" : pieceLabel(tool, env), key: TOOL_KEYS[tool] })),
     ...ownTools.map((t) => ({ id: t.id, label: t.label, key: t.key, icon: t.icon })),
   ];
   const hud = new Hud(items, {
     selectTool: (i) => toggleTool(i),
     play(next) {
       sfx.unlock();
+      // No place for them in this world now: the button says why (or offers the Full Game), and no game starts.
+      if (shutOut) {
+        if (shutOut.unlock) {
+          // (Owning it, with the key's seat in use on another device: it is taken back here, and the world lets them in.)
+          if (waiting) {
+            useKeyHere();
+            return hud.menuNote(`${seatsTaken()}: using it here now…`);
+          }
+          store.offer(false);
+          return hud.show("unlock");
+        }
+        sfx.deny();
+        return hud.menuNote(shutOut.text);
+      }
       startMode(next);
       void input.lock().then((locked) => {
         // The browser said no (it sometimes does right after Esc, or when the page is not in front).
@@ -333,6 +352,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** A piece key or hotbar click: selects that piece, or puts it away if it is already selected. */
   function toggleTool(index: number): void {
     if (!builder) return lockedNote();
+    // A button of the world's own: pressed, not picked.
+    const button = ownTool(index);
+    if (button?.press) return void feature?.useTool?.(button.id);
     if (index === toolIndex && !editing) deselectTool();
     else selectTool(index);
   }
@@ -411,6 +433,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
    * build target is too high for it, the material that will be used instead.
    */
   function showMaterial(): void {
+    // (One material here: there is nothing to show, and the badge's place is the world's.)
+    if (page.row?.material) return;
     const chosen = MATERIALS[materialIndex]!;
     const used = aimSpec && !crewOn ? materialFor(aimSpec.type, chosen, aimSpec.y, env) : chosen;
     const key = `${chosen}>${used}`;
@@ -423,6 +447,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   }
 
   function cycleMaterial(): void {
+    if (page.row?.material) return;
     materialIndex = (materialIndex + 1) % MATERIALS.length;
     showMaterial();
     sfx.select();
@@ -813,7 +838,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     if (feature?.wheel?.(direction)) return;
     wheelTool(direction);
   };
-  const wheelTool = (direction: 1 | -1) => selectTool(toolIndex < 0 ? (direction > 0 ? 0 : TOOLS.length - 1) : toolIndex + direction);
+  /** The tools the wheel goes round (not buttons of a world's own, which are pressed, never held). */
+  const held = TOOLS.map((_, i) => i).filter((i) => !ownTool(i)?.press);
+  const wheelTool = (direction: 1 | -1) => {
+    const at = held.indexOf(toolIndex);
+    selectTool(held[at < 0 ? (direction > 0 ? 0 : held.length - 1) : (at + direction + held.length) % held.length]!);
+  };
   input.onKey = (code, event) => {
     const command = event.ctrlKey || event.metaKey;
     // Something of the world's own may take the key first (never the ones every world shares).
@@ -1715,8 +1745,33 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         if (sound === "boom") sfx.boom(1);
         else sfx[sound]();
       },
+      row: (tiles, pick) => hud.setRow(tiles, pick),
+      badge: (html) => hud.setBadge(html),
+      shut: (why) => {
+        const was = shutOut;
+        shutOut = why;
+        if (!why) {
+          if (was) hud.menuNote(null);
+          return;
+        }
+        // Playing: back to the menu, where the note says why.
+        if (input.locked) {
+          mode = "menu";
+          nextView = null;
+          input.unlock();
+        } else if (mode !== "menu" && hud.view !== "unlock") {
+          mode = "menu";
+          hud.show("menu");
+        }
+        hud.menuNote(why.text);
+      },
     }) ?? null;
 
+  // One material here: no badge and no button for changing it (the badge's place is the world's own).
+  if (page.row?.material) {
+    hud.setBadge(null);
+    document.body.classList.add("one-material");
+  }
   if (builder && page.emptyHanded) {
     toolIndex = -1;
     hud.select(-1);

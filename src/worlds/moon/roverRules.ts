@@ -27,6 +27,8 @@ export const ROVER = {
   radius: 1,
   /** A shot hits it when it comes this near its middle, m (and that is how big it is to a launcher's crosshair). */
   hitSize: 1.5,
+  /** Its body is this long, nose to tail, m (longer than the round body it drives on: the ends are kept out of walls on their own). */
+  bodyLong: 3.0,
   /** How near a builder must be to get on, m. */
   boardReach: 6,
   /** Top speed, m/s, cruising and flat out (the run key). Twice what they first were (user, 2026-11-23). */

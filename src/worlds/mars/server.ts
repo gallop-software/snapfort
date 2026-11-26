@@ -1,8 +1,8 @@
 import type { WorldServer } from "../serverDoors";
 import { airbagsThrown } from "./airbags";
-import { helisDrop, helisInTheWay, helisJoined, helisLetGo, helisMessage, helisStruck, openHelis } from "./helicopters";
-import { openStar, starBlocks, starFromWorld, starJoined, starLetGo, starMessage, starShotHits, starStruck } from "./starships";
-import { openTerra, terraBlocks, terraJoined, terraMessage, terraShotHits, terraStruck } from "./terraformers";
+import { helisDrop, helisInTheWay, helisJoined, helisLetGo, helisMessage, helisSolid, helisStruck, openHelis } from "./helicopters";
+import { openStar, starBlocks, starFromWorld, starJoined, starLetGo, starMessage, starShotHits, starSolids, starStruck } from "./starships";
+import { openTerra, terraBlocks, terraJoined, terraMessage, terraShotHits, terraSolid, terraStruck } from "./terraformers";
 
 /**
  * What Mars does on the server beyond the shared rules: a builder who is hit
@@ -49,6 +49,9 @@ export const server: WorldServer = {
   },
   removed(room) {
     helisDrop(room);
+  },
+  solids(room) {
+    return [...starSolids(room), ...terraSolid(room), ...helisSolid(room)];
   },
   blocks(room, piece) {
     return terraBlocks(room, piece) || starBlocks(room, piece);

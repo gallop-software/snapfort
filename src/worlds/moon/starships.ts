@@ -88,7 +88,7 @@ function hurl(room: Room, playerId: string, from: Vec, i: number, n: number): vo
   const out = 16 + Math.random() * 12;
   const v: Vec = [Math.sin(a) * out, 26 + Math.random() * 14, Math.cos(a) * out];
   const fall = planFall(room.build, from, v, room.env);
-  room.fly(playerId, spaceFlight({ build: room.build, env: room.env, playerId, from, v, fall }) ?? fall);
+  room.fly(playerId, spaceFlight({ build: room.build, env: room.env, playerId, from, v, fall }, () => room.solidThings?.() ?? []) ?? fall);
 }
 
 /** Reads what was saved when the room wakes. Whoever sat in a ship still does, if they are still here. */
@@ -341,6 +341,15 @@ function solids(room: Room, coming: Ship): Box[] {
   for (const piece of room.build.all()) boxes.push(solidOf(piece, room.env));
   for (const pad of m.pads) for (const n of pad.parts) if (!(pad.flight && isRocket(n))) boxes.push(boxOf(pad, n));
   for (const s of m.ships) if (s !== coming && s.down) boxes.push(landedBox(s));
+  return boxes;
+}
+
+/** What of the starships stands solid just now (for the shared rules' questions: a throw, a stone): launch sites (with any rocket standing on one) and ships that are down. */
+export function starSolids(room: Room): Box[] {
+  const m = mem(room);
+  const boxes: Box[] = [];
+  for (const pad of m.pads) for (const n of pad.parts) if (!(pad.flight && isRocket(n))) boxes.push(boxOf(pad, n));
+  for (const s of m.ships) if (s.down) boxes.push(landedBox(s));
   return boxes;
 }
 

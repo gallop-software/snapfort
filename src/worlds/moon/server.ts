@@ -1,8 +1,8 @@
 import type { WorldServer } from "../serverDoors";
-import { gunsBlock, gunsDrop, gunsInTheWay, gunsJoined, gunsLetGo, gunsMessage, gunsStruck, openGuns } from "./railguns";
-import { openRovers, roversDrop, roversInTheWay, roversJoined, roversLetGo, roversMessage, roversStruck } from "./rovers";
+import { gunsBlock, gunsDrop, gunsInTheWay, gunsJoined, gunsLetGo, gunsMessage, gunsSolid, gunsStruck, openGuns } from "./railguns";
+import { openRovers, roversDrop, roversInTheWay, roversJoined, roversLetGo, roversMessage, roversSolid, roversStruck } from "./rovers";
 import { spaceFlight } from "./space";
-import { openStar, starFromWorld, starJoined, starLetGo, starMessage, starBlocks, starShotHits, starStruck } from "./starships";
+import { openStar, starFromWorld, starJoined, starLetGo, starMessage, starBlocks, starShotHits, starSolids, starStruck } from "./starships";
 
 /**
  * What the Moon does on the server beyond the shared rules: a hit throws you
@@ -20,7 +20,7 @@ export const server: WorldServer = {
     roversLetGo(room, hit.playerId);
     gunsLetGo(room, hit.playerId);
     starLetGo(room, hit.playerId);
-    return spaceFlight(hit);
+    return spaceFlight(hit, () => room.solidThings?.() ?? []);
   },
   joined(room, playerId) {
     roversJoined(room, playerId);
@@ -51,6 +51,9 @@ export const server: WorldServer = {
   removed(room, pieces) {
     roversDrop(room, pieces);
     gunsDrop(room, pieces);
+  },
+  solids(room) {
+    return [...starSolids(room), ...gunsSolid(room), ...roversSolid(room)];
   },
   blocks(room, piece) {
     return gunsBlock(room, piece) || starBlocks(room, piece);

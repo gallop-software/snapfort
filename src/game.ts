@@ -44,7 +44,7 @@ import { Blocks, PlayersView } from "./ui/players";
 import { PRICE, Store } from "./ui/store";
 import { Tips } from "./ui/tips";
 import { halfCellsOf, pieceLabel, saidName, type Environment } from "./game/environments";
-import type { WorldFeature, WorldPage } from "./worlds/pageDoors";
+import type { PageGame, WorldFeature, WorldPage } from "./worlds/pageDoors";
 import { WORLDS } from "./worlds";
 import { askBuilders, reachOf } from "./ui/worlds";
 import { SyncedState } from "./net/sync";
@@ -171,6 +171,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   const debris = new Debris(scene, (piece) => (piece.type === "trebuchet" ? trebuchets.debrisMesh(piece, view.debrisMesh(piece)) : view.debrisMesh(piece)), env, page.dust);
   /** What this world has of its own (vehicles, say), started below once the game's parts exist. */
   let feature: WorldFeature | null = null;
+  /** What the world's page was handed (kept for the checks: PageGame.clearSpot). */
+  let worldGame: PageGame | null = null;
   /** Hits taken by damaged pieces (from the server), so their cracks show. */
   const damage = new Map<string, number>();
   const tint = (id: string) => {
@@ -1781,7 +1783,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   // Come from another world, still playing (something of that world's own brought them): read once.
   const arrived = takeTravel(env.id);
   feature =
-    page.start?.({
+    page.start?.(worldGame = {
       scene,
       shadows: world.shadows,
       env,
@@ -1854,6 +1856,8 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
           return [b.x - r, b.y, b.z - r, b.x + r, b.y + b.h, b.z + r];
         });
         const solids = new Solids(state, env, () => [...(feature?.solids?.() ?? []), ...moving]);
+        // Clear already (open ground, or open air for someone getting out in flight): there it is.
+        if (!solids.touch([x, y, z], BUILDER_BODY.r, BUILDER_BODY.half)) return [x, y, z];
         const at = solids.nearestClear(x, z, y - BUILDER_BODY.half - BUILDER_BODY.r, BUILDER_BODY.r, BUILDER_BODY.half);
         return at ? [at[0], at[1], at[2]] : null;
       },
@@ -1949,7 +1953,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, bodies, Solids, planFall: (from: Vec, v: Vec) => planFall(state, from, v, env, () => feature?.solids?.() ?? []), history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, bodies, Solids, clearSpot: (x: number, y: number, z: number) => worldGame?.clearSpot(x, y, z) ?? null, planFall: (from: Vec, v: Vec) => planFall(state, from, v, env, () => feature?.solids?.() ?? []), history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
     });
   }
 }

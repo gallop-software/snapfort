@@ -9,6 +9,7 @@ import { CharacterSupportedState, PhysicsCharacterController } from "@babylonjs/
 import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeSphere } from "@babylonjs/core/Physics/v2/physicsShape";
+import { Solids } from "../../../game/solids";
 import { BUILDER_GROUP, FRAME_GROUP } from "../../../render/physicsGroups";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, Ride, WorldFeature } from "../../pageDoors";
@@ -163,6 +164,9 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
     floating = false;
   }
 
+  /** What is built, as drawn: what the rover's nose and tail are kept out of. */
+  const built = new Solids(game.build, game.env);
+
   function startDriving(id: number): void {
     const r = rovers.get(id);
     if (!r) return;
@@ -198,6 +202,13 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
 
   const feature = {
     rovers,
+    // Every rover but the one this builder drives is solid to them: parked, or driven by someone else (not while thrown).
+    *bodies() {
+      for (const [id, r] of rovers) {
+        if (id === mine || r.falling) continue;
+        yield { x: r.pose[0], y: r.pose[1], z: r.pose[2], yaw: r.pose[3], w: 2.3, h: 1.7, d: 3.0 };
+      }
+    },
     get mine() {
       return mine;
     },
@@ -313,6 +324,20 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
       body.integrate(dt, support, gravity);
 
       const p = body.getPosition();
+      // Its nose and tail reach half a metre past the round body it drives on: kept out of walls too, as drawn.
+      // (Each end a ball as wide as the rover, its bottom at the wheels; what can be driven up, a ramp, a step, is left alone.)
+      if (!floating) {
+        for (const end of [1, -1]) {
+          const reach = ROVER.bodyLong / 2 - ROVER.radius;
+          const hit = built.touch([p.x + nose.x * end * reach, p.y + 0.1, p.z + nose.z * end * reach], ROVER.radius, 0, { stepUp: 0.55 });
+          if (!hit || hit.depth < 0.02) continue;
+          const back = Math.min(hit.depth, reach);
+          p.x -= nose.x * end * back;
+          p.z -= nose.z * end * back;
+          body.setPosition(p);
+          if (speed * end > 0) speed = 0;
+        }
+      }
       const after = body.getVelocity();
       // Into a wall: it stops, it does not push on.
       if (onGround) speed = Math.sign(speed || 1) * Math.min(Math.abs(speed), after.length() + 2);
@@ -392,7 +417,9 @@ export function startRovers(game: PageGame): WorldFeature & { rovers: Map<number
         send({ k: "leave", pose: r.pose });
         const side = new Vector3(Math.cos(r.pose[3]), 0, -Math.sin(r.pose[3]));
         letGo();
-        game.player.seat(r.pose[0] + side.x * 1.9, r.pose[1] + 1.1, r.pose[2] + side.z * 1.9);
+        const at: [number, number, number] = [r.pose[0] + side.x * 1.9, r.pose[1] + 1.1, r.pose[2] + side.z * 1.9];
+        // (On clear ground: a wall or another rover may be beside it, and the rover itself is solid now.)
+        game.player.seat(...(game.clearSpot(...at) ?? at));
         return true;
       }
       const near = nearest();

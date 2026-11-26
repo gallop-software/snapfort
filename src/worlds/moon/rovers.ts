@@ -193,7 +193,9 @@ export function roversMessage(room: Room, playerId: string, data: unknown): void
   if (msg.k === "eject") {
     // Thrown clear from wherever the server last believed the rover to be (or, if it is close, where the page says).
     const at = pose && Math.hypot(pose[0] - mine.pose[0], pose[1] - mine.pose[1], pose[2] - mine.pose[2]) < 60 ? pose : mine.pose;
-    room.fly(playerId, rocketsBack(room.build, room.env, [at[0], at[1] + ROVER.seatUp + 0.5, at[2]]));
+    // (Set down beside where the rover will come down, not under it: the two would end up in one place.)
+    const side: [number, number] = [Math.cos(at[3]) * 3.5, -Math.sin(at[3]) * 3.5];
+    room.fly(playerId, rocketsBack(room.build, room.env, [at[0], at[1] + ROVER.seatUp + 0.5, at[2]], () => room.solidThings?.() ?? [], side));
     // The rover does not go on up: it sinks slowly back to the ground under it, for the next driver.
     return comeDown(room, mine, at, at[0], at[2], 0);
   }

@@ -17,6 +17,8 @@ import type { Room, Thrown } from "../serverDoors";
  */
 
 /** How much of its downward speed a bounce gives back, and how much of its speed across the ground it keeps. */
+/** The airbags round a builder, as drawn (a cluster 3.1 m across, its middle 0.55 m over theirs): what bumps into walls on the way. */
+const AIRBAG_BODY = { r: 1.45, half: 0, lift: 0.55 } as const;
 export const BOUNCE = { up: 0.62, along: 0.78, most: 7, least: 3.2 } as const;
 /** Seconds the bags take to let go once the bouncing is done. */
 export const DEFLATE = 0.7;
@@ -43,7 +45,7 @@ export function airbagFlight(build: BuildState, env: Environment, from: Vec, v: 
   // hundredths), so each touch-down falls exactly on one of the points the flight is sent as:
   // the bags are seen to hit the ground, not to turn back just above it.
   const fitted = (hop: Fall) => Math.max(0.1, Math.round(hop.time * 10) / 10);
-  const hops: Fall[] = [first ?? planFall(build, from, v, env)];
+  const hops: Fall[] = [first ?? planFall(build, from, v, env, undefined, AIRBAG_BODY)];
   const bounces: number[] = [];
   let at = fitted(hops[0]!);
   for (let i = 0; i < BOUNCE.most; i++) {
@@ -54,7 +56,7 @@ export function airbagFlight(build: BuildState, env: Environment, from: Vec, v: 
     const up = down * BOUNCE.up;
     if (up < BOUNCE.least) break;
     bounces.push(Math.round(at * 10) / 10);
-    const next = planFall(build, last.land, [along[0] * BOUNCE.along, up, along[2] * BOUNCE.along], env);
+    const next = planFall(build, last.land, [along[0] * BOUNCE.along, up, along[2] * BOUNCE.along], env, undefined, AIRBAG_BODY);
     hops.push(next);
     at += fitted(next);
   }

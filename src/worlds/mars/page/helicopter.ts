@@ -10,7 +10,7 @@ import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature } from "../../pageDoors";
 import { ceilingIn, climbIn, enduranceIn, HELI, seatOf, speedIn, type HeliPose, type HeliToPage, type HeliToServer } from "../helicopterRules";
 import { sky } from "./air";
-import { inWall, surfaceUnder } from "./solid";
+import { ceilingOver, inWall, surfaceUnder } from "./solid";
 
 const EDGE = WORLD_HALF_CELLS * CELL + 6;
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -181,6 +181,13 @@ export function startHelicopters(game: PageGame): HelicopterFeature {
   const percent = (k: number) => `${Math.round(k * 100)}%`;
 
   const feature = {
+    // Every helicopter but the one this builder is in is solid to them: its hull (the rotors are let through).
+    *bodies() {
+      for (const [id, h] of helis) {
+        if (id === mine || h.falling) continue;
+        yield { x: h.pose[0], y: h.pose[1], z: h.pose[2], yaw: h.pose[3], w: 2.6, h: 3.2, d: 6.5 };
+      }
+    },
     helis,
     get mine() {
       return mine;
@@ -274,14 +281,26 @@ export function startHelicopters(game: PageGame): HelicopterFeature {
         v.z += (wantZ - v.z) * ease;
         v.y += (wantY - v.y) * (1 - Math.exp(-dt * 3));
         const nx = Math.max(-EDGE, Math.min(EDGE, h.pose[0] + v.x * dt)), nz = Math.max(-EDGE, Math.min(EDGE, h.pose[2] + v.z * dt));
-        if (inWall(game, nx, h.pose[1], nz, 2.4) || inWall(game, nx + Math.sign(v.x) * HELI.radius, h.pose[1], nz + Math.sign(v.z) * HELI.radius, 2.4)) {
+        // Its body: the cabin round its middle, and its tail boom behind (the rotors are let through). Each checked whole, as drawn.
+        const back = (x: number, z: number): [number, number] => [x - s * 3.2, z - c * 3.2];
+        const [tx, tz] = back(nx, nz);
+        if (inWall(game, nx, h.pose[1], nz, 3.2, HELI.radius) || inWall(game, tx, h.pose[1] + 1.2, tz, 1.4, 0.6)) {
           v.x = v.z = 0;
         } else {
           h.pose[0] = nx;
           h.pose[2] = nz;
         }
         const under = groundAt(h.pose);
-        h.pose[1] = Math.max(under, h.pose[1] + v.y * dt);
+        // Climbing into the underside of a floor or a roof over it: it stops there.
+        let ny = h.pose[1] + v.y * dt;
+        if (v.y > 0) {
+          const over = ceilingOver(game, h.pose[0], h.pose[1] + 3.2, h.pose[2], HELI.radius * 0.8) - 3.2;
+          if (ny > over) {
+            ny = Math.max(h.pose[1], over);
+            v.y = 0;
+          }
+        }
+        h.pose[1] = Math.max(under, ny);
         if (h.pose[1] <= under + 1e-6 && v.y < 0) v.y = 0;
         // Nose down as it goes forward, banked into a sideways slide.
         const ahead = (v.x * s + v.z * c) / Math.max(1, top), across = (v.x * c - v.z * s) / Math.max(1, top);
@@ -366,7 +385,9 @@ export function startHelicopters(game: PageGame): HelicopterFeature {
         const out = seat === 0 ? -1 : 1;
         const c = Math.cos(h.pose[3]), s = Math.sin(h.pose[3]);
         letGo();
-        game.player.seat(h.pose[0] + c * out * 2.1, h.pose[1] + 1.1, h.pose[2] - s * out * 2.1);
+        const at: [number, number, number] = [h.pose[0] + c * out * 2.1, h.pose[1] + 1.1, h.pose[2] - s * out * 2.1];
+        // (On clear ground, or clear air: a wall may stand beside it.)
+        game.player.seat(...(game.clearSpot(...at) ?? at));
         return true;
       }
       const near = nearest();

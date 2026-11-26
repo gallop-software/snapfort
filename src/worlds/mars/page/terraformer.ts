@@ -306,6 +306,8 @@ export function startTerraformers(game: PageGame): TerraformerFeature {
 
   let clock = 0;
   return {
+    /** What of the Terraformers stands solid: every part put up. */
+    solids: () => [...terras.values()].flatMap((s) => s.terra.parts.map((n) => boxOf(s.terra, n))),
     terras,
     air: () => air,
 

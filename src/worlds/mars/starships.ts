@@ -342,6 +342,15 @@ function solids(room: Room, coming: Ship): Box[] {
   return boxes;
 }
 
+/** What of the starships stands solid just now (for the shared rules' questions: a throw, a stone): launch sites (with any rocket standing on one) and ships that are down. */
+export function starSolids(room: Room): Box[] {
+  const m = mem(room);
+  const boxes: Box[] = [];
+  for (const pad of m.pads) for (const n of pad.parts) if (!(pad.flight && isRocket(n))) boxes.push(boxOf(pad, n));
+  for (const s of m.ships) if (s.down) boxes.push(landedBox(s));
+  return boxes;
+}
+
 /** A ship from another world is down: its passengers get out. If something has been built where it lands, it blows up instead. */
 function touchdown(room: Room, ship: Ship): void {
   if (shipTouches(ship, DESCENT, solids(room, ship))) return explodeShip(room, ship);

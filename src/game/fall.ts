@@ -104,7 +104,8 @@ export const PATH_RATE = 30;
  * motion, the underside of anything stops a rise, and the first surface met
  * on the way down (or the ground) is where they land.
  */
-export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment, extra: () => readonly Box[] = () => []): Fall {
+export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment, extra: () => readonly Box[] = () => [], body: { r: number; half: number; lift?: number } = { r: RADIUS, half: MIDDLE }): Fall {
+  const lift = body.lift ?? 0;
   const solids = new Solids(state, env, extra);
   let [x, y, z] = from;
   let [vx, vy, vz] = v;
@@ -121,7 +122,8 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment,
     let ny = y + vy * STEP;
     vy -= env.gravity * STEP;
     // Into the side of something (not just onto its top): lose the sideways speed and slide down it.
-    if ((nx !== x || nz !== z) && solids.touch([nx, y, nz], RADIUS, MIDDLE, { stepUp: 0.25 })) {
+    // (A body as wide as it is drawn: a builder, or a builder in a cluster of airbags.)
+    if ((nx !== x || nz !== z) && solids.touch([nx, y + lift, nz], body.r, body.half, { stepUp: 0.25 + Math.max(0, body.r + body.half - HALF - lift) })) {
       vx = vz = 0;
     } else {
       x = nx;

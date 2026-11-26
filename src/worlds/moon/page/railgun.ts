@@ -11,8 +11,8 @@ import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlug
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox, PhysicsShapeContainer } from "@babylonjs/core/Physics/v2/physicsShape";
 import { CELL, LEVEL } from "../../../game/constants";
-import { standHeight } from "../../../game/fall";
-import { solidOf } from "../../../game/keepOut";
+import { solidOf, type Box } from "../../../game/keepOut";
+import { Solids } from "../../../game/solids";
 import type { PieceSpec } from "../../../game/pieces";
 import { paintMesh } from "../../../render/paint";
 import type { DriveInput, PageGame, WorldFeature, WorldTool } from "../../pageDoors";
@@ -376,13 +376,17 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
   const HALF = 0.9;
   const FAR = EDGE + 10;
 
+  /** What is built, as drawn (doors, slopes, holes), and the rail guns' own parts: what a rider flying down is kept out of. */
+  const solids = new Solids(game.build, game.env, () => {
+    const out: Box[] = [];
+    for (const s of guns.values()) for (const n of s.meshes.keys()) if (kindOf(n) !== "capsule") out.push(...partSpace(s.gun, n));
+    return out;
+  });
+  const built = new Solids(game.build, game.env);
+
   /** The top of whatever is under (x, z) at or below height `y` (the ground, at least), from what is built. */
   function surfaceUnder(x: number, y: number, z: number): number {
-    let top = 0;
-    for (const piece of game.build.near(x, y, z)) {
-      const h = standHeight(piece, x, z, game.env.roof);
-      if (h !== null && h <= y + 0.3 && h > top) top = h;
-    }
+    let top = built.surfaceUnder(x, z, y + 0.25, 0.4);
     // Rail gun parts are solid too: the top of one is somewhere to land.
     const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
     for (const s of guns.values()) {
@@ -401,14 +405,9 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
     return top;
   }
 
-  /** True when a body centred there would be inside the side of a wall. */
+  /** True when a body centred there would be inside anything solid (not standing on its top): any piece as drawn, or a rail gun's part. */
   function inWall(x: number, y: number, z: number): boolean {
-    for (const piece of game.build.near(x, y, z)) {
-      if (piece.type !== "wall") continue;
-      const top = standHeight(piece, x, z);
-      if (top !== null && y - HALF < top - 0.25 && y + HALF > piece.y * LEVEL) return true;
-    }
-    return false;
+    return solids.touch([x, y, z], 0.4, HALF - 0.4, { stepUp: 0.25 }) !== null;
   }
 
   /**
@@ -454,6 +453,12 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
   }
 
   const feature = {
+    /** What of the rail guns stands solid: every part put up. */
+    solids() {
+      const out: Box[] = [];
+      for (const s of guns.values()) for (const n of s.meshes.keys()) out.push(...partSpace(s.gun, n));
+      return out;
+    },
     guns,
     get seated() {
       return seated;
@@ -621,7 +626,9 @@ export function startRailguns(game: PageGame): WorldFeature & { guns: Map<number
         if (s) {
           // Out beside the breech.
           const seat = seatOf(s.gun);
-          game.player.seat(seat.x + Math.cos(seat.yaw) * 2.6, s.gun.y * LEVEL + 1.1, seat.z - Math.sin(seat.yaw) * 2.6);
+          const out: [number, number, number] = [seat.x + Math.cos(seat.yaw) * 2.6, s.gun.y * LEVEL + 1.1, seat.z - Math.sin(seat.yaw) * 2.6];
+          // (On clear ground: a piece or the launcher's own parts may stand there.)
+          game.player.seat(...(game.clearSpot(...out) ?? out));
         }
         return true;
       }

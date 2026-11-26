@@ -1,5 +1,5 @@
 import type { WorldServer } from "../serverDoors";
-import { openStar, starFromWorld, starJoined, starLetGo, starMessage, starBlocks, starShotHits, starStruck } from "./starships";
+import { openStar, starFromWorld, starJoined, starLetGo, starMessage, starBlocks, starShotHits, starSolids, starStruck } from "./starships";
 
 /**
  * What the Meadow does on the server beyond the shared rules: Starship launch
@@ -28,6 +28,9 @@ export const server: WorldServer = {
   },
   struck(room, point) {
     starStruck(room, point);
+  },
+  solids(room) {
+    return starSolids(room);
   },
   blocks(room, piece) {
     return starBlocks(room, piece);

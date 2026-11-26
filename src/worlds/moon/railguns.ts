@@ -270,7 +270,7 @@ function thrownUp(room: Room, playerId: string, from: Vec): void {
   const a = Math.random() * Math.PI * 2;
   const v: Vec = [Math.sin(a) * 6, 34, Math.cos(a) * 6];
   const fall = planFall(room.build, from, v, room.env);
-  room.fly(playerId, spaceFlight({ build: room.build, env: room.env, playerId, from, v, fall }) ?? fall);
+  room.fly(playerId, spaceFlight({ build: room.build, env: room.env, playerId, from, v, fall }, () => room.solidThings?.() ?? []) ?? fall);
 }
 
 /** A shot hits a rail gun part standing in its way: the first time the rock comes within a part's size of one's middle. */

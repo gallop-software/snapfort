@@ -12,7 +12,8 @@ import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
-import { overlaps, solidOf } from "../../../game/keepOut";
+import { overlaps, solidOf, type Box } from "../../../game/keepOut";
+import { Solids } from "../../../game/solids";
 import type { PieceSpec } from "../../../game/pieces";
 import { outOfReach } from "../../../game/reach";
 import { paintMesh } from "../../../render/paint";
@@ -288,7 +289,8 @@ interface Incoming {
 interface Blast {
   at: number;
   balls: Mesh[];
-  bits: { mesh: Mesh; v: Vector3; from: Vector3; spin: Vector3 }[];
+  /** (`rest`: the top of whatever is under where it comes down: it lies there, not inside it.) */
+  bits: { mesh: Mesh; v: Vector3; from: Vector3; spin: Vector3; rest?: number }[];
   size: number;
 }
 
@@ -689,7 +691,17 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     }
   }
 
+  /** What is built, as drawn: where the pieces of a ship that blew up come to rest. */
+  const built = new Solids(game.build, game.env);
+
   const feature = {
+    /** What of the starships stands solid: each part of a launch site that has a body, and every ship that is down. */
+    solids() {
+      const out: Box[] = [];
+      for (const s of pads.values()) for (const [n, held] of s.parts) if (held.solid) out.push(boxOf(s.pad, n));
+      for (const s of ships.values()) if (s.ship.down) out.push(landedBox(s.ship));
+      return out;
+    },
     pads,
     ships,
     get seated() {
@@ -790,7 +802,8 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
     /** In a seat, the ship carries the player; getting out sets them down. */
     drive(_dt: number, input: DriveInput): boolean {
       if (putDown) {
-        game.player.seat(...putDown);
+        // (Wherever it is meant to be, on clear ground: a piece, a pad or a ship may stand on the spot.)
+        game.player.seat(...(game.clearSpot(...putDown) ?? putDown));
         putDown = null;
         return true;
       }
@@ -895,7 +908,10 @@ export function startStarships(game: PageGame): WorldFeature & { pads: Map<numbe
           mesh.visibility = Math.max(0, 1 - t / life);
         });
         for (const bit of b.bits) {
-          bit.mesh.position.set(bit.from.x + bit.v.x * t, Math.max(0.2, bit.from.y + bit.v.y * t - 13 * t * t), bit.from.z + bit.v.z * t);
+          const bx = bit.from.x + bit.v.x * t, bz = bit.from.z + bit.v.z * t;
+          // (On what it lands on, worked out once: the ground, or a floor or a roof it comes down on.)
+          bit.rest ??= built.surfaceUnder(bit.from.x + bit.v.x * 3, bit.from.z + bit.v.z * 3, Math.max(0.5, bit.from.y), 0);
+          bit.mesh.position.set(bx, Math.max(bit.rest + 0.2, bit.from.y + bit.v.y * t - 13 * t * t), bz);
           bit.mesh.rotation.set(bit.spin.x * t, bit.spin.y * t, bit.spin.z * t);
           bit.mesh.visibility = Math.max(0, 1 - t / 5);
         }

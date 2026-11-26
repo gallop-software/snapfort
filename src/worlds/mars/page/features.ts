@@ -26,5 +26,10 @@ export function together(...parts: WorldFeature[]): WorldFeature {
     blocks: (spec) => parts.some((p) => p.blocks?.(spec) === true),
     aimRemove: () => parts.forEach((p) => p.aimRemove?.()),
     remove: () => parts.some((p) => p.remove?.() === true),
+    // What of each is solid: its moving things (bodies to bump into), and what stands still.
+    *bodies() {
+      for (const p of parts) if (p.bodies) yield* p.bodies();
+    },
+    solids: () => parts.flatMap((p) => [...(p.solids?.() ?? [])]),
   };
 }

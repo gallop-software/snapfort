@@ -125,7 +125,8 @@ async function rocket(page, label, tx, tz) {
   const poles = await scaffold(page, tx, tz);
   for (let n = 2; n <= 21; n++) { await stand(page, ...perch(tx, tz, n).at); await wait(240); await say(page, { k: "pad-part", id: 1, n }); await wait(80); }
   await wait(500);
-  await stand(page, cx, 0.95, cz - 30);
+  // (Down first, and long enough for the world to hear it: taken away under where it last knew them, they would fall from up there.)
+  await stand(page, cx, 0.95, cz - 30); await wait(600);
   await takeAway(page, poles);
   const pad = await sf(page, () => [...window.snapfort.feature.starship.pads.values()][0]?.pad.parts.length);
   check(`${label}: (a whole launch site is built)`, pad === 21, `${pad}`);

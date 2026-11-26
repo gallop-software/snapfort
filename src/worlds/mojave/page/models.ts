@@ -583,10 +583,16 @@ function titanbay(p: Parts): void {
   p.box(AMBER, 0.7, 0.6, 0.7, 1.5, 6.3, 2.2);
 }
 
+// The two gun turrets are in two parts: what stands still, and the head that turns to face what it fires on
+// (drawn by the caller, turned about the building's own upright axis). The muzzles are where shots are drawn from.
+
 function sentry(p: Parts): void {
   p.frustum(GRAPHITE, 4.2, 4.2, 3.4, 3.4, 0.5, 0, 0, 0);
   p.cyl(STEEL, 2.2, 1.6, 1.5, 0, 0.5, 0, 8);
   p.cyl(TRIM, 2.0, 2.0, 0.25, 0, 2.0, 0, 8);
+}
+
+function sentryHead(p: Parts): void {
   p.prism(WHITE, [[-1.2, 2.25], [1.0, 2.25], [1.4, 2.7], [0.9, 3.4], [-1.1, 3.4]], 1.7);
   p.box(TRIM, 1.5, 0.06, 1.7, 0, 3.42, -0.15);
   for (const s of SIDES) {
@@ -602,6 +608,9 @@ function flak(p: Parts): void {
   p.frustum(GRAPHITE, 4.2, 4.2, 3.4, 3.4, 0.5, 0, 0, 0);
   p.cyl(STEEL, 2.6, 2.2, 0.9, 0, 0.5, 0, 8);
   p.cyl(TRIM, 2.2, 2.2, 0.3, 0, 1.4, 0, 8);
+}
+
+function flakHead(p: Parts): void {
   for (const s of SIDES) {
     p.box(WHITE, 0.25, 1.3, 1.3, s * 0.85, 2.3, 0);
     p.box(TRIM, 0.06, 0.9, 0.9, s * 0.99, 2.3, 0);
@@ -615,6 +624,19 @@ function flak(p: Parts): void {
       p.rod(GRAPHITE, [sx * 0.3, y, z], [sx * 0.3, y + 1.41, z + 1.41], 0.2);
     }
   }
+}
+
+/** Where a turret's shots leave it, in its head's own frame (to the right, up, ahead): one muzzle; the other is its mirror image. */
+export const MUZZLES: Readonly<Partial<Record<BuildingKind, V3>>> = { sentry: [0.45, 2.75, 2.4], flak: [0.3, 3.9, 1.5] };
+const HEAD_MODELS: Readonly<Partial<Record<BuildingKind, (p: Parts) => void>>> = { sentry: sentryHead, flak: flakHead };
+
+/** The part of a turret that turns to face what it fires on (origin on the building's upright axis, guns toward +z), or null for a building that has none. */
+export function headModel(kind: BuildingKind, scene: Scene): Model | null {
+  const make = HEAD_MODELS[kind];
+  if (!make) return null;
+  const p = parts(scene);
+  make(p);
+  return p.done(`mojave-${kind}-head`);
 }
 
 function laser(p: Parts): void {

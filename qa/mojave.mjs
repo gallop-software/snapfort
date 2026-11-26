@@ -285,6 +285,26 @@ check("tank shells throw units through the air; thrown Troopers fly flailing, an
 check("Troopers bring their rifles up to fire, and flinch when a bullet finds them", fought.aim > 0 && fought.flinch > 0, JSON.stringify(fought));
 await a.screenshot({ path: "qa/shots/mojave-fight.png" });
 
+// ── A turret turns to what it fires on ───────────────────────────────────
+const post = await sf(a, () => { const s = window.snapfort; const p = s.player.position; const x = Math.round(p.x / 5) + 3, z = Math.round(p.z / 5) + 3; s.net.sendWorld({ m: "build", kind: "sentry", x, z }); return [x * 5 + 2.5, z * 5 + 2.5]; });
+const sentryId = await until(a, () => [...window.snapfort.feature.army.buildings.values()].find((b) => b.kind === "sentry")?.i ?? null);
+await dev(a, { do: "speed", n: 12 });
+await until(a, (id) => window.snapfort.feature.army.buildings.get(id)?.d === 0, sentryId, 15000);
+await dev(a, { do: "speed", n: 1 });
+const turned = [];
+for (const [dx, dz] of [[24, 0], [-17, 17]]) {
+  await dev(a, { do: "spawn", kind: "tank", n: 1, slot: 8, at: [post[0] + dx, 0, post[1] + dz] });
+  const want = Math.atan2(dx, dz);
+  turned.push(await until(a, ([id, want, x, z]) => { const s = window.snapfort, b = s.feature.army.buildings.get(id); const off = (p, q) => Math.abs(Math.atan2(Math.sin(p - q), Math.cos(p - q))); const tracer = s.scene.getMeshByName("mojave-tracer"); return b && off(b.aim, want) < 0.25 && off(b.yaw, b.aim) < 0.08 && s.scene.getMeshByName("mojave-sentry-head-body").thinInstanceCount >= 1 ? { aim: b.aim, yaw: b.yaw, tracers: tracer.thinInstanceCount } : null; }, [sentryId, want, post[0], post[1]], 9000));
+  if (dx > 0) await a.screenshot({ path: "qa/shots/mojave-turret.png" });
+  await dev(a, { do: "kill", slot: 8 });
+  await wait(1200);
+}
+check("a turret's head turns to face what it fires on, one way and then another", turned.every((t) => !!t), JSON.stringify(turned));
+const muzzle = await sf(a, ([id, x, z]) => new Promise((res) => { const s = window.snapfort, f = s.feature; const shots = f.army.shots.bind(f.army); let found = null; f.army.shots = (list, now) => { shots(list, now); const t = f.army.tracers[f.army.tracers.length - 1]; if (t && Math.hypot(t.fx - x, t.fz - z) < 4) found = { fromCentre: Math.hypot(t.fx - x, t.fz - z), up: t.fy }; }; s.net.sendWorld({ m: "dev", do: "spawn", kind: "tank", n: 1, slot: 8, at: [x + 20, 0, z + 12] }); setTimeout(() => { f.army.shots = shots; res(found); }, 4000); }), [sentryId, post[0], post[1]]);
+check("its shots are drawn from the ends of its barrels, not from its middle", !!muzzle && muzzle.fromCentre > 2 && muzzle.fromCentre < 3 && Math.abs(muzzle.up - 2.75) < 0.1, JSON.stringify(muzzle));
+await dev(a, { do: "kill", slot: 8 });
+
 // ── A second general, far away: neither sees the other ───────────────────
 const b = await open("B", keyB);
 await until(b, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4);

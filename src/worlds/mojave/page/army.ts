@@ -17,7 +17,7 @@ import type { PageGame } from "../../pageDoors";
 import { BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
 import { F_DOWN, F_FIRING, F_HIT, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
 import { Many, place, rgbOf, turn } from "./many";
-import { buildingModel, crystalModel, unitModel, ventModel } from "./models";
+import { buildingModel, crystalModel, headModel, MUZZLES, unitModel, ventModel } from "./models";
 import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, runFrame, TROOPER_MIDDLE, Troopers } from "./troopers";
 
 /**
@@ -78,6 +78,11 @@ export interface SeenBuilding extends WireBuilding {
   stale: boolean;
   /** Since when it has been out of sight (ms), or 0 while in sight: how old the report of it is. */
   staleAt: number;
+  /** A turret: which way its head is turned now, and which way it is turning to (what it last fired on), radians about the vertical. */
+  yaw: number;
+  aim: number;
+  /** Which of its two muzzles fires next (they take turns). */
+  side: number;
   body: PhysicsBody | null;
   node: TransformNode | null;
 }
@@ -120,6 +125,10 @@ export class ArmyView {
   private readonly unitTrim = new Map<UnitKind, Many>();
   private readonly buildingBody = new Map<BuildingKind, Many>();
   private readonly buildingTrim = new Map<BuildingKind, Many>();
+  /** The turning heads of turrets (see models.ts): body and trim, as the buildings themselves. */
+  private readonly headBody = new Map<BuildingKind, Many>();
+  private readonly headTrim = new Map<BuildingKind, Many>();
+  private lastDraw = 0;
   private readonly crystals: Many;
   private readonly vents: Many;
   private readonly rings: Many;
@@ -178,6 +187,11 @@ export class ArmyView {
       const model = buildingModel(kind, scene);
       this.buildingBody.set(kind, prepare(model.body, false, matt, true));
       this.buildingTrim.set(kind, prepare(model.trim, true, matt, false));
+      const head = headModel(kind, scene);
+      if (head) {
+        this.headBody.set(kind, prepare(head.body, false, matt, true));
+        this.headTrim.set(kind, prepare(head.trim, true, matt, false));
+      }
     }
     const crystalMat = new StandardMaterial("mojave-crystal", scene);
     crystalMat.emissiveColor = new Color3(0.18, 0.32, 0.34);
@@ -259,7 +273,9 @@ export class ArmyView {
       const kind = BUILDING_KINDS[b.k];
       if (!kind) continue;
       const old = this.buildings.get(b.i);
-      const seen: SeenBuilding = { ...b, kind, at: now, stale: false, staleAt: 0, body: old?.body ?? null, node: old?.node ?? null };
+      // (A turret new to this page faces the middle of the map, where trouble comes from.)
+      const out = Math.atan2(-b.x, -b.z);
+      const seen: SeenBuilding = { ...b, kind, at: now, stale: false, staleAt: 0, yaw: old?.yaw ?? out, aim: old?.aim ?? out, side: old?.side ?? 1, body: old?.body ?? null, node: old?.node ?? null };
       this.buildings.set(b.i, seen);
       if (!seen.body) this.makeSolid(seen);
     }
@@ -305,8 +321,23 @@ export class ArmyView {
   /** Shots (see ToPage "tick"): ten numbers each. */
   shots(s: readonly number[], now: number): void {
     for (let i = 0; i + 10 <= s.length; i += 10) {
-      const fx = s[i]! / 10, fy = s[i + 1]! / 10, fz = s[i + 2]! / 10, tx = s[i + 3]! / 10, ty = s[i + 4]! / 10, tz = s[i + 5]! / 10;
+      let fx = s[i]! / 10, fy = s[i + 1]! / 10, fz = s[i + 2]! / 10;
+      const tx = s[i + 3]! / 10, ty = s[i + 4]! / 10, tz = s[i + 5]! / 10;
       const look = s[i + 6]!, time = s[i + 7]! / 10, owner = s[i + 8]!, hit = s[i + 9]!;
+      // A turret's shot: its head turns to face what it fired on, and the shot is drawn from a muzzle (they take turns), not from its middle.
+      const turret = this.turretAt(fx, fz, owner);
+      if (turret) {
+        const muzzle = MUZZLES[turret.kind]!;
+        const size = BUILDINGS[turret.kind].size * CELL;
+        const cx = turret.x * CELL + size / 2, cz = turret.z * CELL + size / 2;
+        turret.aim = Math.atan2(tx - cx, tz - cz);
+        turret.side = -turret.side;
+        const sin = Math.sin(turret.aim), cos = Math.cos(turret.aim);
+        const right = muzzle[0] * turret.side;
+        fx = cx + right * cos + muzzle[2] * sin;
+        fy = muzzle[1];
+        fz = cz - right * sin + muzzle[2] * cos;
+      }
       const c = rgbOf(this.colorOf(owner));
       // Bright, in the general's colour.
       const bright: [number, number, number] = [0.45 + c[0] * 0.55, 0.45 + c[1] * 0.55, 0.45 + c[2] * 0.55];
@@ -317,6 +348,16 @@ export class ArmyView {
       const target = hit > 0 ? this.units.get(hit) : undefined;
       if (target) target.hitAt = now;
     }
+  }
+
+  /** The turret of this owner's standing where a shot came from, if a turret fired it. */
+  private turretAt(x: number, z: number, owner: number): SeenBuilding | null {
+    for (const b of this.buildings.values()) {
+      if (b.o !== owner || !MUZZLES[b.kind]) continue;
+      const half = (BUILDINGS[b.kind].size * CELL) / 2;
+      if (Math.abs(x - (b.x * CELL + half)) < half + 0.5 && Math.abs(z - (b.z * CELL + half)) < half + 0.5) return b;
+    }
+    return null;
   }
 
   /** Units thrown: eight numbers each. */
@@ -371,7 +412,9 @@ export class ArmyView {
 
   update(now: number): void {
     const time = now / 1000;
-    for (const m of [...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
+    const dt = Math.min(0.1, Math.max(0, (now - this.lastDraw) / 1000));
+    this.lastDraw = now;
+    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
     this.troopers.begin();
     for (const u of this.units.values()) this.drawUnit(u, now, time, Math.min(1, 0.15 + (0.85 * (now - u.seenAt)) / APPEAR_MS));
@@ -400,6 +443,16 @@ export class ArmyView {
       const c = rgbOf(this.colorOf(b.o));
       const dim = b.stale ? 0.45 : b.st > 0 ? 0.5 : 1;
       trim.colors!.set([c[0] * dim, c[1] * dim, c[2] * dim, 1], j * 4);
+      // A turret's head, turning quickly (a tenth of a second or so) to face what it last fired on.
+      const head = this.headBody.get(b.kind);
+      if (head) {
+        b.yaw = turn(b.yaw, b.aim, Math.min(1, dt * 18));
+        const h = head.add(), headTrim = this.headTrim.get(b.kind)!;
+        place(head.matrices, h, x, 0, z, b.yaw, 0, 0, 1, grown, 1);
+        const t = headTrim.add();
+        headTrim.matrices.set(head.matrices.subarray(h * 16, h * 16 + 16), t * 16);
+        headTrim.colors!.set([c[0] * dim, c[1] * dim, c[2] * dim, 1], t * 4);
+      }
       if (this.selectedBuildings.has(b.i)) this.ring(x, 0.15, z, size * 0.72, b.h);
     }
 
@@ -413,7 +466,7 @@ export class ArmyView {
 
     this.effects(now);
     this.drawGhost();
-    for (const m of [...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
+    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
   }
 
   /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
@@ -510,9 +563,10 @@ export class ArmyView {
     if (!want) return;
     let mesh = this.ghosts.get(want.kind);
     if (!mesh) {
-      const model = buildingModel(want.kind, this.scene);
-      for (const part of [model.body, model.trim]) if (part.isVerticesDataPresent(VertexBuffer.ColorKind)) part.removeVerticesData(VertexBuffer.ColorKind);
-      mesh = Mesh.MergeMeshes([model.body, model.trim], true, true)!;
+      const model = buildingModel(want.kind, this.scene), head = headModel(want.kind, this.scene);
+      const all = [model.body, model.trim, ...(head ? [head.body, head.trim] : [])];
+      for (const part of all) if (part.isVerticesDataPresent(VertexBuffer.ColorKind)) part.removeVerticesData(VertexBuffer.ColorKind);
+      mesh = Mesh.MergeMeshes(all, true, true)!;
       mesh.name = `mojave-ghost-${want.kind}`;
       mesh.isPickable = false;
       this.ghosts.set(want.kind, mesh);

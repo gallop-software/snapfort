@@ -52,8 +52,10 @@ console.log(`lithium on the live server: ${ba.lithium} → ${later.lithium} (a p
 // A general arrives looking at their Core: one click selects it.
 await a.mouse.down(); await a.mouse.up();
 await wait(800);
-const selected = /Command Core/.test(await over(a));
-say(selected, `a click on the Core selects it: said over the row, and the row shows what it makes (${await tiles(a)})`);
+// (The place taken over may be built up: what stands before the general may be another building of theirs, not the Core.)
+const said = await over(a);
+say(/Deselect/.test(await tiles(a)) && said.length > 3, `a click selects the building before them: said over the row ("${said.slice(0, 50)}"), and the row shows what it does (${await tiles(a)})`);
+const selected = /H:Hauler/.test(await tiles(a));
 if (selected) {
   const now = await bank(a);
   if (now.lithium >= 50 && now.used < now.max) {

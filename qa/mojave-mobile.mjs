@@ -19,6 +19,8 @@ const check = (name, ok, detail = "") => { results.push({ name, ok }); console.l
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = await paidKey(base, "/mojave");
 
+/** What did not fit while each page was choosing its army. */
+const choosing = [];
 async function open(device, n) {
   const ctx = await browser.newContext({ ...device });
   await ctx.addInitScript((k) => { localStorage.setItem("snapfort.key", k); localStorage.setItem("snapfort.tips", "done"); }, key);
@@ -28,10 +30,15 @@ async function open(device, n) {
   await p.goto(`${base}/mojave?world=${world}${n}`);
   await p.waitForSelector("body.ready", { timeout: 30000 });
   await p.tap("#play-free");
+  // Arriving: the eight armies to choose from, as tiles along the top. A tap on one serves it.
+  await p.waitForFunction(() => window.snapfort.feature.why === "choose" && document.querySelectorAll('#hotbar .slot[data-id^="serve:"]').length === 8, null, { timeout: 15000 });
+  await wait(300);
+  choosing.push(await layoutProblems(p));
+  await p.tap('#hotbar .slot[data-id="serve:0"]');
   await p.waitForFunction(() => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4, null, { timeout: 15000 });
-  // (For the checks: the computers do nothing new, and this place is as a war begins it.)
+  // (For the checks: this army as a war begins it.)
   const old = await p.evaluate(() => [...window.snapfort.feature.army.buildings.keys()]);
-  await p.evaluate(() => { window.snapfort.net.sendWorld({ m: "dev", do: "quiet" }); window.snapfort.net.sendWorld({ m: "dev", do: "fresh" }); });
+  await p.evaluate(() => window.snapfort.net.sendWorld({ m: "dev", do: "fresh" }));
   await p.waitForFunction((old) => { const f = window.snapfort.feature; const mine = [...f.army.buildings.values()].filter((b) => b.o === f.slot); return mine.length === 1 && !old.includes(mine[0].i) && [...f.army.units.values()].filter((u) => u.owner === f.slot).length === 4; }, old, { timeout: 15000 });
   await wait(600);
   return { p, ctx };
@@ -74,6 +81,7 @@ for (const name of screens) {
   const { p, ctx } = await open(device, n++);
   check(`${name}: it is a phone or tablet to the game, playing`, await p.evaluate(() => document.body.classList.contains("touch") && document.body.classList.contains("playing")));
   const states = [];
+  states.push(["choosing an army", choosing[choosing.length - 1]]);
   states.push(["nothing selected", await layoutProblems(p)]);
   check(`${name}: there is no material button (one material), and the bank is on screen`, await p.evaluate(() => getComputedStyle(document.getElementById("t-material")).display === "none" && /Lithium/.test(document.getElementById("mj-bank").textContent) && document.getElementById("mj-bank").getBoundingClientRect().width > 50));
   await p.evaluate(() => window.snapfort.feature.run("menu:0"));

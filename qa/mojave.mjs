@@ -1,13 +1,14 @@
 /**
- * Mojave: there are always eight generals. A person takes a computer's place
- * over as it stands, mines, builds (with the building shown before it is
- * placed), makes units, selects and orders them with the keys and the mouse
- * (what the keys mean is on the row, in the same boxes as the pieces), and
- * fights. The land is never dark, but an enemy shows only while in sight, and
- * the map keeps a report of what was last seen. Pieces cost lithium, of one
- * material, and stay with their place; nobody watches; a computer takes over
- * from whoever leaves; the same tab back has its place again. Needs the
- * Gallop dev server with Stripe test keys in .dev.vars. Run: npm run qa:mojave
+ * Mojave: eight armies, one of each colour, and no computer plays any. A
+ * general chooses the army they serve from tiles on the row, commands all of
+ * it with whoever else serves it, and may change sides at any moment. They
+ * mine, build (the building shown before it is placed, standing at once),
+ * make units (the queue shown as pictures, with a bar on the one being
+ * made), select and order them with the keys and the mouse, and fight. The
+ * land is never dark, but an enemy shows only while in sight, and the map
+ * keeps what was last seen. Pieces cost lithium, of one material, and stay
+ * with the army they were built for; nobody watches. Needs the Gallop dev
+ * server with Stripe test keys in .dev.vars. Run: npm run qa:mojave
  */
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
@@ -66,18 +67,25 @@ const keysOf = (tiles) => Object.fromEntries(tiles.map((t) => [t.label, t.key]))
 const [keyA, keyB] = [await paidKey(base, "/mojave"), await paidKey(base, "/mojave")];
 check("(two Full Game keys, for two generals)", /^SNAP-/.test(keyA ?? "") && /^SNAP-/.test(keyB ?? ""));
 
-// ── A general arrives: in a computer's place, as it stands ───────────────
+// ── A general arrives, and chooses an army ───────────────────────────────
 const a = await open("A", keyA);
+await until(a, () => window.snapfort.feature.why === "choose" && window.snapfort.feature.generals.length === 8);
+await rowHas(a, ["Red", "Blue", "Pink"]);
+let tiles = await row(a);
+check("arriving, the row offers the eight armies to serve, each with its number; nothing of the war is known yet", tiles.length === 8 && tiles.map((t) => t.key).join("") === "12345678" && tiles.every((t) => t.sub === "nobody") && await sf(a, () => window.snapfort.feature.slot === -1 && window.snapfort.feature.army.units.size === 0), tiles.map((t) => `${t.key}:${t.label} (${t.sub})`).join(" "));
+check("each tile is in its army's colour", await sf(a, () => { const fills = [...document.querySelectorAll("#hotbar .slot svg path[style]")].map((p) => p.style.fill); return fills.length === 8 && new Set(fills).size === 8; }));
+await a.screenshot({ path: "qa/shots/mojave-choose.png" });
+await a.keyboard.press("1");
 await until(a, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4);
 let wa = await war(a);
-check("a general has a place at once: a computer's, with its Core and Haulers", wa.slot >= 0 && wa.buildings.some((b) => b.kind === "core" && b.owner === wa.slot) && wa.units.filter((u) => u.kind === "hauler" && u.owner === wa.slot).length >= 4, `slot ${wa.slot}, ${wa.buildings.length} buildings, ${wa.units.length} units`);
-check("there are eight generals, and this is the only person", (await until(a, () => window.snapfort.feature.generals.length === 8)) && (await war(a)).gens.filter((g) => !g.ai).length === 1, JSON.stringify((await war(a)).gens.map((g) => g.ai)));
-check("they are told whose all this is: the army's colour, by name", await sf(a, () => /You command the (red|blue|yellow|green|purple|orange|teal|pink) army/.test(document.getElementById("mj-notes").textContent)), await sf(a, () => document.getElementById("mj-notes").textContent.slice(0, 90)));
-const mine = await until(a, () => { const s = window.snapfort, f = s.feature; const g = f.generals.find((x) => x.slot === f.slot); const sw = document.querySelector("#material .sw"); if (!g || !sw) return null; const jacket = s.player.avatar.jacket.diffuseColor.toHexString().toLowerCase(); const css = getComputedStyle(sw).backgroundColor.match(/\d+/g).map((n) => Number(n).toString(16).padStart(2, "0")).join(""); return jacket === g.color.toLowerCase() ? { army: g.color, jacket, swatch: `#${css}`, own: s.feature && JSON.parse(localStorage.getItem("snapfort.identity") ?? "{}").color } : null; });
-check("the general wears their army's colour while they command it, and it is shown beside the bank", !!mine && mine.swatch === mine.army.toLowerCase(), JSON.stringify(mine));
+check("pressing its number, they serve that army at once, and command it as it stands: its Core and Haulers", wa.slot === 0 && wa.buildings.some((b) => b.kind === "core" && b.owner === 0) && wa.units.filter((u) => u.kind === "hauler" && u.owner === 0).length >= 4 && Math.hypot(wa.pos[0], wa.pos[2]) > 300, `slot ${wa.slot}, ${wa.buildings.length} buildings, ${wa.units.length} units, at ${wa.pos.map(Math.round)}`);
+check("there are eight armies, and this general is the only one serving any", (await until(a, () => { const g = window.snapfort.feature.generals; return g.length === 8 && g.reduce((n, x) => n + x.pids.length, 0) === 1 && g[0].pids.length === 1; })) === true);
+check("they are told whose all this is: the army's colour, by name", await sf(a, () => /You serve the red army/.test(document.getElementById("mj-notes").textContent)), await sf(a, () => document.getElementById("mj-notes").textContent.slice(0, 90)));
+check("messages wrap: none is wider than is easy to read", await sf(a, () => [...document.querySelectorAll("#mj-notes div")].every((d) => d.getBoundingClientRect().width <= 341) && parseFloat(getComputedStyle(document.querySelector("#mj-notes div")).maxWidth) === 340));
+const mine = await until(a, () => { const s = window.snapfort, f = s.feature; const g = f.generals.find((x) => x.slot === f.slot); const sw = document.querySelector("#material .sw"); if (!g || !sw) return null; const jacket = s.player.avatar.jacket.diffuseColor.toHexString().toLowerCase(); const css = getComputedStyle(sw).backgroundColor.match(/\d+/g).map((n) => Number(n).toString(16).padStart(2, "0")).join(""); return jacket === g.color.toLowerCase() ? { army: g.color, jacket, swatch: `#${css}` } : null; });
+check("the general wears their army's colour while they serve it, and it is shown beside the bank", !!mine && mine.swatch === mine.army.toLowerCase(), JSON.stringify(mine));
 check("they arrive facing their Core: the crosshair is on it", await sf(a, () => { const p = window.snapfort.feature.pick(); return p?.k === "building" && p.b.kind === "core"; }));
-// (For the checks: the computers do nothing new, and this place is as a war begins it.)
-await dev(a, { do: "quiet" });
+// (For the checks: this army as a war begins it.)
 /** Begins a page's place afresh, and waits until the page has the new base (a new Core, four Haulers). */
 const fresh = async (page) => {
   const old = await sf(page, () => [...window.snapfort.feature.army.buildings.keys()]);
@@ -90,7 +98,7 @@ const core = wa.buildings[0];
 const [coreX, coreZ] = centreOf(core, 3);
 check("they stand by their Core, at one of the eight starts", Math.hypot(wa.pos[0] - coreX, wa.pos[2] - coreZ) < 40 && Math.hypot(coreX, coreZ) > 300, wa.pos.map(Math.round).join(","));
 check("nothing is picked to build with at first (pieces cost lithium here)", await sf(a, () => !document.querySelector("#hotbar .selected")));
-let tiles = await row(a);
+tiles = await row(a);
 check("the row: the four pieces, Remove, and Command where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Floor,Ramp,Canopy,Remove,Command" && keysOf(tiles).Command === "B", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 check("the bank is beside the row, where the material is elsewhere; there is no material to choose", await sf(a, () => { const m = document.getElementById("material"); const r = m.getBoundingClientRect(), h = document.getElementById("hotbar").getBoundingClientRect(); return /Lithium/.test(m.textContent) && /Supply/.test(m.textContent) && !m.querySelector(".swatch") && r.left >= h.right && r.width > 0 && Math.abs(r.bottom - h.bottom) < 30; }));
 check("there is no command card, and the map is on screen", await sf(a, () => !document.getElementById("mj-card") && document.getElementById("mj-map").getBoundingClientRect().width > 100));
@@ -99,6 +107,8 @@ await until(a, (l) => window.snapfort.feature.bank.l > l, before, 25000);
 wa = await war(a);
 check("the Haulers mine by themselves: lithium comes in", wa.l > before, `${before} → ${wa.l}`);
 check("a Hauler is drawn carrying or digging", wa.units.some((u) => u.flags & 96));
+check("a Hauler bringing a load back shows it: crystals in its bed", await until(a, () => { const f = window.snapfort.feature; const loaded = [...f.army.units.values()].filter((u) => u.kind === "hauler" && (u.flags & 32)).length; const drawn = window.snapfort.scene.getMeshByName("mojave-load").thinInstanceCount; return loaded > 0 && drawn === loaded ? true : null; }, null, 20000) === true);
+await a.screenshot({ path: "qa/shots/mojave-load-bed.png" });
 await a.screenshot({ path: "qa/shots/mojave-base.png" });
 
 // ── No dark ──────────────────────────────────────────────────────────────
@@ -117,7 +127,7 @@ check("the row shows what it makes, with its key and its price, in the same boxe
 check("what is selected is said over the row", await sf(a, () => /Command Core/.test(document.getElementById("world-panel").textContent)));
 await until(a, () => window.snapfort.feature.bank.l >= 50, null, 20000);
 await a.keyboard.press("h");
-wa = await until(a, (id) => { const f = window.snapfort.feature; return f.army.buildings.get(id).q.length === 1 && /making Hauler/.test(document.getElementById("world-panel").textContent) ? true : null; }, core.id);
+wa = await until(a, (id) => { const f = window.snapfort.feature; return f.army.buildings.get(id).q.length === 1 && document.querySelectorAll("#world-panel .mjq .q i").length === 1 && /Hauler · \d+ s/.test(document.getElementById("world-panel").textContent) ? true : null; }, core.id);
 check("H orders a Hauler: it is in the Core's queue, and the row says so", wa === true);
 await clear(a);
 check("letting go of the selection, the pieces are back on the row", (await war(a)).selB.length === 0 && (await rowHas(a, ["Wall", "Command"])) === true);
@@ -130,7 +140,7 @@ const site = [coreX + inX * 32, coreZ + inZ * 32];
 await a.keyboard.press("b");
 await rowHas(a, ["Whole army"]);
 tiles = await row(a);
-check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Whole army,Idle Hauler,Map,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Whole army,Idle Hauler,Map,Change army,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("n");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);
@@ -161,26 +171,26 @@ await aim(a, [site[0], 0, site[1]]);
 await click(a);
 const foundry = await until(a, () => [...window.snapfort.feature.army.buildings.values()].find((b) => b.kind === "foundry")?.i ?? null);
 wa = await war(a);
-check("a click puts it down, printing; the preview goes", !!foundry && wa.buildings.find((b) => b.id === foundry).printing && wa.mode === null && await sf(a, () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(!window.snapfort.scene.getMeshByName("mojave-ghost-foundry").isEnabled()))))));
+check("a click puts it down, and it stands there finished at once; the preview goes", !!foundry && !wa.buildings.find((b) => b.id === foundry).printing && wa.mode === null && await sf(a, () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(!window.snapfort.scene.getMeshByName("mojave-ghost-foundry").isEnabled()))))));
 check("a building is solid: the crosshair lands on it", await sf(a, () => { const p = window.snapfort.feature.pick(); return p?.k === "building" && p.b.kind === "foundry"; }));
 await a.keyboard.press("n");
 await a.keyboard.press("v");
 await rowHas(a, ["Armory", "Basic"]);
-await a.keyboard.press("m");
-await frames(a, 4);
-check("V turns to the advanced buildings; the Armory needs a finished Foundry: it cannot be placed yet", await sf(a, () => /Needs Foundry/.test(document.getElementById("world-panel").textContent)));
+tiles = await row(a);
+check("V turns to the advanced buildings; with the Foundry standing, the Armory can be built straight away", !tiles.find((t) => t.label === "Armory").off && tiles.find((t) => t.label === "Titan bay").off, tiles.map((t) => `${t.label}${t.off ? " (off)" : ""}`).join(", "));
 await clear(a);
-// (A check may run the clock fast.)
-await dev(a, { do: "speed", n: 12 });
-await until(a, (id) => window.snapfort.feature.army.buildings.get(id)?.d === 0, foundry, 15000);
-await dev(a, { do: "speed", n: 1 });
-check("it finishes printing", (await war(a)).buildings.find((b) => b.id === foundry).printing === false);
 await aim(a, [site[0] + inX * 5, 3, site[1] + inZ * 5]);
 await click(a);
 await rowHas(a, ["Trooper"]);
 await a.keyboard.press("t");
 await a.keyboard.down("Shift"); await a.keyboard.press("t"); await a.keyboard.up("Shift");
 wa = await until(a, (id) => (window.snapfort.feature.army.buildings.get(id)?.q.length ?? 0) >= 2 ? true : null, foundry);
+// What it is making is shown as pictures over the row, the first with a bar that fills.
+const queue1 = await until(a, () => { const q = [...document.querySelectorAll("#world-panel .mjq .q i")]; const bar = document.querySelector("#world-panel .mjq .q i.now u"); return q.length >= 2 && bar && q.every((i) => i.querySelector("svg path")) ? { n: q.length, width: parseFloat(bar.style.width), words: document.querySelector("#world-panel .mjq small").textContent } : null; });
+await wait(2500);
+const queue2 = await sf(a, () => parseFloat(document.querySelector("#world-panel .mjq .q i.now u")?.style.width ?? "0"));
+check("the queue is shown as pictures over the row, one for each unit, with a bar on the first that fills as it is made", !!queue1 && queue1.n === (await sf(a, (id) => window.snapfort.feature.army.buildings.get(id).q.length, foundry)) && queue2 > queue1.width + 5 && /Trooper · \d+ s/.test(queue1.words), `${JSON.stringify(queue1)} then ${queue2}%`);
+await a.screenshot({ path: "qa/shots/mojave-queue.png" });
 check("T at the Foundry orders a Trooper; Shift orders several", wa === true, `queue ${(await war(a)).buildings.find((b) => b.id === foundry).q}`);
 await clear(a);
 
@@ -322,9 +332,7 @@ await a.screenshot({ path: "qa/shots/mojave-fight.png" });
 // ── A turret turns to what it fires on ───────────────────────────────────
 const post = await sf(a, () => { const s = window.snapfort; const p = s.player.position; const x = Math.round(p.x / 5) + 3, z = Math.round(p.z / 5) + 3; s.net.sendWorld({ m: "build", kind: "sentry", x, z }); return [x * 5 + 2.5, z * 5 + 2.5]; });
 const sentryId = await until(a, () => [...window.snapfort.feature.army.buildings.values()].find((b) => b.kind === "sentry")?.i ?? null);
-await dev(a, { do: "speed", n: 12 });
-await until(a, (id) => window.snapfort.feature.army.buildings.get(id)?.d === 0, sentryId, 15000);
-await dev(a, { do: "speed", n: 1 });
+await until(a, (id) => window.snapfort.feature.army.buildings.get(id)?.d === 0, sentryId, 5000);
 const turned = [];
 for (const [dx, dz] of [[24, 0], [-17, 17]]) {
   await dev(a, { do: "spawn", kind: "tank", n: 1, slot: 8, at: [post[0] + dx, 0, post[1] + dz] });
@@ -341,13 +349,17 @@ await dev(a, { do: "kill", slot: 8 });
 
 // ── A second general, far away: neither sees the other ───────────────────
 const b = await open("B", keyB);
+await until(b, () => window.snapfort.feature.why === "choose" && window.snapfort.feature.generals.length === 8);
+await rowHas(b, ["Red", "Blue"]);
+check("a second person is shown who serves which army already", (await row(b)).find((t) => t.label === "Red").sub === "1 general" && (await row(b)).find((t) => t.label === "Blue").sub === "nobody");
+await b.keyboard.press("2");
 await until(b, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4);
 await fresh(b);
 let wb = await war(b);
 wa = await war(a);
-check("a second person has a place of their own: the next computer's, in turn", wb.slot >= 0 && wb.slot !== wa.slot && Math.hypot(wb.pos[0] - coreX, wb.pos[2] - coreZ) > 250, `A ${wa.slot}, B ${wb.slot}`);
-check("both pages list eight generals, two of them people", (await until(a, () => { const g = window.snapfort.feature.generals; return g.length === 8 && g.filter((x) => !x.ai).length === 2; })) && (await until(b, () => { const g = window.snapfort.feature.generals; return g.length === 8 && g.filter((x) => !x.ai).length === 2; })));
-check("each sees the other general in that general's army colour, not their own jacket's", await until(a, (slot) => { const s = window.snapfort; const g = s.feature.generals.find((x) => x.slot === slot); return g?.pid && s.remotes.worn.get(g.pid) === g.color ? true : null; }, wb.slot) === true && await until(b, (slot) => { const s = window.snapfort; const g = s.feature.generals.find((x) => x.slot === slot); return g?.pid && s.remotes.worn.get(g.pid) === g.color ? true : null; }, wa.slot) === true);
+check("they chose blue: an army of their own, a long way off", wb.slot === 1 && Math.hypot(wb.pos[0] - coreX, wb.pos[2] - coreZ) > 250, `A ${wa.slot}, B ${wb.slot}`);
+check("both pages list the eight armies, with one general in red and one in blue", (await until(a, () => { const g = window.snapfort.feature.generals; return g.length === 8 && g[0].pids.length === 1 && g[1].pids.length === 1 && g.slice(2).every((x) => x.pids.length === 0); })) && (await until(b, () => { const g = window.snapfort.feature.generals; return g[0].pids.length === 1 && g[1].pids.length === 1; })));
+check("each sees the other general in that general's army colour, not their own jacket's", await until(a, () => { const s = window.snapfort; const g = s.feature.generals[1]; return g.pids[0] && s.remotes.worn.get(g.pids[0]) === g.color ? true : null; }) === true && await until(b, () => { const s = window.snapfort; const g = s.feature.generals[0]; return g.pids[0] && s.remotes.worn.get(g.pids[0]) === g.color ? true : null; }) === true);
 check("neither has been sent anything of the other's", wb.units.every((u) => u.owner === wb.slot || u.owner === 8) && wb.buildings.every((x) => x.owner === wb.slot) && (await war(a)).units.every((u) => u.owner !== wb.slot));
 const coreB = wb.buildings[0];
 const [bx, bz] = centreOf(coreB, 3);
@@ -417,33 +429,55 @@ await wait(900);
 const wv = await sf(v, () => { const s = window.snapfort, f = s.feature; return { slot: f.slot, why: f.why, units: f.army.units.size, buildings: f.army.buildings.size, playing: document.body.classList.contains("playing"), unlock: !document.getElementById("view-unlock").hidden, note: document.getElementById("touch-note").textContent }; });
 check("someone without the Full Game is not let in: the button to play opens the offer, and no game starts", wv.slot === -1 && wv.why === "visitor" && !wv.playing && wv.unlock && /Full Game/.test(wv.note), JSON.stringify(wv));
 check("and they are sent nothing of the war", wv.units === 0 && wv.buildings === 0);
-check("the generals do not see them standing about", await sf(a, () => { const s = window.snapfort; const gens = new Set(s.feature.generals.map((g) => g.pid)); return s.remotes.list().filter((p) => !gens.has(p.id)).every((p) => s.remotes.concealed.has(p.id)); }));
+check("the generals do not see them standing about", await sf(a, () => { const s = window.snapfort; const gens = new Set(s.feature.generals.flatMap((g) => g.pids)); return s.remotes.list().filter((p) => !gens.has(p.id)).every((p) => s.remotes.concealed.has(p.id)); }));
 await v.close();
 
-// ── The same tab back has its place again ────────────────────────────────
+// ── The same tab back is in its army again ───────────────────────────────
 const unitsBefore = (await war(a)).units.filter((u) => u.owner === wa.slot).length;
 await a.reload();
 await a.waitForSelector("body.ready", { timeout: 30000 });
 await until(a, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4);
 const again = await war(a);
-check("a reload comes back to the same place, with everything as it was", again.slot === wa.slot && again.buildings.some((x) => x.kind === "foundry") && again.units.filter((u) => u.owner === wa.slot).length >= unitsBefore - 2, `${again.units.filter((u) => u.owner === wa.slot).length} of ${unitsBefore} units`);
-
-// ── A computer takes over from whoever leaves; nothing is taken away ─────
-await b.close();
+check("a reload comes back to the army it served, without being asked to choose again, with everything as it was", again.slot === wa.slot && again.buildings.some((x) => x.kind === "foundry") && again.units.filter((u) => u.owner === wa.slot).length >= unitsBefore - 2, `${again.units.filter((u) => u.owner === wa.slot).length} of ${unitsBefore} units`);
 await a.click("#play-free").catch(() => {});
-const handed = await until(a, (slot) => { const g = window.snapfort.feature.generals.find((x) => x.slot === slot); return g && g.ai && g.pid === "" ? g.name : null; }, wb.slot, 10000);
-check("a general who leaves: a computer has their place at once", !!handed, `now ${handed}`);
+await wait(1200);
+
+// ── Two generals, one army ───────────────────────────────────────────────
+const c2 = await open("C", await paidKey(base, "/mojave"));
+await until(c2, () => window.snapfort.feature.why === "choose");
+await c2.keyboard.press("1");
+await until(c2, () => window.snapfort.feature.slot === 0 && window.snapfort.feature.army.units.size >= 4);
+const shared = await until(c2, (n) => { const f = window.snapfort.feature; const mine = [...f.army.units.values()].filter((u) => u.owner === 0).length; return mine >= n - 2 && f.generals[0].pids.length === 2 ? { units: mine, bank: f.bank.l } : null; }, unitsBefore);
+check("a second general serving the same army commands all of it: the same units, the same bank", !!shared && Math.abs(shared.bank - (await war(a)).l) < 400, JSON.stringify(shared));
+const tankId = await sf(c2, () => [...window.snapfort.feature.army.units.values()].find((u) => u.owner === 0 && u.kind === "tank")?.id ?? 0);
+const tankAt = await sf(a, (id) => { const u = window.snapfort.feature.army.units.get(id); return u ? [u.x, u.z] : null; }, tankId);
+await sf(c2, ([id, x, z]) => window.snapfort.net.sendWorld({ m: "order", ids: [id], k: "move", at: [x + 30, 0, z] }), [tankId, tankAt[0], tankAt[1]]);
+check("what one orders, the other sees done", await until(a, ([id, x]) => { const u = window.snapfort.feature.army.units.get(id); return u && u.x > x + 12 ? true : null; }, [tankId, tankAt[0]], 10000) === true);
+check("they see each other, both in the army's colour", await until(a, () => { const s = window.snapfort, g = s.feature.generals[0]; const other = g.pids.find((id) => id !== s.myId); return other && s.remotes.worn.get(other) === g.color && !s.remotes.concealed.has(other) ? true : null; }) === true);
+
+// ── Changing sides ───────────────────────────────────────────────────────
+await c2.keyboard.press("b");
+await rowHas(c2, ["Change army"]);
+await c2.keyboard.press("j");
+await rowHas(c2, ["Red", "Green", "Back"]);
+tiles = await row(c2);
+check("Command, then Change army: the eight armies again, the one served marked, and who serves each", tiles.find((t) => t.label === "Red").on && tiles.find((t) => t.label === "Red").sub === "you + 1" && tiles.find((t) => t.label === "Blue").sub === "1 general" && tiles.find((t) => t.label === "Green").sub === "nobody", tiles.map((t) => `${t.key}:${t.label} (${t.sub})`).join(" "));
+const posBefore = (await war(c2)).pos;
+await c2.keyboard.press("4");
+const sided = await until(c2, () => { const f = window.snapfort.feature; const p = window.snapfort.player.position; return f.slot === 3 && [...f.army.units.values()].filter((u) => u.owner === 3).length >= 4 && ![...f.army.units.values()].some((u) => u.owner === 0) ? [p.x, p.z] : null; });
+check("pressing 4, they serve green from that moment: stood before its Core, commanding its units, sent nothing more of red", !!sided && Math.hypot(sided[0] - posBefore[0], sided[1] - posBefore[2]) > 200, JSON.stringify(sided));
+check("they wear green now, and are told so", await until(c2, () => { const s = window.snapfort; return s.player.avatar.jacket.diffuseColor.toHexString().toLowerCase() === s.feature.generals[3].color.toLowerCase() && /You serve the green army/.test(document.getElementById("mj-notes").textContent) ? true : null; }) === true);
+check("red stands as it was, with the general who stayed", await until(a, () => { const g = window.snapfort.feature.generals; return g[0].pids.length === 1 && g[3].pids.length === 1 ? true : null; }) === true && (await war(a)).units.filter((u) => u.owner === 0).length >= unitsBefore - 2);
+
+// ── Leaving takes nothing away, and nobody plays an army nobody serves ───
+await b.close();
+check("a general who leaves: their army has nobody, and stands", await until(a, () => window.snapfort.feature.generals[1].pids.length === 0 ? true : null, null, 10000) === true);
 await dev(a, { do: "speed", n: 15 });
-await wait(7000);
+await wait(6000);
 await dev(a, { do: "speed", n: 1 });
-check("long after, their wall still stands and there are still eight generals", await sf(a, (id) => !!window.snapfort.state.get(id) && window.snapfort.feature.generals.length === 8, placedId));
+check("long after, their wall still stands", await sf(a, (id) => !!window.snapfort.state.get(id), placedId));
 await dev(a, { do: "spawn", kind: "scout", n: 1, at: [bx - Math.sign(bx) * 40, 0, bz - Math.sign(bz) * 40] });
-check("and their Core is still there when looked at again", await until(a, (slot) => { const f = window.snapfort.feature; const core = [...f.army.buildings.values()].find((x) => x.o === slot && x.kind === "core"); return core && !core.stale ? true : null; }, wb.slot) === true);
-// The next person is given the next computer in turn (not the place just left, nor A's).
-const c2 = await open("C", keyB);
-await until(c2, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4);
-const wc = await war(c2);
-check("the next person in takes the next computer's place in turn, with what it had", wc.slot >= 0 && wc.slot !== wa.slot && wc.slot !== wb.slot && wc.buildings.some((x) => x.kind === "core"), `C ${wc.slot}`);
+check("their Core is still there when looked at again, and nothing has been built since: no computer plays it", await until(a, () => { const f = window.snapfort.feature; const theirs = [...f.army.buildings.values()].filter((x) => x.o === 1); return theirs.length === 1 && theirs[0].kind === "core" && !theirs[0].stale ? true : null; }) === true);
 await c2.close();
 
 check("no errors on any page", errors.length === 0, errors.slice(0, 4).join(" | "));

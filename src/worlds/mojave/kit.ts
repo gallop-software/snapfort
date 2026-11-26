@@ -204,11 +204,9 @@ export const GENERAL_SIGHT = 60;
 export const SIGHT_PER_METRE = 1.2;
 /** Units and buildings on an upper storey see and shoot this much further. */
 export const HIGH_GROUND = 1.3;
-/** A place is kept for the person who left it for this long (a dropped connection may come back before then), seconds: a computer plays it meanwhile, and after that anyone may be given it. */
+/** With no page connected to the room at all for this long (and a little more), whoever the war still believes is serving an army is taken to have gone, seconds. */
 export const LEAVE_GRACE = 60;
 /** A routed general may drop a new Core, free, after this long. */
 export const ROUTED_WAIT = 20;
 /** A routed general's free Core comes with at least this much lithium: enough for the first Haulers. */
 export const ROUTED_LITHIUM = 200;
-/** Computer generals leave a person who has just taken a place over alone for this long, seconds. */
-export const NEWCOMER_PEACE = 240;

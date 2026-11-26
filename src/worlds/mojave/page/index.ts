@@ -31,7 +31,8 @@ export const page: WorldPage = {
       ["M / F / X", "Move · Attack (then click) · Stop"],
       ["H / P", "Hold position · Patrol"],
       ["G / C", "Gather · Return cargo (Haulers)"],
-      ["B", "Command: your own menu, on the row (Build, Whole army, Idle Hauler, Map)"],
+      ["B", "Command: your own menu, on the row (Build, Whole army, Idle Hauler, Map, Change army)"],
+      ["1–8", "Choosing an army: the one to serve (with nothing else open they recall groups)"],
       ["N", "Build menu (B with units selected; V for the advanced buildings)"],
       ["Ctrl + 1–9", "Save a group (Alt or Shift work too)"],
       ["1–9", "Recall a group (twice: face it)"],
@@ -42,7 +43,7 @@ export const page: WorldPage = {
       ["Backspace", "Back one step: to the menu before, then to what is selected, then deselect"],
     ],
     touch: ["Select and Order act on what the crosshair is on", "Army picks every fighting unit · Build opens the build menu", "Tap the tiles along the top to give orders"],
-    note: "Mojave always has eight generals: you take over a computer's base and army as they stand, and a computer takes yours when you leave. Mine lithium with Haulers, build an army, and command it. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which.",
+    note: "Mojave has eight armies, one of each colour. You choose the one you serve, command all of it with whoever else serves it, and may change sides at any moment (Command, then Change army). Mine lithium with Haulers, build an army, and command it. Buildings stand the moment they are paid for; units take a little time, shown over the row. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which.",
   },
   // The war: armies, the dark, the map, and commanding from the ground.
   start(game) {

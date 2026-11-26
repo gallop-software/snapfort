@@ -541,3 +541,39 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 **Live since 2026-11-25** (the second deploy of the day for Mojave; live build 20261126030011). Checked on the live site: `node qa/_live.mjs` (all four worlds load; the other three join; Mojave does not let in someone without the Full Game, and its row has Command) and `node qa/_live2.mjs` (two generals on the testing key each take a computer's place, lithium comes in, a click selects the Core, H orders a Hauler, the row's menus, the map; no errors; a real player was in Mojave throughout and stayed). The other worlds' suites were run again first, since shared code gained doors: all pass. One step of `qa:railgun` (the words on screen at the moment flight begins) failed 3 runs in 12 and passed the rest with no change between: read a frame early, not a fault in the game.
 
 **Not done**: the menu's button still says "Visit Mojave" to someone without the Full Game, who cannot visit; easy and hard computers; a picture of the menu card for the new look (it still shows the first one, with a watchtower of three materials); see-through fading of units; a real phone.
+
+
+## Mojave, the third pass: eight armies, no computers (user, 2026-11-25, playing it live: "I want to completely remove the computers. I don't like that actually. let's only have 8 armies total, but any number of generals, and generals can choose which color they want to serve. a general at any moment can choose to change colors if he wants to. Also, make the building of everything instant. i don't like the slow build. but the producing of troop and buildings is still based on economics... i need a more graphic friendly way of showing what is in the queue when I select a foundry or command center. also maybe a load progress to show how close one is to completion. also, messages need to have a max width length so it wraps and easy to read. the haulers should show mines color in their bed when they are bringing back to command center")
+
+Where this differs from the second pass above, this holds.
+
+**Decided with the user** (this pass, and the fixes asked for between the two)
+- **Eight armies, one of each colour, and no computer plays any.** An army nobody serves stands as it is: its Haulers mine, its units and turrets defend themselves, and it builds nothing.
+- **Any number of generals serve an army**, each commanding all of it: one bank, one base, one set of units.
+- **A general chooses the army they serve, and may change at any moment.**
+- **Buildings stand finished the moment they are paid for.** Everything still costs what it did.
+- **The queue is shown as pictures** when a Foundry or Core is selected, with a bar on the unit being made.
+- **Messages wrap** at a width that is easy to read.
+- **A Hauler bringing a load back shows crystals in its bed.**
+- Earlier the same day: a general wears their army's colour and is told whose army it is; Troopers do not run on the spot while they stand to fire, and hold the rifle up to shoot; Sentry and Flak turrets turn to what they fire on, and fire from their barrels; Backspace goes back one step; tiles that cannot be used are faded (the user, once told supply was why: "then the disabled buttons are ok"), and the row says when supply is full and what to build.
+
+**Chosen by me, where the user left it open** (change any of them)
+- "The building of everything instant" is taken to mean buildings. Units still take their time to make: the user asked in the same message for the queue and a bar showing how near a unit is to done. Upgrades at the Armory still take time too.
+- On arriving, the row shows the eight armies as tiles (a flag in each colour, its number, and how many generals serve it), and nothing of the war is sent until one is chosen. Changing sides is Command, then Change army (J), then the number.
+- A tab comes back to the army it last served without being asked again (a reload, a dropped connection, the room waking).
+- What a general built stays with the army they built it for when they change sides (the server keeps whose each piece is). Their own page may still take such a wall for theirs until they try to remove it, when the server refuses.
+- Someone without the Full Game is still kept out, as in the second pass.
+- With nobody serving any army the war is paused. Someone who has arrived and not yet chosen does not start it.
+- A general is thrown for themselves: two serving one army, only the one by the blast flies.
+- The notes are at most 340 px wide, the line over the row at most 640.
+
+**How it is built**
+- `sim.ts`: a `General` is an army now, with `here` (who serves it). `serve` puts a builder in an army (leaving whichever they served), `leave` takes them out, `lastServed` remembers a tab's army. `pieceOwner` keeps whose each piece is. `orderBuilding` puts a building down finished, near the builder who ordered it. `ai.ts` is gone.
+- `armies.ts`: `{m:"serve", slot}`; "you" says `why: "choose"` until an army is chosen; the list of armies and who serves each goes to everyone who may command.
+- Page: `command.ts` (the armies as tiles, Change army, the queue's pictures and bar), `army.ts` (a Hauler's load), `panel.ts` (widths).
+
+**Measured** (2026-11-25, `npm run qa:mojave-load`): 1,700 units, all eight armies fighting: the server 16 ms of each 100 ms step (worst 107), the commanding page 59 frames a second, a phone-sized page in battery saver sent everything 31 (longest frame 9 ms; a real phone still untried).
+
+**QA**: 412 unit tests (43 Mojave's); `qa:mojave` 93 checks, `qa:mojave-mobile` 48, `qa:mojave-chaos` 11, `qa:mojave-load` 10; Mojave's reference pictures saved anew, the other worlds' unchanged.
+
+**Not done**: the menu's card picture is still the first one; the menu button still says "Visit Mojave" to someone without the Full Game; "Click or press any key to keep building" is the shared wording; a general arriving faces where the army's first Core stands, which another building may hide; tanks' and Titans' guns do not turn; a real phone.

@@ -3,7 +3,7 @@ import { BuildState } from "../../game/buildState";
 import { CELL, LEVEL } from "../../game/constants";
 import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
-import { BUILDINGS, LEAVE_GRACE, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
+import { BUILDINGS, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
 import { STARTS } from "./map";
 import { DT, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
 import { HALF_CELLS, world } from "./world";
@@ -39,11 +39,11 @@ function setup() {
   const run = (seconds: number) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) sim.tick();
   };
-  /** A person commanding the place at start `start` (a computer's until now, begun afresh), standing by their Core. */
+  /** A person serving the army at start `start` (begun afresh if it was not there), standing by its Core. */
   let r = 0;
   const general = (pid: string, start: number) => {
     if (!sim.generals[start]) sim.seat(start);
-    const g = sim.take(start, pid, pid, `tab${pid}${r++}`.padEnd(8, "x"))!;
+    const g = sim.serve(pid, start, `tab${pid}${r++}`.padEnd(8, "x"))!;
     host.at.set(pid, [STARTS[g.start]!.spawn[0], 0.9, STARTS[g.start]!.spawn[1]]);
     return g;
   };
@@ -71,28 +71,40 @@ describe("a general arrives", () => {
     expect(g.lithium).toBeGreaterThan(START_LITHIUM + 100);
   });
 
-  it("there are always eight, each at a start of their own; a person takes a computer's place as it stands, in turn; a ninth person has none", () => {
+  it("there are always eight armies, each at a start of its own in a colour of its own; any number of generals serve one, and each may change sides at any moment", () => {
     const { sim } = setup();
     sim.fill();
-    expect(sim.generals.every((g) => g?.ai)).toBe(true);
+    expect(sim.generals.every((g) => g && g.here.length === 0)).toBe(true);
     expect(new Set(sim.generals.map((g) => g!.start)).size).toBe(MAX_GENERALS);
     expect(new Set(sim.generals.map((g) => g!.color)).size).toBe(MAX_GENERALS);
-    // What a computer had is the newcomer's: nothing is taken away, nothing begun afresh.
-    const first = sim.generals[0]!;
-    first.lithium = 4321;
-    const tank = sim.addUnit("tank", 0, STARTS[first.start]!.spawn[0], STARTS[first.start]!.spawn[1]);
-    const cores = sim.buildings.size, units = sim.units.length;
-    const taken: number[] = [];
-    for (let i = 0; i < MAX_GENERALS; i++) taken.push(sim.join(`p${i}`, `G${i}`, `tabtab0${i}`)!.slot);
-    expect(taken).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(first.pid).toBe("p0");
-    expect(first.ai).toBe(false);
-    expect(first.name).toBe("G0");
-    expect(first.lithium).toBe(4321);
-    expect(tank.owner).toBe(0);
-    expect(sim.buildings.size).toBe(cores);
+    // An army stands whether anyone serves it or not: joining it begins nothing afresh, and takes nothing away.
+    const blue = sim.generals[1]!;
+    blue.lithium = 4321;
+    const tank = sim.addUnit("tank", 1, STARTS[blue.start]!.spawn[0], STARTS[blue.start]!.spawn[1]);
+    const buildings = sim.buildings.size, units = sim.units.length;
+    // Twelve people, all serving blue: more than there are armies.
+    for (let i = 0; i < 12; i++) expect(sim.serve(`p${i}`, 1, `tabtab${i}`)).toBe(blue);
+    expect(blue.here).toHaveLength(12);
+    expect(sim.generalOf("p7")).toBe(blue);
+    expect(blue.lithium).toBe(4321);
+    expect(tank.owner).toBe(1);
+    expect(sim.buildings.size).toBe(buildings);
     expect(sim.units.length).toBe(units);
-    expect(sim.join("p9", "Late", "tabtab99")).toBeNull();
+    // Each commands all of it: any of them may order its units, and its bank is the one bank.
+    expect(sim.command(1, [tank.id], { k: "hold" })).toBe("");
+    // One changes sides: they serve red now, and blue stands as it was, with the other eleven.
+    const red = sim.serve("p3", 0, "tabtab3")!;
+    expect(red.slot).toBe(0);
+    expect(sim.generalOf("p3")).toBe(red);
+    expect(blue.here).toHaveLength(11);
+    expect(blue.here).not.toContain("p3");
+    expect(red.here).toEqual(["p3"]);
+    expect(sim.units.length).toBe(units);
+    // Their tab is remembered: a reload comes back to the army they last served.
+    expect(sim.lastServed("tabtab3")).toBe(0);
+    expect(sim.lastServed("tabtab5")).toBe(1);
+    expect(sim.lastServed("never-seen")).toBe(-1);
+    expect(sim.serve("px", 99)).toBeNull();
   });
 
   it("makes units at a building: paid for, counted against supply, there after their time", () => {
@@ -131,16 +143,23 @@ describe("a general arrives", () => {
     expect(sim.orderBuilding(g.slot, "foundry", s.cx, s.cz)).toBe("Something is in the way");
     expect(sim.orderBuilding(g.slot, "foundry", ...at(inX * 4, inZ * 4))).toBe("");
     expect(sim.orderBuilding(g.slot, "foundry", ...at(inX * 5, inZ * 5))).toBe("Something is in the way");
+    // Paid for, it stands there finished at once: at full strength, and making units straight away.
     const foundry = [...sim.buildings.values()].find((b) => b.kind === "foundry")!;
-    expect(foundry.doneAt).toBeGreaterThan(0);
-    expect(sim.make(g.slot, foundry.id, "trooper")).toBe("Still printing");
-    run(BUILDINGS.foundry.time + 1);
+    expect(g.lithium).toBe(2000 - BUILDINGS.foundry.lithium);
     expect(foundry.doneAt).toBe(0);
-    expect(foundry.hp).toBeCloseTo(BUILDINGS.foundry.hp, 0);
+    expect(foundry.hp).toBe(BUILDINGS.foundry.hp);
     expect(sim.make(g.slot, foundry.id, "trooper")).toBe("");
-    // Too far from where the general stands.
+    // A Relay mast raises supply the moment it is put down.
+    const supply = sim.supplyMax(g.slot);
+    expect(sim.orderBuilding(g.slot, "relay", ...at(inX * 8, inZ * 2), "p1")).toBe("");
+    expect(sim.supplyMax(g.slot)).toBe(supply + BUILDINGS.relay.supply!);
+    // Units still take their time.
+    run(1);
+    expect(foundry.queue).toHaveLength(1);
+    // Too far from where the general who orders it stands.
     host.at.set("p1", [0, 0.9, 0]);
-    expect(sim.orderBuilding(g.slot, "relay", ...at(inX * 8, inZ * 8))).toMatch(/Too far/);
+    expect(sim.orderBuilding(g.slot, "relay", ...at(inX * 8, inZ * 8), "p1")).toMatch(/Too far/);
+    void run;
   });
 });
 
@@ -393,56 +412,77 @@ describe("pieces", () => {
   });
 });
 
-describe("leaving, and coming back", () => {
-  it("a computer takes over at once and plays on: nothing built is removed, pieces neither", () => {
+describe("leaving, and changing sides", () => {
+  it("a general who leaves takes nothing with them: the army stands as it is, pieces too, for whoever serves it next", () => {
     const { sim, general, run, piece, host } = setup();
     const g = general("p1", 0);
     const wall = piece("p1", "wall", 10, 0, 10);
-    const slot = g.slot;
+    sim.placed("p1", [wall]);
     g.lithium = 600;
-    const tank = sim.addUnit("tank", slot, OPEN[0], OPEN[1]);
+    const tank = sim.addUnit("tank", 0, OPEN[0], OPEN[1]);
     sim.leave("p1");
-    expect(g.ai).toBe(true);
-    expect(g.pid).toBeNull();
-    expect(g.name).not.toBe("p1");
-    run(LEAVE_GRACE + 10);
-    expect(sim.generals[slot]).toBe(g);
+    expect(g.here).toHaveLength(0);
+    expect(sim.generalOf("p1")).toBeNull();
+    run(120);
+    expect(sim.generals[0]).toBe(g);
     expect(tank.dead).toBe(false);
-    expect([...sim.buildings.values()].filter((b) => b.owner === slot && b.kind === "core")).toHaveLength(1);
+    expect([...sim.buildings.values()].filter((b) => b.owner === 0 && b.kind === "core")).toHaveLength(1);
     expect(host.removed).toHaveLength(0);
-    // The wall is still that place's: whoever commands it next may change it, and nobody else.
-    expect(sim.ownerOfPiece(wall.id)).toBe(slot);
-    const next = sim.join("p2", "Bea", "tab-of-bea")!;
-    expect(next).toBe(g);
+    // Nobody plays an army nobody serves: it has built nothing more (its Haulers have gone on mining).
+    expect([...sim.buildings.values()].filter((b) => b.owner === 0)).toHaveLength(1);
+    expect(g.lithium).toBeGreaterThan(600);
+    // The wall is the army's: whoever serves it may change it, and nobody else.
+    expect(sim.ownerOfPiece(wall.id)).toBe(0);
+    general("p2", 0);
+    general("p3", 4);
     expect(sim.mayChange("p2", wall)).toBe(true);
+    expect(sim.mayChange("p3", wall)).toBe(false);
   });
 
-  it("the place is kept for the same tab for the grace period, and is anyone's after it", () => {
-    const { sim, run } = setup();
-    sim.fill();
-    const g = sim.join("p1", "Ann", "tabtabtab")!;
-    g.lithium = 777;
-    sim.leave("p1");
-    run(20);
-    // Someone else in the meantime is given another place, not the one being kept.
-    const other = sim.join("p5", "Cy", "tab-of-cy")!;
-    expect(other).not.toBe(g);
-    const back = sim.join("p7", "Ann", "tabtabtab")!;
-    expect(back).toBe(g);
-    expect(back.pid).toBe("p7");
-    expect(back.ai).toBe(false);
-    expect(back.lithium).toBeGreaterThanOrEqual(777);
-    // Pieces built under the old id are still theirs.
-    expect(sim.ownerOfPiece("p1-zz")).toBe(g.slot);
-    expect(sim.ownerOfPiece("p7-zz")).toBe(g.slot);
-    // Gone for longer than the grace period: the place is no longer kept, and the next person may be given it.
-    sim.leave("p7");
-    for (let i = 0; i < MAX_GENERALS - 2; i++) sim.join(`q${i}`, `Q${i}`, `tab-q-${i}`);
-    expect(sim.join("late", "Late", "tab-late")).toBeNull();
-    run(LEAVE_GRACE + 2);
-    expect(sim.join("late", "Late", "tab-late")).toBe(g);
-    // And the one who left it comes back to whatever is open, like anyone: nothing is.
-    expect(sim.join("p8", "Ann", "tabtabtab")).toBeNull();
+  it("what a general built stays with the army they built it for when they change sides", () => {
+    const { sim, general, piece } = setup();
+    general("p1", 0);
+    general("p9", 4);
+    const before = piece("p1", "wall", 10, 0, 10);
+    sim.placed("p1", [before]);
+    // The same builder, the same id: now serving the army at start 4.
+    sim.serve("p1", 4, "tab-p1");
+    const after = piece("p1", "wall", 12, 0, 10);
+    sim.placed("p1", [after]);
+    expect(sim.ownerOfPiece(before.id)).toBe(0);
+    expect(sim.ownerOfPiece(after.id)).toBe(4);
+    expect(sim.mayChange("p1", before)).toBe(false);
+    expect(sim.mayChange("p1", after)).toBe(true);
+    expect(sim.mayChange("p9", after)).toBe(true);
+    // And it is so again after a sleep.
+    const saved = JSON.parse(JSON.stringify(sim.snapshot()));
+    const again = setup();
+    again.build.apply({ kind: "place", piece: before });
+    again.build.apply({ kind: "place", piece: after });
+    expect(again.sim.restore(saved)).toBe(true);
+    expect(again.sim.ownerOfPiece(before.id)).toBe(0);
+    expect(again.sim.ownerOfPiece(after.id)).toBe(4);
+    expect(again.sim.lastServed("tab-p1")).toBe(4);
+    expect(again.sim.generals.every((g) => !g || g.here.length === 0)).toBe(true);
+  });
+
+  it("each general is thrown for themselves: two serving one army, the one by the blast flies, and has a moment's grace after", () => {
+    const { sim, general, host } = setup();
+    general("pa", 0);
+    general("pb", 4);
+    general("pc", 4);
+    host.at.set("pb", [OPEN[0], 0.9, OPEN[1]]);
+    host.at.set("pc", [OPEN[0] + 60, 0.9, OPEN[1]]);
+    sim.tick();
+    sim.blast([OPEN[0] + 1, 0.5, OPEN[1]], 4, 30, 0, { air: false, ground: true, wear: 0 });
+    expect(host.thrown).toEqual(["pb"]);
+    sim.blast([OPEN[0] + 1, 0.5, OPEN[1]], 4, 30, 0, { air: false, ground: true, wear: 0 });
+    expect(host.thrown).toEqual(["pb"]);
+    sim.blast([OPEN[0] + 61, 0.5, OPEN[1]], 4, 30, 0, { air: false, ground: true, wear: 0 });
+    expect(host.thrown).toEqual(["pb", "pc"]);
+    // Their own army's blasts throw neither.
+    sim.blast([OPEN[0] + 61, 0.5, OPEN[1]], 4, 30, 4, { air: false, ground: true, wear: 0 });
+    expect(host.thrown).toEqual(["pb", "pc"]);
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * Mojave at full size: all eight generals (two of them people, six computers)
+ * Mojave at full size: all eight armies (two with a general, six with nobody)
  * with about 210 units each, 1,700 in all, three in eight of them Troopers,
  * sent to fight in the middle of the map. Measured: how long the server takes
  * over each step of the war, the frame rate of a real page that commands one
@@ -63,8 +63,8 @@ const perf = async (p) => {
 
 const a = await open("general", { viewport: { width: 1280, height: 760 } }, key);
 const phone = await open("phone", { ...devices["iPhone 13 landscape"] }, key2);
-await a.waitForFunction(() => window.snapfort.feature.slot >= 0);
-await phone.waitForFunction(() => window.snapfort.feature.slot >= 0);
+// Each chooses an army: red and blue.
+for (const [p, slot] of [[a, 0], [phone, 1]]) { await p.waitForFunction(() => window.snapfort.feature.why === "choose"); await p.evaluate((slot) => window.snapfort.net.sendWorld({ m: "serve", slot }), slot); await p.waitForFunction(() => window.snapfort.feature.slot >= 0); }
 await phone.evaluate(() => window.snapfort.net.sendWorld({ m: "dev", do: "all" }));
 check("the phone-sized page is in battery saver, a general, and is sent everything for this test", await phone.evaluate(() => window.snapfort.graphics.effective === "saver" && window.snapfort.feature.slot >= 0));
 const calm = { desk: await frameRate(a, 4000), phone: await frameRate(phone, 4000) };

@@ -1,4 +1,4 @@
-// Two generals on the live site, with a key made for the check: each takes a computer's place over, mines, selects, orders, opens the row's menus and the map; when they leave, computers have the places again and nothing is taken away.
+// Two generals on the live site, with a key made for the check: each chooses an army (orange and teal, out of the way of anyone playing), selects, orders, opens the row's menus and the map; when they leave, the armies stand as they were.
 import { readFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 const base = "https://snapfort.io";
@@ -20,7 +20,7 @@ say(/^SNAP-/.test(key ?? ""), "a two-seat key for the check");
 
 const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const errors = [];
-async function open(label) {
+async function open(label, army) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 760 } });
   await context.addInitScript((k) => { localStorage.setItem("snapfort.key", k); localStorage.setItem("snapfort.tips", "done"); localStorage.setItem("snapfort.mojave.intro", "seen"); }, key);
   const page = await context.newPage();
@@ -30,6 +30,11 @@ async function open(label) {
   await page.goto(`${base}/mojave`);
   await page.waitForSelector("body.ready", { timeout: 40000 });
   await page.click("#play-free");
+  await wait(2500);
+  // Arriving: the eight armies to choose from, on the row. Its number serves one.
+  const offered = await page.evaluate(() => [...document.querySelectorAll("#hotbar .slot .label")].map((l) => l.firstChild?.textContent).join(","));
+  say(offered === "Red,Blue,Yellow,Green,Purple,Orange,Teal,Pink", `${label} is offered the eight armies (${offered})`);
+  await page.keyboard.press(army);
   await wait(3000);
   return page;
 }
@@ -37,13 +42,13 @@ const bank = (page) => page.evaluate(() => { const t = document.getElementById("
 const tiles = (page) => page.evaluate(() => [...document.querySelectorAll("#hotbar .slot")].map((x) => `${x.querySelector(".key").textContent}:${x.querySelector(".label").firstChild?.textContent ?? ""}`).join(" "));
 const over = (page) => page.evaluate(() => document.getElementById("world-panel")?.textContent ?? "");
 
-const a = await open("A");
+const a = await open("A", "6");
 let ba = await bank(a);
 say(!!ba, `a general on the live site is in at once, with a bank beside the row (${JSON.stringify(ba)})`);
 say(await a.evaluate(() => document.body.classList.contains("playing") && !document.body.classList.contains("visiting")), "they command: playing, not visiting");
 say((await tiles(a)) === "Z:Wall F:Floor X:Ramp C:Canopy V:Remove B:Command", `the row: the pieces and Command, no siege engine (${await tiles(a)})`);
-say(await a.evaluate(() => !document.querySelector("#material .swatch") && !document.getElementById("mj-card") && !window.snapfortDark), "no material to choose, and no command card");
-const b = await open("B");
+say(await a.evaluate(() => !document.querySelector("#material .swatch") && !document.getElementById("mj-card")), "no material to choose, and no command card");
+const b = await open("B", "7");
 const bb = await bank(b);
 // (The place taken over may be one that has lost its Core: its supply limit is then 0 until a new one stands.)
 say(!!bb, `a second general, on the key's second seat, has a place too (${JSON.stringify(bb)})`);
@@ -61,7 +66,7 @@ if (selected) {
   const now = await bank(a);
   if (now.lithium >= 50 && now.used < now.max) {
     await a.keyboard.press("h");
-    const made = await until(a, () => /making Hauler/.test(document.getElementById("world-panel")?.textContent ?? ""), null, 8000);
+    const made = await until(a, () => document.querySelectorAll("#world-panel .mjq .q i").length >= 1, null, 8000);
     say(!!made, `H orders a Hauler on the live server: "${(await over(a)).slice(0, 60)}"`);
   } else console.log(`(no Hauler ordered: ${JSON.stringify(now)})`);
 }
@@ -69,7 +74,7 @@ for (let i = 0; i < 3; i++) await a.keyboard.press("Backspace");
 await wait(700);
 await a.keyboard.press("b");
 await wait(700);
-say(/N:Build/.test(await tiles(a)) && /Whole army/.test(await tiles(a)), `B opens the general's own menu on the row (${await tiles(a)})`);
+say(/N:Build/.test(await tiles(a)) && /Whole army/.test(await tiles(a)) && /J:Change army/.test(await tiles(a)), `B opens the general's own menu on the row (${await tiles(a)})`);
 await a.keyboard.press("n");
 await wait(700);
 say(/F:Foundry/.test(await tiles(a)) && /C:Command Core/.test(await tiles(a)), `N opens the buildings (${await tiles(a)})`);
@@ -77,7 +82,7 @@ for (let i = 0; i < 3; i++) await a.keyboard.press("Backspace");
 await wait(700);
 await a.keyboard.press("j");
 await wait(500);
-say((await tiles(a)) === "Z:Wall F:Floor X:Ramp C:Canopy V:Remove B:Command", "there are no alliances: J opens nothing");
+say((await tiles(a)) === "Z:Wall F:Floor X:Ramp C:Canopy V:Remove B:Command", "J alone opens nothing (it is Change army inside Command)");
 await a.keyboard.press("Tab");
 await wait(500);
 say(await a.evaluate(() => document.getElementById("mj").classList.contains("big")), "Tab opens the map");
@@ -91,5 +96,5 @@ say(errors.length === 0, `no errors on either page${errors.length ? ": " + error
 await browser.close();
 await wait(8000);
 const after = await admin("/admin/overview");
-console.log("in Mojave after they left:", names(after), "· pieces", inMojave(after)?.pieces, "(computers have the places; nothing built is taken away)");
+console.log("in Mojave after they left:", names(after), "· pieces", inMojave(after)?.pieces, "(their armies stand as they left them; nothing built is taken away)");
 process.exit(bad ? 1 : 0);

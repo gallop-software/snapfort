@@ -387,8 +387,9 @@ async function mojave() {
   console.log("Mojave");
   const world = `art-j-${stamp}`;
   const page = await open("/mojave", world);
+  await page.waitForFunction(() => window.snapfort.feature.why === "choose");
+  await send(page, { m: "serve", slot: 0 });
   await page.waitForFunction(() => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.buildings.size > 0);
-  await send(page, { m: "dev", do: "quiet" });
   await send(page, { m: "dev", do: "fresh" });
   await wait(800);
   await send(page, { m: "dev", do: "rich" });

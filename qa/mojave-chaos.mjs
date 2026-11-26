@@ -2,8 +2,9 @@
  * Chaos in Mojave: two generals press random keys and mouse buttons for a
  * while (every order, every menu on the row, the map, control groups,
  * building keys, walking, jumping), with armies and money to do damage with,
- * while the six computer generals play on and someone without the Full Game
- * sits kept out. Afterwards: nothing has thrown on any page; all three pages
+ * while the other six armies stand with nobody serving them and someone
+ * without the Full Game sits kept out. (A random key may well change a
+ * general's side: that is allowed for.) Afterwards: nothing has thrown on any page; all three pages
  * agree about the built pieces; the one kept out was sent nothing of the
  * war; each general's page is whole (the row answers, reports are only of
  * what is out of sight); and each general has still never been sent an enemy
@@ -41,7 +42,8 @@ const until = async (page, fn, arg, ms = 10000) => { const end = Date.now() + ms
 const a = await open("A", await paidKey(base, "/mojave"));
 const b = await open("B", await paidKey(base, "/mojave"));
 const v = await open("kept out", null, false);
-for (const p of [a, b]) await until(p, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4);
+// Each chooses an army: red and blue.
+for (const [p, n] of [[a, "1"], [b, "2"]]) { await until(p, () => window.snapfort.feature.why === "choose"); await p.keyboard.press(n); await until(p, () => window.snapfort.feature.slot >= 0 && window.snapfort.feature.army.units.size >= 4); }
 // Money, and an army each beside their base; then each general walks to the middle, where they will meet.
 for (const p of [a, b]) {
   await dev(p, { do: "rich" });
@@ -121,7 +123,7 @@ for (const [label, p] of [["A", a], ["B", b]]) {
   const wire = await p.evaluate(() => ({ unseen: window.unseen, seen: window.seenEnemies }));
   check(`general ${label} was never sent an enemy unit out of their sight`, wire.unseen === 0, `${wire.seen} enemy sightings, ${wire.unseen} out of sight`);
   check(`general ${label} is still a general, on their feet, and the game still answers`, await p.evaluate(() => window.snapfort.feature.slot >= 0 && Number.isFinite(window.snapfort.player.position.x) && window.snapfort.engine.getFps() > 5));
-  const whole = await p.evaluate(() => { const f = window.snapfort.feature; const reports = [...f.reports.entries()]; return { mode: f.mode?.k ?? null, sel: f.selected.size + f.selectedBuildings.size, row: [...document.querySelectorAll("#hotbar .slot .label")].map((l) => l.firstChild?.textContent).join(","), bad: reports.filter(([id, r]) => r.owner === f.slot || f.army.units.has(id)).length, reports: reports.length, gens: f.generals.length, people: f.generals.filter((g) => !g.ai).length }; });
+  const whole = await p.evaluate(() => { const f = window.snapfort.feature; const reports = [...f.reports.entries()]; return { mode: f.mode?.k ?? null, sel: f.selected.size + f.selectedBuildings.size, row: [...document.querySelectorAll("#hotbar .slot .label")].map((l) => l.firstChild?.textContent).join(","), bad: reports.filter(([id, r]) => r.owner === f.slot || f.army.units.has(id)).length, reports: reports.length, gens: f.generals.length, people: f.generals.reduce((n, g) => n + g.pids.length, 0) }; });
   check(`general ${label}'s page is whole: nothing selected or open, the pieces on the row, reports only of what is out of sight, eight generals`, whole.mode === null && whole.sel === 0 && whole.row === "Wall,Floor,Ramp,Canopy,Remove,Command" && whole.bad === 0 && whole.gens === 8 && whole.people === 2, JSON.stringify(whole));
 }
 check("armies met: enemies were seen", (await a.evaluate(() => window.seenEnemies)) + (await b.evaluate(() => window.seenEnemies)) > 0);

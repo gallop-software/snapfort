@@ -16,6 +16,22 @@ body:not(.playing):not(.away) #mj { display: none; }
 body.scoped #mj-map { display: none; }
 #mj-bank { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: none; gap: 9px; align-items: center; padding: 3px 10px; border-radius: 999px; background: rgba(24, 30, 38, 0.82); font-size: 11px; white-space: nowrap; }
 #mj-bank[hidden], #mj-status[hidden] { display: none !important; }
+/* The line over the row (the shared page's own element): never wider than is easy to read, wrapping when it is long. */
+#world-panel { max-width: min(92vw, 640px); white-space: normal; text-align: center; line-height: 1.35; }
+/* What a building is making: its name, a line of the units queued (the first with a bar that fills), and how long is left. */
+.mjq { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.mjq .q { display: flex; gap: 5px; }
+.mjq .q i { position: relative; display: block; width: 34px; height: 34px; border-radius: 8px; background: rgba(255, 248, 234, 0.14); }
+.mjq .q i.now { background: rgba(255, 248, 234, 0.92); box-shadow: 0 0 0 2px #ffb347; }
+.mjq .q svg { width: 28px; height: 28px; margin: 3px; fill: none; stroke: #fff8ea; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.mjq .q i.now svg { stroke: #1f2a37; margin-top: 0; }
+.mjq .q em { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 5px; border-radius: 3px; background: rgba(31, 42, 55, 0.25); overflow: hidden; }
+.mjq .q u { display: block; height: 100%; background: #2f8f8a; transition: width 0.2s linear; }
+.mjq small { font-weight: 600; opacity: 0.85; }
+.mjq small.bad { color: #ffb0a2; opacity: 1; }
+body.touch .mjq .q i { width: 24px; height: 24px; border-radius: 6px; }
+body.touch .mjq .q svg { width: 20px; height: 20px; margin: 2px; }
+body.touch .mjq small { display: none; }
 .mj-bank .sw { width: 18px; height: 18px; border-radius: 6px; border: 2px solid #fff8ea; flex: none; }
 body.touch .mj-bank .sw { width: 11px; height: 11px; border-radius: 4px; border-width: 1.5px; }
 /* Beside the row (a computer): each number under its name, so the bank is narrow enough to stay on the screen beside a long row of tiles. */
@@ -35,7 +51,7 @@ body.touch .mj-bank .sw { width: 11px; height: 11px; border-radius: 4px; border-
 #mj-maphint { position: absolute; left: 50%; bottom: calc(50% + min(38vh, 38vw) + 10px); transform: translateX(-50%); font-size: 13px; padding: 5px 12px; border-radius: 10px; background: rgba(24, 30, 38, 0.85); white-space: nowrap; }
 #mj:not(.big) #mj-maphint { display: none; }
 #mj-notes { position: absolute; left: 12px; top: 52px; display: grid; gap: 5px; justify-items: start; }
-#mj-notes div { padding: 6px 12px; border-radius: 10px; background: rgba(24, 30, 38, 0.82); font-size: 13px; animation: mj-note 7s forwards; }
+#mj-notes div { max-width: 340px; line-height: 1.35; padding: 6px 12px; border-radius: 10px; background: rgba(24, 30, 38, 0.82); font-size: 13px; animation: mj-note 7s forwards; }
 #mj-notes div.attack { background: rgba(196, 52, 44, 0.9); }
 #mj-notes div.ready { background: rgba(34, 120, 84, 0.9); }
 @keyframes mj-note { 0%, 85% { opacity: 1; } 100% { opacity: 0; } }
@@ -132,9 +148,11 @@ export class Panel {
   }
 
   /** A line of what is selected or being done, on phones (a computer has it above the row). Null: none. */
-  setStatus(text: string | null): void {
-    this.status.hidden = !text;
-    if (text && this.status.textContent !== text) this.status.textContent = text;
+  setStatus(text: string | null, html: string | null = null): void {
+    this.status.hidden = !text && !html;
+    if (html) {
+      if (this.status.innerHTML !== html) this.status.innerHTML = html;
+    } else if (text && this.status.textContent !== text) this.status.textContent = text;
   }
 
   /** What the phone's two main buttons say now ("Select" and "Order", or "Place" and "Cancel"). */

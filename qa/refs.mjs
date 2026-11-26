@@ -83,8 +83,10 @@ for (const [id, path, shift = [0, 0]] of WORLDS) {
   const [sx, sz] = shift;
   if (id === "mojave") {
     // A general in a place begun afresh, the computers doing nothing new (so every picture is the same), with lithium to spare; then to where the pictures are taken, so it is in sight.
+    await p.waitForFunction(() => window.snapfort.feature.why === "choose", null, { timeout: 15000 });
+    await p.evaluate(() => window.snapfort.net.sendWorld({ m: "serve", slot: 0 }));
     await p.waitForFunction(() => window.snapfort.feature.slot >= 0, null, { timeout: 15000 });
-    await p.evaluate(() => { const n = window.snapfort.net; n.sendWorld({ m: "dev", do: "quiet" }); n.sendWorld({ m: "dev", do: "fresh" }); n.sendWorld({ m: "dev", do: "rich" }); });
+    await p.evaluate(() => { const n = window.snapfort.net; n.sendWorld({ m: "dev", do: "fresh" }); n.sendWorld({ m: "dev", do: "rich" }); });
     await p.evaluate(([x, z]) => window.snapfort.player.teleport(12.5 + x * 5, 0.95, 9 + z * 5), shift);
     await p.waitForFunction(() => window.snapfort.feature.bank.l > 10000, null, { timeout: 15000 });
     await p.waitForTimeout(600);
@@ -117,6 +119,8 @@ for (const [id, path, shift = [0, 0]] of WORLDS) {
   }, shift);
   // A second builder, standing still in view.
   const q = await open(path, world, "Bo", "#3f8fd6");
+  // (In Mojave the second builder serves the blue army.)
+  if (id === "mojave") { await q.waitForFunction(() => window.snapfort.feature.why === "choose", null, { timeout: 15000 }); await q.evaluate(() => window.snapfort.net.sendWorld({ m: "serve", slot: 1 })); await q.waitForFunction(() => window.snapfort.feature.slot >= 0, null, { timeout: 15000 }); }
   await q.evaluate(([x, z]) => { const s = window.snapfort; s.player.teleport(14.5 + x * 5, 0.95, 9 + z * 5); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; }, shift);
   await p.evaluate(([x, z]) => { const s = window.snapfort; s.player.teleport(12.5 + x * 5, 0.95, 9 + z * 5); s.rig.yaw = Math.PI; s.rig.pitch = 0.1; }, shift);
   await p.waitForTimeout(3500);

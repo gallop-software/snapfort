@@ -32,7 +32,7 @@ for (const path of ["/", "/moon", "/mars", "/mojave"]) {
 const pic = await fetch("https://cdn.snapfort.io/worlds/mojave.jpg");
 say(pic.ok, `the card's picture is on the CDN (${pic.status})`);
 const terms = await (await fetch(base + "/terms")).text();
-say(/Mojave/.test(terms) && /always eight/.test(terms), "the terms say how Mojave is now: always eight generals");
+say(/Mojave/.test(terms) && /eight armies/.test(terms), "the terms say how Mojave is now: eight armies, shared by whoever serves them");
 const store = await (await fetch(base + "/api/store", { cache: "no-store" })).json();
 console.log("live build:", store.build, "· payments live:", store.live);
 const worlds = await (await fetch(base + "/api/worlds", { cache: "no-store" })).json();

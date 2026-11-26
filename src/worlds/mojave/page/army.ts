@@ -15,7 +15,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
 import type { PageGame } from "../../pageDoors";
 import { BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
-import { F_DOWN, F_FIRING, F_HIT, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
+import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
 import { Many, place, rgbOf, turn } from "./many";
 import { buildingModel, crystalModel, headModel, MUZZLES, unitModel, ventModel } from "./models";
 import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, runFrame, TROOPER_MIDDLE, Troopers } from "./troopers";
@@ -131,6 +131,8 @@ export class ArmyView {
   private lastDraw = 0;
   private readonly crystals: Many;
   private readonly vents: Many;
+  /** What a Hauler carries, in its bed: a little heap of the crystals it mined. */
+  private readonly loads: Many;
   private readonly rings: Many;
   private readonly tracerMesh: Many;
   private readonly ballMesh: Many;
@@ -198,6 +200,9 @@ export class ArmyView {
     crystalMat.specularColor = new Color3(0.5, 0.5, 0.5);
     this.crystals = prepare(crystalModel(scene), false, crystalMat, false);
     this.vents = prepare(ventModel(scene), false, matt, false);
+    const load = crystalModel(scene);
+    load.name = "mojave-load";
+    this.loads = prepare(load, false, crystalMat, false);
 
     const ring = CreateTorus("mojave-ring", { diameter: 2, thickness: 0.12, tessellation: 20 }, scene);
     this.rings = prepare(ring, true, glow, false);
@@ -414,7 +419,7 @@ export class ArmyView {
     const time = now / 1000;
     const dt = Math.min(0.1, Math.max(0, (now - this.lastDraw) / 1000));
     this.lastDraw = now;
-    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
+    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
     this.troopers.begin();
     for (const u of this.units.values()) this.drawUnit(u, now, time, Math.min(1, 0.15 + (0.85 * (now - u.seenAt)) / APPEAR_MS));
@@ -466,7 +471,7 @@ export class ArmyView {
 
     this.effects(now);
     this.drawGhost();
-    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
+    for (const m of [...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
   }
 
   /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
@@ -543,6 +548,12 @@ export class ArmyView {
       const j = trim.add();
       trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
       trim.colors!.set([r, g, b, 1], j * 4);
+      // A Hauler on its way back shows what it mined: crystals heaped in its bed.
+      if (u.kind === "hauler" && u.flags & F_LOADED && pitch === 0 && roll === 0) {
+        const k = this.loads.add();
+        const back = -0.55, size = 0.34 * grown;
+        place(this.loads.matrices, k, u.x + Math.sin(u.h) * back, u.y + 0.84, u.z + Math.cos(u.h) * back, u.h + u.id, 0, 0, size, size, size);
+      }
     }
     if (u.goneAt === 0 && this.selected.has(u.id)) this.ring(u.x, def.air ? Math.max(0.12, u.y - FLIGHT_HEIGHT + 0.12) : u.y + 0.12, u.z, def.radius + 0.5, u.hp);
   }

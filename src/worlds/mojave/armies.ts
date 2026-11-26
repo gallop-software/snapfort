@@ -3,30 +3,31 @@ import { planFall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
 import { throwVelocity, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
-import { Bots } from "./ai";
 import { BUILDING_KINDS, BUILDINGS, LEAVE_GRACE, MAX_UNITS, ROUTED_WAIT, UNIT_KINDS, UNITS, UPGRADES, type BuildingKind, type UnitKind } from "./kit";
 import { mid, STARTS } from "./map";
 import { DT, NEUTRAL, emptyHappened, Sim, T_BUILDING, T_GENERAL, T_PIECE, T_UNIT, type Building, type General, type Order, type TargetKind, type Unit } from "./sim";
-import { F_DEPLOYED, F_DIGGING, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, LOOKS, type ToPage, type ToServer, type WireBuilding, type WireGeneral } from "./wire";
+import { F_DEPLOYED, F_DIGGING, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, LOOKS, type ToPage, type ToServer, type WireBuilding } from "./wire";
 import { HALF_CELLS } from "./world";
 
 /**
  * The war, in a room: this runs the simulation (sim.ts) ten times a second
- * while a person commands, takes the generals' orders, and tells each page
- * what its general can see and nothing more (an enemy out of sight is never
+ * while anyone serves an army, takes the generals' orders, and tells each
+ * page what its army can see and nothing more (an enemy out of sight is never
  * sent, so nobody can see further by tampering with their page).
  *
- * There are always eight generals. A computer plays every place no person
- * holds; a person coming in takes a computer's place over as it stands, and a
- * computer takes theirs when they go. With nobody here the war is paused,
- * kept as it stands. Someone there is no place for (eight people already, or
- * no Full Game) is told so and sent nothing of the war: nobody watches.
+ * There are always eight armies, one of each colour, and no computer plays
+ * any of them. Any number of people may serve an army, each commanding all
+ * of it; a general chooses which, and may change at any moment. An army
+ * nobody serves stands as it is: its Haulers mine, its units and turrets
+ * defend themselves. With nobody here at all the war is paused, kept as it
+ * stands. Someone without the Full Game is told so and sent nothing of the
+ * war: nobody watches.
  */
 
 /** A page connected to the room. */
 interface Viewer {
   pid: string;
-  /** The general they are, or -1 (there is no place for them: they are sent nothing of the war). */
+  /** The army they serve, or -1 (none yet: they have still to choose, or may not command; they are sent nothing of the war). */
   slot: number;
   /** What they were last told of who they are (so it is said once). */
   told: string;
@@ -44,13 +45,10 @@ interface Viewer {
 
 interface War {
   sim: Sim;
-  bots: Bots;
   viewers: Map<string, Viewer>;
   running: boolean;
   /** When the last step was taken (ms). */
   last: number;
-  /** The computer generals do nothing new (for checks: a quiet map). */
-  quiet: boolean;
   savedAt: number;
   gens: string;
   /** What was last sent of each field. */
@@ -87,16 +85,14 @@ export function openWar(room: Room): War {
     wear: (point, hits, by) => room.wear?.(point, hits, by),
     removePieces: (ids, by) => room.remove?.(ids, by),
   });
-  const w: War = { sim, bots: new Bots(sim), viewers: new Map(), running: false, last: 0, quiet: false, savedAt: 0, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
+  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
   // The war is taken up where it was left, however long ago: it has no end.
   const saved = room.load("war") as { at?: number; sim?: unknown } | undefined;
   if (saved && typeof saved.at === "number" && sim.restore(saved.sim)) {
-    // Whoever commanded when the room went to sleep and is no longer connected has left: a computer has their place.
-    const here = new Set(room.players());
-    for (const g of sim.generals) if (g?.pid && !here.has(g.pid)) sim.leave(g.pid);
+    // (Nobody is serving an army when a room wakes: whoever is still connected takes theirs up again as soon as they are known.)
     w.swept = true;
   } else sim.postSentries(true);
-  // Eight generals, always: a computer on every place that has none.
+  // Eight armies, always.
   sim.fill();
   return w;
 }
@@ -121,7 +117,7 @@ function everyoneViews(room: Room): void {
   for (const pid of [...w.viewers.keys()]) if (!room.players().includes(pid)) w.viewers.delete(pid);
 }
 
-/** A builder has joined: a general at once, in a computer's place, if they may command and a person does not hold every place. */
+/** A builder has joined: straight back into the army their tab last served, or asked to choose one. */
 export function warJoined(room: Room, pid: string): void {
   const w = war(room);
   if (!w.swept) {
@@ -141,7 +137,7 @@ export function warJoined(room: Room, pid: string): void {
   run(room);
 }
 
-/** Where a general stands on arriving: before their Core, on the side toward the middle of the map. */
+/** Where a general stands on arriving: before their army's Core, on the side toward the middle of the map. */
 function arrival(sim: Sim, g: General): [number, number] {
   let core: Building | null = null;
   for (const b of sim.buildings.values()) if (b.owner === g.slot && !b.dead && b.kind === "core" && (!core || b.id < core.id)) core = b;
@@ -153,20 +149,28 @@ function arrival(sim: Sim, g: General): [number, number] {
 }
 
 /**
- * Makes someone a general if they may command and there is a place, and tells
- * them who they are (once: again only when that changes).
+ * Tells someone who they are here (once: again only when that changes): a
+ * general of an army, or not yet (they have still to choose one), or not at
+ * all (commanding needs the Full Game). A tab that served an army a moment
+ * ago is put straight back in it.
  */
 function enlist(room: Room, viewer: Viewer): void {
   const w = war(room);
-  let why: "full" | "visitor" | undefined;
+  let why: "choose" | "visitor" | undefined;
   if (viewer.slot < 0) {
     if (!room.mayBuild(viewer.pid)) why = "visitor";
     else {
-      const g = w.sim.join(viewer.pid, room.who?.(viewer.pid)?.name ?? "General", room.tabOf?.(viewer.pid) ?? null);
+      const tab = room.tabOf?.(viewer.pid) ?? null;
+      const g = w.sim.serve(viewer.pid, w.sim.lastServed(tab), tab);
       if (g) viewer.slot = g.slot;
-      else why = "full";
+      else why = "choose";
     }
   }
+  tell(room, viewer, why);
+}
+
+function tell(room: Room, viewer: Viewer, why?: "choose" | "visitor"): void {
+  const w = war(room);
   const g = viewer.slot >= 0 ? w.sim.generals[viewer.slot] : null;
   const told = `${viewer.slot}|${why ?? ""}`;
   if (told === viewer.told) return;
@@ -178,10 +182,26 @@ function enlist(room: Room, viewer: Viewer): void {
   viewer.sentBuildings.clear();
   viewer.ghosts.clear();
   viewer.bank = "";
-  if (g) {
-    room.send(viewer.pid, fieldsFor(w));
-    w.gens = "";
+  // (The armies there are to choose from, and who serves each, are for anyone who may command.)
+  if (!why || why === "choose") {
+    room.send(viewer.pid, gensFor(w));
+    if (g) room.send(viewer.pid, fieldsFor(w));
   }
+  w.gens = "";
+}
+
+const gensFor = (w: War): ToPage => ({ m: "gens", g: w.sim.generals.flatMap((g) => (g ? [{ slot: g.slot, name: g.name, color: g.color, pids: [...g.here] }] : [])) });
+
+/** A general chooses the army they serve (on arriving, or changing sides at any moment): they command all of it from now, and stand before its Core. */
+function serve(room: Room, viewer: Viewer, slot: number): void {
+  const w = war(room);
+  if (!room.mayBuild(viewer.pid) || viewer.slot === slot) return;
+  const g = w.sim.serve(viewer.pid, slot, room.tabOf?.(viewer.pid) ?? null);
+  if (!g) return;
+  viewer.slot = g.slot;
+  viewer.told = "";
+  tell(room, viewer);
+  run(room);
 }
 
 export function warLeft(room: Room, pid: string): void {
@@ -191,11 +211,11 @@ export function warLeft(room: Room, pid: string): void {
   w.gens = "";
 }
 
-/** Runs the war while a person commands. With nobody, it is paused: kept exactly as it stands. */
+/** Runs the war while anyone serves an army. With nobody, it is paused: kept exactly as it stands. */
 function run(room: Room): void {
   const w = war(room);
   if (w.running) return;
-  if (!w.sim.generals.some((g) => g?.pid)) return;
+  if (!w.sim.generals.some((g) => g && g.here.length > 0)) return;
   w.running = true;
   w.last = Date.now();
   w.empty = 0;
@@ -212,8 +232,8 @@ function run(room: Room): void {
       // whatever the war itself believes (a room moved onto new code can be left holding generals who never "left").
       if (room.players().length > 0) w.empty = 0;
       else if (w.empty === 0) w.empty = now;
-      else if (now - w.empty > (LEAVE_GRACE + 30) * 1000) for (const g of w.sim.generals) if (g?.pid) w.sim.leave(g.pid);
-      if (!w.sim.generals.some((g) => g?.pid)) return stop();
+      else if (now - w.empty > (LEAVE_GRACE + 30) * 1000) for (const g of w.sim.generals) for (const pid of [...(g?.here ?? [])]) w.sim.leave(pid);
+      if (!w.sim.generals.some((g) => g && g.here.length > 0)) return stop();
       const due = Math.floor(((now - w.last) / STEP_MS) * w.speed);
       let steps = Math.min(4, due);
       // (Far behind, after a hiccup: the lost time is let go.)
@@ -226,10 +246,13 @@ function run(room: Room): void {
       console.error("The war stopped on a fault:", error);
       w.running = false;
       try {
+        const served = new Map([...w.viewers.values()].map((v) => [v.pid, v.slot]));
         for (const g of w.sim.generals) if (g) w.sim.wipe(g.slot);
         w.sim.fill();
+        // Everyone serves the army they did, begun afresh.
         for (const v of w.viewers.values()) {
-          v.slot = -1;
+          const slot = served.get(v.pid) ?? -1;
+          v.slot = slot >= 0 && w.sim.serve(v.pid, slot, room.tabOf?.(v.pid) ?? null) ? slot : -1;
           v.told = "";
           enlist(room, v);
         }
@@ -258,7 +281,6 @@ function step(room: Room): void {
   const began = performance.now();
   sim.tick();
   if (sim.step % 10 === 0) everySecond(room);
-  if (sim.step % 20 === 5 && !w.quiet) w.bots.think();
   if (sim.step % SEND_EVERY === 0) {
     sendAll(room);
     sim.happened = emptyHappened();
@@ -269,26 +291,22 @@ function step(room: Room): void {
   w.perf.worst = Math.max(w.perf.worst, took);
 }
 
-/** Once a second: places that have opened, names that have changed, the list of generals. */
+/** Once a second: who serves which army, for everyone who may command. */
 function everySecond(room: Room): void {
   const w = war(room);
   const sim = w.sim;
-  // (A place emptied, by a check or a fault, has a computer again.)
+  // (An army emptied, by a check or a fault, is begun again.)
   sim.fill();
   for (const v of w.viewers.values()) {
-    // Their general is someone else's now (they were away too long): they wait for a place like anyone.
-    if (v.slot >= 0 && sim.generals[v.slot]?.pid !== v.pid) v.slot = -1;
-    // Someone waiting for a place takes the first that opens.
+    // Their army is not theirs any more (it was begun afresh): they choose again.
+    if (v.slot >= 0 && sim.generalOf(v.pid)?.slot !== v.slot) v.slot = -1;
     if (v.slot < 0) enlist(room, v);
-    const g = v.slot >= 0 ? sim.generals[v.slot] : null;
-    const who = g ? room.who?.(v.pid) : null;
-    if (g && who && g.name !== who.name) g.name = who.name;
   }
-  const gens: WireGeneral[] = sim.generals.flatMap((g) => (g ? [{ slot: g.slot, pid: g.pid ?? "", name: g.name, color: g.color, ai: g.ai }] : []));
+  const gens = gensFor(w);
   const text = JSON.stringify(gens);
   if (text !== w.gens) {
     w.gens = text;
-    for (const v of w.viewers.values()) if (v.slot >= 0) room.send(v.pid, { m: "gens", g: gens } satisfies ToPage);
+    for (const v of w.viewers.values()) if (room.mayBuild(v.pid)) room.send(v.pid, gens);
   }
 }
 
@@ -466,6 +484,11 @@ export function warMessage(room: Room, pid: string, data: unknown): void {
     everyoneViews(room);
     run(room);
   }
+  if (msg.m === "serve") {
+    const v = w.viewers.get(pid);
+    if (v && isInt(msg.slot)) serve(room, v, msg.slot);
+    return;
+  }
   const g = sim.generalOf(pid);
   if (msg.m === "dev") return void (room.test?.() === true && devMessage(room, pid, g, msg));
   if (!g) return;
@@ -482,7 +505,7 @@ export function warMessage(room: Room, pid: string, data: unknown): void {
     }
     case "build":
       if (!BUILDING_KINDS.includes(msg.kind as BuildingKind) || !isInt(msg.x) || !isInt(msg.z)) return;
-      return refuse(sim.orderBuilding(g.slot, msg.kind as BuildingKind, msg.x, msg.z));
+      return refuse(sim.orderBuilding(g.slot, msg.kind as BuildingKind, msg.x, msg.z, pid));
     case "make":
       if (!isInt(msg.id) || !UNIT_KINDS.includes(msg.kind as UnitKind)) return;
       return refuse(sim.make(g.slot, msg.id, msg.kind as UnitKind, isInt(msg.n) ? msg.n : 1));
@@ -549,8 +572,6 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
     room.send(pid, { m: "note", kind: "info", text: `perf ${JSON.stringify({ units: sim.units.length, steps: p.steps, mean: p.steps ? Math.round((p.ms / p.steps) * 100) / 100 : 0, worst: Math.round(p.worst * 10) / 10, sentKb: Math.round(p.sent / 1024), viewers: w.viewers.size })}` } satisfies ToPage);
     w.perf = { steps: 0, ms: 0, worst: 0, sent: 0 };
   }
-  // The computers do nothing new (a quiet map for a check), or play again.
-  if (msg.do === "quiet") w.quiet = msg.on !== false;
   // The most a page could ever be asked to draw: everything in the world, whoever sees it (the load test measures that).
   if (msg.do === "all") {
     const v = w.viewers.get(pid);
@@ -559,15 +580,18 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
   if (!g) return;
   const slot = isInt(msg.slot) && msg.slot >= 0 && msg.slot <= NEUTRAL ? msg.slot : g.slot;
   if (msg.do === "fresh") {
-    // This general's place as a war begins it: a Core, four Haulers, the first lithium, nothing else.
-    const tab = g.tab, name = g.name, at = g.slot;
+    // This general's army as a war begins it: a Core, four Haulers, the first lithium, nothing else; whoever served it still does.
+    const at = g.slot, people = [...g.here];
     sim.wipe(at);
     sim.seat(at);
-    const mine = sim.take(at, pid, name, tab);
-    const v = w.viewers.get(pid);
-    if (mine && v) {
-      v.told = "";
-      enlist(room, v);
+    for (const who of people) {
+      sim.serve(who, at, room.tabOf?.(who) ?? null);
+      const v = w.viewers.get(who);
+      if (v) {
+        v.slot = at;
+        v.told = "";
+        tell(room, v);
+      }
     }
   } else if (msg.do === "rich") {
     g.lithium += 20_000;

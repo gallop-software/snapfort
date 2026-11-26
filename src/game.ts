@@ -928,6 +928,19 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
   };
 
+  // Other builders are drawn moving only where a body could: a straight line between two places they were that would
+  // cut a wall's corner stops against it (see RemotePlayers.blocked).
+  const drawnSolids = new Solids(state, env, () => feature?.solids?.() ?? []);
+  trebuchets.solids = () => feature?.solids?.() ?? [];
+  remotes.blocked = (from, to) => {
+    if (Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]) < 0.01) return null;
+    // (A little slimmer than the body, and stepping up what a builder steps up: a graze is not a stop.)
+    const hit = drawnSolids.sweep(from, to, BUILDER_BODY.r - 0.08, BUILDER_BODY.half, { stepUp: 0.45 });
+    // (Already inside something where it started: no stopping it there, or it could never get out.)
+    if (!hit || hit.k === 0) return null;
+    return hit.at;
+  };
+
   // What moves of the world's own (vehicles, units) is solid to the builder near it: a few bodies, moved onto the nearest each step.
   const bodies = new Bodies(scene);
   scene.onBeforePhysicsObservable.add(() => {

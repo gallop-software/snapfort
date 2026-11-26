@@ -5,7 +5,7 @@ import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
-import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
+import { PhysicsShape, PhysicsShapeBox, PhysicsShapeConvexHull } from "@babylonjs/core/Physics/v2/physicsShape";
 import type { Scene } from "@babylonjs/core/scene";
 import type { Environment } from "../game/environments";
 import type { Piece } from "../game/pieces";
@@ -82,7 +82,8 @@ export class Debris {
       const quarter = Math.abs(Math.sin(yaw)) > 0.7;
       const local = quarter ? new Vector3(size.z, size.y, size.x) : size;
       const localOffset = quarter ? new Vector3(offset.z * Math.sign(Math.sin(yaw)), offset.y, -offset.x * Math.sign(Math.sin(yaw))) : offset;
-      const shape = new PhysicsShapeBox(localOffset, Quaternion.Identity(), local, this.scene);
+      // A ramp or a roof falls as its own shape (a box round it would rest on air over its slope); anything else as its box.
+      const shape: PhysicsShape = piece.type === "ramp" || piece.type === "roof" ? new PhysicsShapeConvexHull(mesh, this.scene) : new PhysicsShapeBox(localOffset, Quaternion.Identity(), local, this.scene);
       shape.filterMembershipMask = DEBRIS_GROUP;
       shape.filterCollideMask = ~BUILDER_GROUP;
       shape.material = { friction: 0.7, restitution: 0.25 };

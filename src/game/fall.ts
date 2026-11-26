@@ -3,7 +3,7 @@ import { CELL, LEVEL, THICK } from "./constants";
 import { halfCellsOf, type Environment, type RoofShape } from "./environments";
 import { normalizeSpec, type Piece } from "./pieces";
 import { roofHeight } from "./roofs";
-import { Solids, type Box } from "./solids";
+import { cutsIntoBody, Solids, type Box } from "./solids";
 import { TREBUCHET_BASE, type Vec } from "./trebuchet";
 
 /**
@@ -161,4 +161,22 @@ export function fallPosition(f: Fall, t: number): Vec {
   const t0 = i / rate, t1 = i + 1 === f.path.length - 1 ? f.time : (i + 1) / rate;
   const k = Math.min(1, Math.max(0, (t - t0) / Math.max(1e-6, t1 - t0)));
   return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+}
+
+/**
+ * Whether new pieces stand across the rest of a flight, from `t` seconds in:
+ * then it is to be planned again from where the builder is (see `flightFrom`).
+ */
+export function wayCrossed(f: Fall, t: number, pieces: readonly Piece[], env: Environment): boolean {
+  if (t >= f.time) return false;
+  for (let i = Math.max(0, Math.floor(t * PATH_RATE)); i < f.path.length; i++) {
+    for (const p of pieces) if (cutsIntoBody(p, env, f.path[i]!)) return true;
+  }
+  return false;
+}
+
+/** Where a builder on a flight is `t` seconds in, and how they are going: to plan the rest again from there. */
+export function flightFrom(f: Fall, t: number): { at: Vec; v: Vec } {
+  const at = fallPosition(f, t), next = fallPosition(f, t + 0.05);
+  return { at, v: [(next[0] - at[0]) / 0.05, (next[1] - at[1]) / 0.05, (next[2] - at[2]) / 0.05] };
 }

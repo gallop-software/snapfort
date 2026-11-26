@@ -12,7 +12,8 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { BuildState } from "../game/buildState";
 import type { Piece } from "../game/pieces";
 import type { Environment } from "../game/environments";
-import { planFlight, positionAt, trebuchetBase, type Flight, type Vec } from "../game/trebuchet";
+import type { Box } from "../game/solids";
+import { findImpact, planFlight, positionAt, trebuchetBase, type Flight, type Vec } from "../game/trebuchet";
 import type { SiegeModel } from "../worlds/pageDoors";
 import { TREBUCHET_BASE } from "./geometry";
 
@@ -32,6 +33,8 @@ interface Stone {
   mesh: Mesh;
   flight: Flight;
   start: number;
+  /** Seconds in: where it hits (it is drawn no further). */
+  stop: number;
 }
 
 /**
@@ -66,9 +69,12 @@ export class TrebuchetView {
   /** A trebuchet not drawn on this page (the one this player is aiming from). */
   hidden: string | null = null;
 
+  /** The world's own solid things (see WorldFeature.solids): a stone hits them as it hits pieces. Set by the game. */
+  solids: () => readonly Box[] = () => [];
+
   constructor(
     private readonly scene: Scene,
-    state: BuildState,
+    private readonly state: BuildState,
     private readonly shadows: ShadowGenerator,
     /** The world's pull and stone flights. */
     private readonly environment: Environment,
@@ -146,7 +152,10 @@ export class TrebuchetView {
     mesh.setEnabled(true);
     const flight = planFlight(from, to, this.environment);
     mesh.position.set(...from);
-    this.stones.set(shot, { mesh, flight, start: performance.now() });
+    // Where it will hit, worked out here from the same flight and the same solids the world uses: it is drawn no
+    // further (never on through what it hit, or into the ground), however late the world's word of the hit comes.
+    const stop = findImpact(this.state, flight, id, this.environment, 0, this.solids).time;
+    this.stones.set(shot, { mesh, flight, start: performance.now(), stop });
     this.model.mark?.(to, flight.time);
   }
 
@@ -196,7 +205,7 @@ export class TrebuchetView {
     const now = performance.now();
     for (const [shot, stone] of this.stones) {
       const t = (now - stone.start) / 1000;
-      if (t > stone.flight.time * 2.6) {
+      if (t > stone.flight.time * 2.6 || t >= stone.stop) {
         this.land(shot);
         continue;
       }

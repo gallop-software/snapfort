@@ -381,12 +381,23 @@ if (parked) {
   const sx = Math.cos(t[2]), sz = -Math.sin(t[2]);
   await sf(a, ([x, z, sx, sz]) => { const s = window.snapfort; s.player.teleport(x - sx * 8, 0.95, z - sz * 8); s.rig.yaw = Math.atan2(sx, sz); s.rig.pitch = 0.1; }, [t[0], t[1], sx, sz]);
   await wait(500);
+  // Walking at it, measured every frame in the tank's own frame: never inside its box (allowing for the general's own width).
+  await sf(a, ([x, z, h]) => {
+    window.inTank = 0;
+    window.nearest = Infinity;
+    const s = window.snapfort;
+    window.tankWatch = s.scene.onAfterRenderObservable.add(() => {
+      const p = s.player.position, dx = p.x - x, dz = p.z - z;
+      const lx = dx * Math.cos(h) - dz * Math.sin(h), lz = dx * Math.sin(h) + dz * Math.cos(h);
+      window.nearest = Math.min(window.nearest, Math.hypot(dx, dz));
+      if (Math.abs(lx) < 1.7 - 0.05 && Math.abs(lz) < 2.1 - 0.05) window.inTank++;
+    });
+  }, t);
   await a.keyboard.down("w");
   await wait(2200);
   await a.keyboard.up("w");
-  const gap = await sf(a, ([x, z]) => { const p = window.snapfort.player.position; return Math.hypot(p.x - x, p.z - z); }, t);
-  const why = await sf(a, ([id]) => { const f = window.snapfort.feature, u = f.army.units.get(id), p = window.snapfort.player.position; return { tank: u ? [u.x.toFixed(1), u.z.toFixed(1), u.tumble ? "tumbling" : "", u.goneAt] : null, me: [p.x.toFixed(1), p.y.toFixed(2), p.z.toFixed(1)], inUse: window.snapfort.bodies.inUse, down: window.snapfort.player.knockedDown }; }, [parked[2]]);
-  check("a general walking into a tank is stopped against its side, not let through", gap > 1.9 && gap < 3.5, `${gap.toFixed(2)} m from its middle ${JSON.stringify(why)}`);
+  const walked = await sf(a, () => { const s = window.snapfort; s.scene.onAfterRenderObservable.remove(window.tankWatch); return { inside: window.inTank, nearest: window.nearest }; });
+  check("a general walking into a tank is stopped against it, never inside it", walked.inside === 0 && walked.nearest < 3.2, JSON.stringify(walked));
 }
 
 // ── A second general, far away: neither sees the other ───────────────────

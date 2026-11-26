@@ -15,6 +15,8 @@ import { wading } from "./player";
 import { StandIns } from "./standIns";
 
 /** Positions are shown this far in the past, so there are always two to blend between, ms. */
+/** The fastest a builder runs, m/s (a little over, for slack): anything faster between two samples is a jump. */
+const TOP_SPEED = 32;
 const DELAY = 200;
 /**
  * How a builder is drawn depends on how big they look on screen (their height
@@ -289,8 +291,8 @@ export class RemotePlayers {
     const a = s[0]!;
     const b = s[1];
     if (!b || at <= a.at) {
-      // Nothing newer: hold still where they were last seen.
-      const latest = b ?? a;
+      // Nothing newer (or not yet time for the next): hold still where they were, never jumping ahead.
+      const latest = a;
       remote.x = latest.x;
       remote.y = latest.y;
       remote.z = latest.z;
@@ -303,9 +305,23 @@ export class RemotePlayers {
     }
     const span = Math.max(1, b.at - a.at);
     const t = Math.min(1, (at - a.at) / span);
-    remote.x = a.x + (b.x - a.x) * t;
-    remote.y = a.y + (b.y - a.y) * t;
-    remote.z = a.z + (b.z - a.z) * t;
+    // Further than anyone runs in the time (a respawn, getting on something, a world putting them somewhere): a jump,
+    // drawn as one, not a slide through whatever lies between.
+    const jumped = Math.hypot(b.x - a.x, b.z - a.z) > (span / 1000) * TOP_SPEED + 1.5 || Math.abs(b.y - a.y) > (span / 1000) * TOP_SPEED + 3;
+    const k = jumped ? (t < 0.5 ? 0 : 1) : t;
+    const tx = a.x + (b.x - a.x) * k, ty = a.y + (b.y - a.y) * k, tz = a.z + (b.z - a.z) * k;
+    // A straight line between two places they really were can still cut a wall's corner: where it would, they are
+    // drawn stopped against it until the line is clear again (or the gap grows past a stride: then they are drawn there).
+    const stop = !jumped && remote.y > -50 ? this.blocked([remote.x, remote.y, remote.z], [tx, ty, tz]) : null;
+    if (stop && Math.hypot(tx - stop[0], tz - stop[2]) < 2) {
+      remote.x = stop[0];
+      remote.y = stop[1];
+      remote.z = stop[2];
+    } else {
+      remote.x = tx;
+      remote.y = ty;
+      remote.z = tz;
+    }
     remote.yaw = a.yaw + wrap(b.yaw - a.yaw) * t;
     remote.ground = t < 0.5 ? a.ground : b.ground;
     remote.tumbling = a.tumbling || b.tumbling;
@@ -321,6 +337,13 @@ export class RemotePlayers {
    * one of two running strides, or in the air), facing the way they run, with a
    * small bob on each step.
    */
+  /**
+   * Where a builder drawn moving from one spot to another would be stopped by
+   * something solid on the way (the last clear spot), or null when the way is
+   * clear. Set by the game, which knows what is solid; by default nothing is.
+   */
+  blocked: (from: [number, number, number], to: [number, number, number]) => [number, number, number] | null = () => null;
+
   /** How deep the water is at a spot, m (a world with pools says: see Scenery.wade). */
   wade: (x: number, z: number) => number = () => 0;
   /** Tells the world someone is moving through its water (see Scenery.wake). */

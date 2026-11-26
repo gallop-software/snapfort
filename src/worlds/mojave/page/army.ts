@@ -14,6 +14,7 @@ import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
 import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
+import { Solids } from "../../../game/solids";
 import type { PageGame } from "../../pageDoors";
 import { BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
 import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
@@ -69,7 +70,7 @@ export interface SeenUnit {
   flags: number;
   extra: number;
   /** Thrown: tumbling from one spot to another. */
-  tumble: { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; spin: number; axis: number } | null;
+  tumble: { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; spin: number; axis: number; hop: number } | null;
   /** When it was last hit (for its flash), and whether a blast did it (a Trooper flinches at a bullet, flies from a blast). */
   hitAt: number;
   /** Whether the last word of it put it somewhere new: it is really on the move (a unit told to go somewhere may be standing to fire on the way). */
@@ -118,9 +119,9 @@ interface Spark { x: number; y: number; z: number; vx: number; vy: number; vz: n
 /** Smoke: rises, spreads and thins. */
 interface Puff { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number; ms: number; size: number; grow: number; shade: number }
 /** A piece thrown out by an explosion: falls, tumbles, lies a moment. */
-interface Chunk { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number; ms: number; size: number; spin: number; shade: number }
-/** Where something blew up: a dark mark on the ground that fades. */
-interface Scorch { x: number; z: number; size: number; start: number }
+interface Chunk { x: number; y: number; z: number; vx: number; vy: number; vz: number; start: number; ms: number; size: number; spin: number; shade: number; rest: number }
+/** Where something blew up: a dark mark on whatever it blew up on, that fades. */
+interface Scorch { x: number; y: number; z: number; size: number; start: number }
 /** A vehicle's turret blown off it as it is destroyed. */
 interface Lid { kind: UnitKind; color: [number, number, number]; x: number; y: number; z: number; vx: number; vy: number; vz: number; yaw: number; spin: number; start: number }
 
@@ -175,6 +176,8 @@ export class ArmyView {
   private readonly smokeMesh: Many;
   private readonly chunkMesh: Many;
   private readonly scorchMesh: Many;
+  /** What is solid (pieces as drawn): a thrown unit's arc is kept under the floor over it, and pieces of an explosion come to rest on what is under them. */
+  private readonly solids: Solids;
   private readonly solid: PhysicsShapeBox[] = [];
   private readonly troopers: Troopers;
   /** Units that have gone out of view, shrinking away. */
@@ -201,6 +204,7 @@ export class ArmyView {
       return new Many(mesh, tinted);
     };
     this.troopers = new Troopers(scene, game.shadows);
+    this.solids = new Solids(game.build, game.env);
     const seeThrough = (name: string, r: number, g: number, b: number) => {
       const m = new StandardMaterial(name, scene);
       m.disableLighting = true;
@@ -524,11 +528,17 @@ export class ArmyView {
     const chunks = Math.min(10, 3 + Math.round(r * 1.8));
     for (let n = 0; n < chunks; n++) {
       const a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 6;
-      this.chunks.push({ x, y: Math.max(0.4, y), z, vx: Math.sin(a) * v, vy: 4 + Math.random() * 7, vz: Math.cos(a) * v, start: now, ms: 1300 + Math.random() * 700, size: 0.15 + Math.random() * 0.25 * Math.min(2, r), spin: (Math.random() - 0.5) * 14, shade: 0.12 + Math.random() * 0.2 });
+      // (Each comes to rest on whatever is under where it falls: worked out now, from where it is thrown.)
+      const vx = Math.sin(a) * v, vz = Math.cos(a) * v, vy = 4 + Math.random() * 7, y0 = Math.max(0.4, y);
+      const flight = (vy + Math.sqrt(vy * vy + 19.6 * y0)) / 9.8;
+      const rest = this.solids.surfaceUnder(x + vx * flight, z + vz * flight, y0 + 0.5, 0);
+      this.chunks.push({ x, y: y0, z, vx, vy, vz, start: now, ms: 1300 + Math.random() * 700, size: 0.15 + Math.random() * 0.25 * Math.min(2, r), spin: (Math.random() - 0.5) * 14, shade: 0.12 + Math.random() * 0.2, rest });
     }
     if (this.chunks.length > 400) this.chunks.splice(0, this.chunks.length - 400);
-    if (ground && y < 3) {
-      this.scorches.push({ x, z, size: r * 2.2, start: now });
+    if (ground) {
+      // On what it blew up on: the ground, or a floor, a ramp, a roof.
+      const on = this.solids.surfaceUnder(x, z, y + 0.6, 0);
+      if (y - on < 3) this.scorches.push({ x, y: on, z, size: r * 2.2, start: now });
       if (this.scorches.length > SCORCHES) this.scorches.splice(0, this.scorches.length - SCORCHES);
     }
   }
@@ -548,8 +558,15 @@ export class ArmyView {
     for (let i = 0; i + 8 <= k.length; i += 8) {
       const unit = this.units.get(k[i]!);
       if (!unit) continue;
+      const tx = k[i + 4]! / 10, ty = k[i + 5]! / 10, tz = k[i + 6]! / 10;
+      const def = UNITS[unit.kind];
+      const far = Math.hypot(tx - unit.x, tz - unit.z);
+      // As high as it is flung, but never through a floor or roof over it (it is kept under, with room for its body).
+      const flung = unit.kind === "trooper" ? far * 0.45 + 2 : far * 0.35 + 1.2;
+      const low = Math.max(unit.y, ty);
+      const ceiling = Math.min(this.solids.ceilingOver(unit.x, unit.z, low + def.height, def.radius * 0.6, 40), this.solids.ceilingOver((unit.x + tx) / 2, (unit.z + tz) / 2, low + def.height, def.radius * 0.6, 40), this.solids.ceilingOver(tx, tz, low + def.height, def.radius * 0.6, 40));
       unit.tumble = {
-        fx: unit.x, fy: unit.y, fz: unit.z, tx: k[i + 4]! / 10, ty: k[i + 5]! / 10, tz: k[i + 6]! / 10, start: now, ms: k[i + 7]! * 100,
+        fx: unit.x, fy: unit.y, fz: unit.z, tx, ty, tz, start: now, ms: k[i + 7]! * 100, hop: Math.max(0, Math.min(flung, ceiling - low - def.height * 0.9)),
         // Each one turns over its own way.
         spin: (2 + (unit.id % 3)) * Math.PI * ((unit.id & 1) === 0 ? 1 : -1), axis: (unit.id % 5) / 5,
       };
@@ -665,10 +682,8 @@ export class ArmyView {
       const t = u.tumble, p = Math.min(1, (now - t.start) / t.ms);
       u.x = t.fx + (t.tx - t.fx) * p;
       u.z = t.fz + (t.tz - t.fz) * p;
-      const far = Math.hypot(t.tx - t.fx, t.tz - t.fz);
-      // (A person is flung higher than a machine rolls.)
-      const hop = person ? far * 0.45 + 2 : far * 0.35 + 1.2;
-      u.y = t.fy + (t.ty - t.fy) * p + Math.sin(Math.PI * p) * hop;
+      // (How high: worked out when it was thrown, kept under anything over it.)
+      u.y = t.fy + (t.ty - t.fy) * p + Math.sin(Math.PI * p) * t.hop;
       if (person) {
         if (p < 1) {
           flying = true;
@@ -841,12 +856,13 @@ export class ArmyView {
         continue;
       }
       if (t < 0) continue;
-      // Up and out, then down; on the ground it lies still.
-      let y = c.y + c.vy * t - 9.8 * t * t, f = t;
-      if (y < c.size / 2) {
-        const land = (c.vy + Math.sqrt(c.vy * c.vy + 19.6 * Math.max(0, c.y - c.size / 2))) / 9.8;
-        f = land;
-        y = c.size / 2;
+      // Up and out, then down; on what it lands on it lies still.
+      const floor = c.rest + c.size / 2;
+      let y = c.y + c.vy * t - 4.9 * t * t, f = t;
+      if (y < floor && t > 0.05) {
+        const land = (c.vy + Math.sqrt(c.vy * c.vy + 19.6 * Math.max(0, c.y - floor))) / 9.8;
+        f = Math.min(t, land);
+        y = floor;
       }
       const j = this.chunkMesh.add();
       const s = c.size * (t * 1000 > c.ms - 250 ? (c.ms - t * 1000) / 250 : 1);
@@ -864,7 +880,7 @@ export class ArmyView {
       const j = this.scorchMesh.add();
       // (Fades in its last quarter by drawing in from its edge.)
       const size = m.size * (k > 0.75 ? 1 - (k - 0.75) * 4 : 1);
-      place(this.scorchMesh.matrices, j, m.x, 0.04 + (i % 7) * 0.002, m.z, i, 0, 0, size, 1, size);
+      place(this.scorchMesh.matrices, j, m.x, m.y + 0.04 + (i % 7) * 0.002, m.z, i, 0, 0, size, 1, size);
       this.scorchMesh.colors!.set([0.09, 0.08, 0.07, 1], j * 4);
     }
     for (let i = this.lids.length - 1; i >= 0; i--) {

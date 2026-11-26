@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BuildState } from "../src/game/buildState";
 import { CELL, LEVEL, THICK } from "../src/game/constants";
-import { planFall } from "../src/game/fall";
+import { flightFrom, planFall, wayCrossed } from "../src/game/fall";
 import type { Piece, PieceSpec } from "../src/game/pieces";
 import { Solids, type Vec } from "../src/game/solids";
 import { findImpact, planFlight } from "../src/game/trebuchet";
@@ -85,6 +85,22 @@ describe("solids are the shapes as drawn", () => {
       const f = planFall(state, [0, 0.95, 2 * CELL + dz], [18, 14, 0], PLAIN);
       for (const p of f.path) expect(solids.touch(p, 0.4, 0.5, { stepUp: 0.3 })?.depth ?? 0).toBeLessThan(0.06);
     }
+  });
+
+  it("a wall built across a flight after it began: the rest is planned again, and stops at the wall", () => {
+    const state = new BuildState();
+    const f = planFall(state, [0, 0.95, 2.5], [14, 12, 0], PLAIN);
+    // (It would come down 13 m on, past where the wall will be, at 10 m.)
+    expect(f.land[0]).toBeGreaterThan(12);
+    put(state, { type: "wall", x: 2, y: 0, z: 0, rot: 1 }, "late");
+    // Half a second in, the wall goes up across the rest of the way.
+    expect(wayCrossed(f, 0.5, [state.get("late")!], PLAIN)).toBe(true);
+    const { at, v } = flightFrom(f, 0.5);
+    const again = planFall(state, at, v, PLAIN);
+    expect(again.land[0]).toBeLessThan(2 * CELL);
+    // A wall nowhere near the way changes nothing.
+    put(state, { type: "wall", x: -6, y: 0, z: 6, rot: 1 }, "far");
+    expect(wayCrossed(f, 0.5, [state.get("far")!], PLAIN)).toBe(false);
   });
 
   it("finds the nearest spot clear of everything to put a body down", () => {

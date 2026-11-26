@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { BuildState, type BuildOp } from "../src/game/buildState";
 import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
-import { fallEnd, planFall, type Fall } from "../src/game/fall";
+import { fallEnd, flightFrom, planFall, wayCrossed, type Fall } from "../src/game/fall";
 import type { Room } from "../src/worlds/serverDoors";
 import { cutsIntoBody, type Box } from "../src/game/solids";
 import { checkRange, findImpact, hitPoints, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
@@ -167,6 +167,8 @@ export class World extends DurableObject<Env> {
   private nextShot = 1;
   /** Builders in the air or getting up, until when (ms). */
   private readonly downUntil = new Map<string, number>();
+  /** Builders in the air on a planned flight: the flight, and when it began (ms). */
+  private readonly flights = new Map<string, { fall: Fall; start: number; planned: Fall }>();
 
   /**
    * Chat, in memory only (nothing said is ever saved): when each builder sent
@@ -422,6 +424,7 @@ export class World extends DurableObject<Env> {
     if (!player) return;
     this.moves.delete(player.id);
     this.downUntil.delete(player.id);
+    this.flights.delete(player.id);
     this.talk.delete(player.id);
     this.saidBy.delete(player.id);
     // Their key is free for their other devices.
@@ -467,6 +470,8 @@ export class World extends DurableObject<Env> {
       this.scheduleFlush();
       const gone = [...done, ...extra].flatMap((d) => (d.inverse.kind === "place" ? [d.inverse.piece] : []));
       if (gone.length > 0) this.knock(null, gone);
+      const put = done.flatMap((d) => (d.op.kind === "place" ? [d.op.piece] : []));
+      if (put.length > 0) this.replanFlights(put);
     }
   }
 
@@ -970,12 +975,35 @@ export class World extends DurableObject<Env> {
     }
   }
 
+  /**
+   * New pieces built across the way of builders already in the air: each such
+   * flight is planned again from where they are now, as they are going, so
+   * nobody is drawn flying through a wall put up after they were thrown.
+   * (A world's own flights, gliding down or ending aloft, are left alone.)
+   */
+  private replanFlights(pieces: readonly Piece[]): void {
+    const now = Date.now();
+    for (const [id, f] of this.flights) {
+      const t = (now - f.start) / 1000;
+      const player = [...this.players.values()].find((p) => p.id === id);
+      if (!player || t >= f.fall.time) {
+        if (t >= f.fall.time) this.flights.delete(id);
+        continue;
+      }
+      if (f.fall.glideFrom !== undefined || f.planned.aloft) continue;
+      if (!wayCrossed(f.fall, t, pieces, this.environment)) continue;
+      const { at, v } = flightFrom(f.fall, t);
+      this.fly(player, planFall(this.build, at, v, this.environment, () => this.solidThings()));
+    }
+  }
+
   /** Sends a builder along a flight: every page plays it, and where it ends is where they are. */
   private fly(player: Attachment, planned: Fall): void {
     const fall = { ...planned, path: planned.path.map(round), land: round(planned.land) };
     const yaw = (this.moves.get(player.id) ?? player.move)?.[4] ?? 0;
     this.release(player.id);
     this.downUntil.set(player.id, Date.now() + fallEnd(fall) * 1000);
+    this.flights.set(player.id, { fall, start: Date.now(), planned });
     this.broadcast({ t: "thrown", id: player.id, path: fall.path, time: Math.round(fall.time * 1000) / 1000, land: fall.land, ...(fall.glideFrom === undefined ? {} : { glide: fall.glideFrom }) });
     // Where they come to rest is where they are (for anyone joining, and if their tab is asleep).
     setTimeout(() => {

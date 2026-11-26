@@ -195,6 +195,10 @@ export interface PageGame {
    * the offer of the Full Game.
    */
   shut(why: { text: string; unlock?: boolean } | null): void;
+  /** What is in the builder's hands: the tool picked on the row ("wall", "remove", or a world's own tool's id), or null. */
+  hands(): string | null;
+  /** Picks a piece to build with (never puts it away, as pressing its key again does). */
+  hold(tool: "wall" | "floor" | "ramp" | "roof"): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */

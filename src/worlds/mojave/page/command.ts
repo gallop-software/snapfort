@@ -63,6 +63,12 @@ const PENDING_TEXT: Record<Pending, string> = {
   emp: "EMP: click where",
   rally: "Rally point: click where",
 };
+/**
+ * The keys that pick a piece in every world. With something selected or a
+ * menu open, one that means nothing there lets go of it and picks that piece,
+ * so the way back to building is the key the builder already knows.
+ */
+const PIECE_KEYS: Record<string, "wall" | "floor" | "ramp" | "roof"> = { KeyZ: "wall", KeyF: "floor", KeyX: "ramp", KeyC: "roof", F1: "wall", F2: "floor", F3: "ramp", F4: "roof" };
 /** A report is as faint as it gets after this long, ms (it is never dropped for its age: only when the spot is seen again). */
 const REPORT_FADES_MS = 5 * 60_000;
 const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string][] = [
@@ -179,9 +185,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       if (Math.hypot(cx - dir[0] * along, cy - dir[1] * along, cz - dir[2] * along) < Math.max(1, along * 0.012)) return { k: "general", slot: g.slot };
     }
     if (!spot) return null;
+    // On a building as it is drawn (a wall built on the ground by its foot is not a click on it).
     for (const b of army.buildings.values()) {
-      const size = BUILDINGS[b.kind].size * CELL;
-      if (spot[0] > b.x * CELL - 0.6 && spot[0] < b.x * CELL + size + 0.6 && spot[2] > b.z * CELL - 0.6 && spot[2] < b.z * CELL + size + 0.6 && spot[1] < BUILDINGS[b.kind].height + 1) return { k: "building", b };
+      const [x0, , z0, x1, y1, z1] = buildingBox(b.kind, b.x, b.z);
+      if (spot[0] > x0 - 0.6 && spot[0] < x1 + 0.6 && spot[2] > z0 - 0.6 && spot[2] < z1 + 0.6 && spot[1] < y1 + 1.5) return { k: "building", b };
     }
     if (spot[1] < 3) {
       for (const f of army.fields.values()) if (Math.abs(spot[0] - (f.cx + 0.5) * CELL) < CELL * 0.75 && Math.abs(spot[2] - (f.cz + 0.5) * CELL) < CELL * 0.75) return { k: "field", f };
@@ -556,17 +563,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         const u = army.units.get(id);
         if (u) counts.set(u.kind, (counts.get(u.kind) ?? 0) + 1);
       }
-      const kinds = [...counts.keys()];
       const only = selected.size === 1 ? army.units.get([...selected][0]!) : undefined;
       const status = only ? `${UNITS[only.kind].label} · ${only.hp}% · ${UNITS[only.kind].blurb}` : `${selected.size} selected: ${[...counts].map(([k, n]) => `${n} ${UNITS[k].label}`).join(", ")}`;
-      const tiles = ORDER_KEYS.filter(([, , k]) => {
-        if (k === "gather" || k === "return") return kinds.includes("hauler");
-        if (k === "unload") return kinds.includes("transport");
-        if (k === "emp") return kinds.includes("emp");
-        // (Phones have room for the orders that matter most.)
-        if (k === "patrol" && game.touch) return false;
-        return true;
-      }).map(([, key, k, label]) => tile(`o:${k}`, key, label, k));
+      const tiles = orders().map(([, key, k, label]) => tile(`o:${k}`, key, label, k));
       tiles.push(tile("menu:0", "B", "Build", "build"), back("Deselect"));
       return { tiles, status };
     }
@@ -598,8 +597,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           });
         }
       }
-      if ([...kinds].some((k) => MAKES[k].length > 0)) tiles.push(tile("rally", kinds.has("armory") ? "Y" : "R", "Rally point", "rally"), tile("cancel", "Z", "Cancel last", "cancel"));
-      else if (first.r > 0) tiles.push(tile("cancel", "Z", "Cancel", "cancel"));
+      if ([...kinds].some((k) => MAKES[k].length > 0)) tiles.push(tile("rally", kinds.has("armory") ? "Y" : "R", "Rally point", "rally"), tile("cancel", "Q", "Cancel last", "cancel"));
+      else if (first.r > 0) tiles.push(tile("cancel", "Q", "Cancel", "cancel"));
       tiles.push(back("Deselect"));
       const title = list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`;
       // What it is making, as a line of pictures: the first with a bar that fills as it nears being done.
@@ -616,6 +615,18 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return { tiles, status: `${title} · ${doing}${full}`, ...(html ? { html } : {}) };
     }
     return { tiles: null, status: routed ? `${routed}${game.touch ? "Tap Build" : "Press N"} to put it down.` : null };
+  }
+  /** The orders the selected units can be given: those on the row, and the only ones their keys mean. */
+  function orders(): typeof ORDER_KEYS {
+    const kinds = new Set([...selected].flatMap((id) => army.units.get(id)?.kind ?? []));
+    return ORDER_KEYS.filter(([, , k]) => {
+      if (k === "gather" || k === "return") return kinds.has("hauler");
+      if (k === "unload") return kinds.has("transport");
+      if (k === "emp") return kinds.has("emp");
+      // (Phones have room for the orders that matter most.)
+      if (k === "patrol" && game.touch) return false;
+      return true;
+    });
   }
   /** A flag in an army's colour, for its tile. */
   const flag = (color: string) => `<path d="M11 35V6"/><path style="fill:${/^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"}" d="M11 7h20l-5 7 5 7H11Z"/>`;
@@ -793,10 +804,19 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (code === "Backquote") return act("army"), true;
     if (code === "Backspace") return act("back"), true;
     if (code === "KeyI") return act("idle"), true;
+    const piece = PIECE_KEYS[code];
+    /** Lets go of every menu, order and selection, and picks the piece: building again, its preview showing. */
+    const toPieces = (tool: "wall" | "floor" | "ramp" | "roof") => {
+      setMode(null);
+      deselect();
+      game.hold(tool);
+      return true;
+    };
     if (mode?.k === "menu" && mode.page === "cmd") {
-      // The general's own menu: its tiles' keys, and anything else closes it.
+      // The general's own menu: its tiles' keys; a piece's key builds; anything else closes it.
       if (code === "KeyN") act("menu:0");
       else if (code === "KeyJ") act("menu:army");
+      else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
     }
@@ -806,21 +826,22 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const kind = BUILDING_KINDS.find((k) => !!BUILDINGS[k].advanced === (page === 1) && BUILDINGS[k].key === key);
       if (kind) act(`b:${kind}`);
       else if (code === "KeyV") act(`menu:${page === 1 ? 0 : 1}`);
+      else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
     }
     if (code === "KeyN") return act("menu:0"), true;
-    if (mode?.k === "place" || mode?.k === "target") {
-      // Any other key lets go of it.
-      setMode(null);
-    }
+    // Placing a building or an order waiting for its click: any other key lets go of it (a piece's key, for that piece).
+    const letGo = mode?.k === "place" || mode?.k === "target";
+    if (letGo) setMode(null);
     if (selected.size > 0) {
-      const found = ORDER_KEYS.find(([c]) => c === code);
+      const found = orders().find(([c]) => c === code);
       if (found) return act(`o:${found[2]}`, event.shiftKey), true;
       if (code === "KeyB") return act("menu:0"), true;
       if (code === "KeyV") return act("menu:1"), true;
-      // The building keys of every world would only confuse while commanding.
-      return /^Key[A-Z]$/.test(code) || /^F[1-4]$/.test(code);
+      if (piece) return toPieces(piece);
+      // The other building keys of every world (R turns, T, G, Q, E) would only confuse while commanding.
+      return /^Key[A-Z]$/.test(code);
     }
     if (selectedBuildings.size > 0) {
       const kinds = new Set([...selectedBuildings].flatMap((id) => army.buildings.get(id)?.kind ?? []));
@@ -834,15 +855,18 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         if (unit) return act(`make:${unit}`, event.shiftKey), true;
       }
       if (code === "KeyR" || code === "KeyY") return act("rally"), true;
-      if (code === "KeyZ") return act("cancel"), true;
+      if (code === "KeyQ") return act("cancel"), true;
       if (code === "KeyB") return act("menu:0"), true;
       if (code === "KeyV") return act("menu:1"), true;
-      return /^Key[A-Z]$/.test(code) || /^F[1-4]$/.test(code);
+      if (piece) return toPieces(piece);
+      return /^Key[A-Z]$/.test(code);
     }
+    // (Pressing a piece's key normally puts the piece away when it is the one picked: here it is picked again.)
+    if (letGo && piece) return toPieces(piece);
     return false;
   }
 
-  function onMouse(button: number, down: boolean): boolean {
+  function onMouse(button: number, down: boolean, tapped = false): boolean {
     if (!down) {
       if (button === 0) {
         painting = false;
@@ -900,6 +924,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return take();
     }
     if (button === 0) {
+      // A click on something of this general's selects it, a piece in hand or not; on the ground, the piece in hand is
+      // built there. With Remove in hand a click takes down, never selects. (A phone's Select button selects.)
+      if (!tapped && selected.size === 0 && selectedBuildings.size === 0 && game.hands() === "remove") return false;
       if (clickOn(pick())) return take();
       if (selected.size > 0 || selectedBuildings.size > 0) {
         deselect();
@@ -926,7 +953,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
 
   panel.onButton = (id) => {
     if (id === "t-select") {
-      onMouse(0, true);
+      onMouse(0, true, true);
       onMouse(0, false);
     } else if (id === "t-order") {
       onMouse(2, true);
@@ -1098,6 +1125,13 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     update,
     key: onKey,
     mouse: onMouse,
+    // The wheel moves along the pieces, as everywhere: from a selection or a menu, it lets go of them first.
+    wheel() {
+      if (slot < 0 || mapOn || (!mode && selected.size === 0 && selectedBuildings.size === 0)) return false;
+      setMode(null);
+      deselect();
+      return false;
+    },
     look(dx, dy) {
       if (!mapOn) return false;
       const k = panel.metresPerPixel();

@@ -257,7 +257,11 @@ await rowHas(a, ["Attack"]);
 tiles = await row(a);
 check("the bank is still wholly on the screen beside the longer row", await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth - 4 && r.left >= document.getElementById("hotbar").getBoundingClientRect().right; }), await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return `${Math.round(r.left)}–${Math.round(r.right)} of ${innerWidth}`; }));
 check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "B" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
-check("with units selected the keys are orders: Z does not pick a wall", await (async () => { await a.keyboard.press("z"); return sf(a, () => !document.querySelector("#hotbar .slot:not(.menu).selected")); })());
+check("with units selected the keys are orders; Z, which is none, lets go of them and picks a Wall", await (async () => { await a.keyboard.press("z"); return (await until(a, () => window.snapfort.feature.selected.size === 0 && /Wall/.test(document.querySelector("#hotbar .slot:not(.menu).selected")?.textContent ?? ""), null, 2000)) === true; })());
+// (The army again, with nothing in hand, for what follows.)
+await a.keyboard.press("z");
+await a.keyboard.press("Backquote");
+await until(a, () => window.snapfort.feature.selected.size >= 16);
 // Troopers are people: drawn in poses, standing now.
 const drawn = (page) => sf(page, () => { const count = (re) => window.snapfort.scene.meshes.filter((m) => re.test(m.name) && m.isEnabled()).reduce((n, m) => n + (m.thinInstanceCount || 0), 0); return { stand: count(/^mojave-trooper-stand$/), run: count(/^mojave-trooper-run-\d+$/), aim: count(/^mojave-trooper-aim$/), flail: count(/^mojave-trooper-flail-\d+$/), down: count(/^mojave-trooper-down$/), flinch: count(/^mojave-trooper-flinch$/) }; });
 let poses = await drawn(a);

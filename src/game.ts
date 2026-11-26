@@ -1881,6 +1881,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         }
         hud.menuNote(why.text);
       },
+      hands: () => (toolIndex < 0 ? null : TOOLS[toolIndex]!),
+      hold: (tool) => {
+        const i = TOOLS.indexOf(tool);
+        if (!builder) return lockedNote();
+        if (i >= 0 && i !== toolIndex) selectTool(i);
+      },
     }) ?? null;
 
   // One material here: no badge and no button for changing it (the badge's place is the world's own).

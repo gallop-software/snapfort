@@ -490,3 +490,9 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 
 **Not done**: a second faction; cloaked units, mines and shields (talked of, not in the agreed list of units); the server keeping what each side last saw of pieces (pieces are sent to everyone, as in every world, so a tampered page could read where walls are, though never where units are); a ladder.
 
+
+**To change in Mojave** (the user's list, begun 2026-11-25; nothing here is built until the user asks for it)
+
+1. No computer generals made by players (user, 2026-11-25: "I don't want a user to be able to create computer generals. they should only be able to make an alliance with existing users"). Take "More computers" and "Fewer computers" (and the + and − keys) off the Generals card, and have the server refuse the `bots` message. Alliances are only between people. To ask when this is built: whether the one computer general a world has by default goes too (as written, a general alone in Mojave would then have nobody to fight until a second person joins).
+
+Talked over the same day and not yet asked for (not on the list until the user says so): taking the black away altogether, since it reads as a wall from the ground and the world never resets; the land always shown, in the world and on the map; enemies shown live only while in sight, and the map keeping units and buildings as a scout last saw them, fainter with age, until someone looks again.

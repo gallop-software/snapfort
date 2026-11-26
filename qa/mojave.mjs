@@ -256,7 +256,23 @@ check("` selects the whole army (not the Haulers)", wa.sel.length >= 16 && wa.se
 await rowHas(a, ["Attack"]);
 tiles = await row(a);
 check("the bank is still wholly on the screen beside the longer row", await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth - 4 && r.left >= document.getElementById("hotbar").getBoundingClientRect().right; }), await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return `${Math.round(r.left)}–${Math.round(r.right)} of ${innerWidth}`; }));
-check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "B" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "N" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+// B is the general's own menu and N the buildings, with units selected as without; Backspace goes up one level
+// however the row was reached (placing an advanced building → advanced → basic → Command → the selection).
+await a.keyboard.press("b");
+const bCmd = (await rowHas(a, ["Whole army", "Change army"])) === true && (await war(a)).sel.length >= 16;
+await a.keyboard.press("b");
+await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("k");
+const placing = (await war(a)).mode === "place";
+await a.keyboard.press("b");
+const bFromPlace = (await rowHas(a, ["Whole army", "Change army"])) === true;
+await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("k");
+const ups = [];
+for (const want of [["Skyport", "Basic"], ["Foundry", "Advanced"], ["Whole army", "Change army"], ["Move", "Deselect"]]) {
+  await a.keyboard.press("Backspace");
+  ups.push((await rowHas(a, want)) === true);
+}
+check("B opens Command and N the buildings with units selected too; B while placing a building is Command again; Backspace goes up a level each time", bCmd && placing && bFromPlace && ups.every(Boolean) && (await war(a)).sel.length >= 16, `${bCmd} ${placing} ${bFromPlace} ${ups}`);
 check("with units selected the keys are orders; Z, which is none, lets go of them and picks a Wall", await (async () => { await a.keyboard.press("z"); return (await until(a, () => window.snapfort.feature.selected.size === 0 && /Wall/.test(document.querySelector("#hotbar .slot:not(.menu).selected")?.textContent ?? ""), null, 2000)) === true; })());
 // (The army again, with nothing in hand, for what follows.)
 await a.keyboard.press("z");

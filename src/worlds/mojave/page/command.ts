@@ -111,8 +111,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   army.selectedBuildings = selectedBuildings;
   const groups = new Map<number, { units: number[]; buildings: number[] }>();
   let mode: Mode = null;
-  /** The buildings menu was reached through the general's own menu (so Back goes there, not all the way out). */
-  let menuTop = false;
   let mapOn = false;
   const cursor = { x: 0, z: 0 };
   let painting = false;
@@ -471,8 +469,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       case "menu": {
         const page: Menu = arg === "cmd" ? "cmd" : arg === "army" ? "army" : arg === "1" ? 1 : 0;
-        if (page !== "cmd" && mode?.k !== "menu" && mode?.k !== "place") menuTop = false;
-        if (page !== "cmd" && mode?.k === "menu" && mode.page === "cmd") menuTop = true;
         return setMode(mode?.k === "menu" && mode.page === page ? null : { k: "menu", page });
       }
       case "b":
@@ -512,14 +508,15 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         return;
       }
       case "back":
-        // One step back, to whatever was on the row before: from placing a building to the buildings, from them to the
-        // general's own menu (if they were reached through it), from a menu or an order waiting for its click to what
-        // is selected, and from a selection to nothing selected.
+        // One level up, however the row was reached: from placing a building to its page of buildings, from the advanced
+        // ones to the basic, from the buildings (or the armies) to the general's own menu, from that menu or an order
+        // waiting for its click to what is selected, and from a selection to nothing selected.
         if (mapOn) return toggleMap();
         // (Someone who serves no army yet has only the armies to choose from: there is nothing to go back to.)
         if (slot < 0) return;
         if (mode?.k === "place") return setMode({ k: "menu", page: BUILDINGS[mode.kind].advanced ? 1 : 0 });
-        if (mode?.k === "menu" && mode.page !== "cmd" && menuTop) return setMode({ k: "menu", page: "cmd" });
+        if (mode?.k === "menu" && mode.page === 1) return setMode({ k: "menu", page: 0 });
+        if (mode?.k === "menu" && mode.page !== "cmd") return setMode({ k: "menu", page: "cmd" });
         if (mode) return setMode(null);
         return deselect();
     }
@@ -597,7 +594,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const only = selected.size === 1 ? army.units.get([...selected][0]!) : undefined;
       const status = only ? `${UNITS[only.kind].label} · ${only.hp}% · ${UNITS[only.kind].blurb}` : `${selected.size} selected: ${[...counts].map(([k, n]) => `${n} ${UNITS[k].label}`).join(", ")}`;
       const tiles = orders().map(([, key, k, label]) => tile(`o:${k}`, key, label, k));
-      tiles.push(tile("menu:0", "B", "Build", "build"), back("Deselect"));
+      tiles.push(tile("menu:0", "N", "Build", "build"), back("Deselect"));
       return { tiles, status };
     }
     if (selectedBuildings.size > 0) {
@@ -861,7 +858,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return true;
     };
     if (mode?.k === "menu" && mode.page === "cmd") {
-      // The general's own menu: its tiles' keys; a piece's key builds; anything else closes it.
+      // The general's own menu: its tiles' keys; a piece's key builds; anything else (B again too) closes it.
       if (code === "KeyN") act("menu:0");
       else if (code === "KeyJ") act("menu:army");
       else if (piece) return toPieces(piece);
@@ -874,6 +871,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const kind = BUILDING_KINDS.find((k) => !!BUILDINGS[k].advanced === (page === 1) && BUILDINGS[k].key === key);
       if (kind) act(`b:${kind}`);
       else if (code === "KeyV") act(`menu:${page === 1 ? 0 : 1}`);
+      // B is the general's own menu wherever it is pressed; N, the basic buildings (again: closed).
+      else if (code === "KeyB") act("menu:cmd");
+      else if (code === "KeyN") act("menu:0");
       else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
@@ -885,8 +885,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (selected.size > 0) {
       const found = orders().find(([c]) => c === code);
       if (found) return act(`o:${found[2]}`, event.shiftKey), true;
-      if (code === "KeyB") return act("menu:0"), true;
-      if (code === "KeyV") return act("menu:1"), true;
+      if (code === "KeyB") return act("menu:cmd"), true;
       if (piece) return toPieces(piece);
       // The other building keys of every world (R turns, T, G, Q, E) would only confuse while commanding.
       return /^Key[A-Z]$/.test(code);
@@ -904,8 +903,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       if (code === "KeyR" || code === "KeyY") return act("rally"), true;
       if (code === "KeyQ") return act("cancel"), true;
-      if (code === "KeyB") return act("menu:0"), true;
-      if (code === "KeyV") return act("menu:1"), true;
+      if (code === "KeyB") return act("menu:cmd"), true;
       if (piece) return toPieces(piece);
       return /^Key[A-Z]$/.test(code);
     }

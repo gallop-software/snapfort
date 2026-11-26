@@ -142,7 +142,7 @@ export const BUILDINGS: Readonly<Record<BuildingKind, BuildingDef>> = {
   foundry: { label: "Foundry", key: "F", lithium: 150, plasma: 0, hp: 800, size: 2, time: 30, sight: 45, height: 7, wide: 9.2, needs: ["core"], blurb: "Makes Troopers and vehicles" },
   armory: { label: "Armory", key: "M", lithium: 125, plasma: 50, hp: 600, size: 2, time: 30, sight: 40, height: 6, wide: 9.2, needs: ["foundry"], advanced: true, blurb: "Upgrades weapons and armour; unlocks artillery, missile trucks and the EMP" },
   skyport: { label: "Skyport", key: "K", lithium: 150, plasma: 100, hp: 700, size: 2, time: 35, sight: 50, height: 9, wide: 9.8, needs: ["foundry"], advanced: true, blurb: "Makes drones" },
-  titanbay: { label: "Titan bay", key: "B", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 45, height: 12, wide: 14.2, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
+  titanbay: { label: "Titan bay", key: "T", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 45, height: 12, wide: 14.2, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
   sentry: {
     label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 45, height: 4, wide: 2.2, needs: ["foundry"],
     weapon: { range: 36, damage: 10, cooldown: 0.6, splash: 0, air: false, ground: true, wear: 0, look: "bullet" },

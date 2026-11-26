@@ -149,8 +149,8 @@ v = await look(a);
 say("after Deselect", v);
 check("2. …and letting go of the Core, the piece in hand is the one from before (the wheel did not change it out of sight)", new RegExp(`:${held2}\\*`).test(v.row), `${held2} then ${v.row}`);
 
-// ── 3. Core selected, a building from the menu (B, then N) ──
-for (const [path, keys] of [["B then F", ["b", "f"]], ["N then F", ["n", "f"]], ["N then T (Tap)", ["n", "t"]], ["N then E (Sentry)", ["n", "e"]]]) {
+// ── 3. Core selected, a building from the menu (B, N: through Command; or N straight) ──
+for (const [path, keys] of [["B, N then F", ["b", "n", "f"]], ["N then F", ["n", "f"]], ["N then T (Tap)", ["n", "t"]], ["N then E (Sentry)", ["n", "e"]]]) {
   await selectCore(`3: Core selected, ${path}`);
   for (const k of keys) {
     await a.keyboard.press(k);
@@ -276,12 +276,12 @@ await a.keyboard.press("b");
 await frames(a, 3);
 v = await look(a);
 say("B while placing", v);
-check("8. B while placing a building goes back to the buildings, the Core still selected", v.mode === "menu:0" && v.selB === 1, JSON.stringify(v));
+check("8. B while placing a building opens Command, as B does everywhere, the Core still selected", v.mode === "menu:cmd" && v.selB === 1, JSON.stringify(v));
 await a.keyboard.press("x");
 await frames(a, 4);
 v = await look(a);
 say("then X", v);
-check("8. …and X from the buildings picks the Ramp, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /X:Ramp\*/.test(v.row), JSON.stringify(v));
+check("8. …and X from Command picks the Ramp, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /X:Ramp\*/.test(v.row), JSON.stringify(v));
 
 // ── 9. A building planned over a general: red, and the line says why ──
 console.log("\n── 9: a Foundry planned over a general");

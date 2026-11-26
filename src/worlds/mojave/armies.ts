@@ -549,7 +549,9 @@ function readOrder(sim: Sim, msg: Record<string, unknown>): Order | null {
     case "amove":
       return at ? { k: msg.k, x: at[0], z: at[2], l: level(at[1]) } : null;
     case "patrol": {
-      // Back and forth between there and where the first of them stands now.
+      // Back and forth between the two ends clicked (with one, between there and where the first of them stands now).
+      const back = spot(msg.back);
+      if (at && back) return { k: "patrol", x: at[0], z: at[2], l: level(at[1]), bx: back[0], bz: back[2], bl: level(back[1]) };
       const first = Array.isArray(msg.ids) ? sim.unitById.get(msg.ids[0] as number) : undefined;
       return at && first ? { k: "patrol", x: at[0], z: at[2], l: level(at[1]), bx: first.x, bz: first.z, bl: first.level } : null;
     }

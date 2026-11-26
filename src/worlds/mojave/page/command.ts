@@ -49,7 +49,8 @@ import { Sight } from "./sight";
 type Pending = "move" | "amove" | "patrol" | "gather" | "unload" | "emp" | "rally";
 /** A menu on the row: the general's own (what the Command tile opens), the eight armies to serve, or the buildings (basic, advanced). */
 type Menu = "cmd" | "army" | 0 | 1;
-type Mode = null | { k: "target"; what: Pending } | { k: "menu"; page: Menu } | { k: "place"; kind: BuildingKind };
+/** (`from`: a patrol's first end, once it has been clicked.) */
+type Mode = null | { k: "target"; what: Pending; from?: WireSpot } | { k: "menu"; page: Menu } | { k: "place"; kind: BuildingKind };
 /** An enemy unit seen and no longer in sight: where it was, and when. */
 interface Report { x: number; z: number; owner: number; kind: UnitKind; at: number; lookedAt: number }
 type Picked = { k: "unit"; u: SeenUnit } | { k: "building"; b: SeenBuilding } | { k: "field"; f: SeenField } | { k: "general"; slot: number } | null;
@@ -58,12 +59,14 @@ const HALF = HALF_CELLS * CELL;
 const PENDING_TEXT: Record<Pending, string> = {
   move: "Move: click where",
   amove: "Attack: click where, or on what",
-  patrol: "Patrol: click the far end",
+  patrol: "Patrol: click one end",
   gather: "Gather: click on crystals",
   unload: "Unload: click where",
   emp: "EMP: click where",
   rally: "Rally point: click where",
 };
+/** What an order waiting for its click asks for. */
+const pendingText = (m: { what: Pending; from?: WireSpot }) => (m.what === "patrol" && m.from ? "Patrol: click the other end" : PENDING_TEXT[m.what]);
 /**
  * The keys that pick a piece in every world. With something selected or a
  * menu open, one that means nothing there lets go of it and picks that piece,
@@ -320,6 +323,24 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     mark(spot, k === "amove" ? [1, 0.4, 0.3] : k === "emp" ? [0.5, 0.9, 1] : [0.5, 1, 0.5]);
   }
 
+  /**
+   * Patrol takes two clicks, one for each end: the first is kept (and marked) until the second. True once both are in
+   * and the order is sent; they go to the first end, then back and forth.
+   */
+  function patrol(spot: WireSpot | null, queue: boolean): boolean {
+    if (!spot) return void game.toast("Aim at the ground"), false;
+    const first = mode?.k === "target" ? mode.from : undefined;
+    if (!first) {
+      setMode({ k: "target", what: "patrol", from: spot });
+      mark(spot, [0.5, 1, 0.5]);
+      return false;
+    }
+    const ids = [...selected];
+    if (ids.length > 0) send({ m: "order", ids, k: "patrol", at: first, back: spot, q: queue });
+    mark(spot, [0.5, 1, 0.5]);
+    return true;
+  }
+
   /** A right click with units selected: what it means depends on what it is on. */
   function smartOrder(): void {
     const p = pick();
@@ -549,7 +570,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const what = mode.what;
       const found = ORDER_KEYS.find(([, , k]) => k === what);
       const tiles = [found ? tile(`o:${what}`, found[1], found[3], what, { on: true }) : tile("rally", "R", "Rally point", "rally", { on: true }), back("Cancel")];
-      return { tiles, status: PENDING_TEXT[what].replace("click", game.touch ? "aim and tap Go" : "click") };
+      return { tiles, status: pendingText(mode).replace("click", game.touch ? "aim and tap Go" : "click") };
     }
     if (mode?.k === "menu" && mode.page === "cmd") {
       const with_ = (general(slot)?.pids.length ?? 1) - 1;
@@ -915,6 +936,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       if (button === 0) {
         faceSpot(cursor.x, cursor.z);
         toggleMap();
+      } else if (slot >= 0 && selected.size > 0 && mode?.k === "target" && mode.what === "patrol") {
+        if (patrol(spot, shift())) setMode(shift() ? { k: "target", what: "patrol" } : null);
       } else if (slot >= 0 && selected.size > 0) order(mode?.k === "target" && mode.what !== "rally" ? mode.what : "move", spot, shift());
       else if (slot >= 0 && selectedBuildings.size > 0) send({ m: "rally", ids: [...selectedBuildings], at: spot });
       return take();
@@ -929,6 +952,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       if (button === 0) {
         const what = mode.what;
         const spot = aimSpot();
+        if (what === "patrol") {
+          // (Shift keeps Patrol in hand for the next pair of ends.)
+          if (patrol(spot, shift())) setMode(shift() ? { k: "target", what: "patrol" } : null);
+          return take();
+        }
         if (what === "rally") {
           if (spot) {
             send({ m: "rally", ids: [...selectedBuildings], at: spot });
@@ -1068,7 +1096,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) army.mark(at.cx * CELL + dx * size, 0, at.cz * CELL + dz * size, 0.6, c);
         hint = at.why ? `<span class="bad">${at.why}</span>` : `<span class="ok">${BUILDINGS[mode.kind].label}: ${game.touch ? "tap Place" : "click"} to put it here</span>`;
       } else hint = `<span class="bad">Aim at the ground</span>`;
-    } else if (mode?.k === "target") hint = `<b>${PENDING_TEXT[mode.what]}</b>`;
+    } else if (mode?.k === "target") {
+      hint = `<b>${pendingText(mode)}</b>`;
+      // A patrol's first end, until the other is clicked.
+      if (mode.from) army.mark(mode.from[0], mode.from[1], mode.from[2], 1.2, [0.5, 1, 0.5]);
+    }
     if (hint !== lastHint) {
       lastHint = hint;
       cardDirty = true;

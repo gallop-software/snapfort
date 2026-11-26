@@ -340,6 +340,36 @@ await a.screenshot({ path: "qa/shots/mojave-research.png" });
 await a.keyboard.press("q");
 await sf(a, () => window.snapfort.feature.run("desel"));
 
+// ── 11. Patrol takes two clicks, one for each end, and they go back and forth between them ──
+console.log("\n── 11: Patrol, two ends");
+await sf(a, () => window.snapfort.feature.run("desel"));
+const endA = [core.x + inX * 12, 0, core.z + inZ * 30], endB = [core.x + inX * 12, 0, core.z + inZ * 55];
+const from11 = [core.x, core.z + inZ * 42];
+await sf(a, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), from11);
+await a.keyboard.press("Backquote");
+await a.keyboard.press("p");
+await frames(a, 3);
+const pat = () => sf(a, () => { const f = window.snapfort.feature; return { mode: f.mode?.k === "target" ? f.mode.what : null, from: !!f.mode?.from, line: document.getElementById("world-panel").textContent }; });
+let p11 = await pat();
+check("11. P waits for the first end", p11.mode === "patrol" && !p11.from && /click one end/.test(p11.line), JSON.stringify(p11));
+await aim(a, endA);
+await click(a);
+p11 = await pat();
+check("11. …after one click Patrol is still in hand, asking for the other end", p11.mode === "patrol" && p11.from && /click the other end/.test(p11.line), JSON.stringify(p11));
+await aim(a, endB);
+await click(a);
+p11 = await pat();
+check("11. …and the second click sends it", p11.mode === null, JSON.stringify(p11));
+const middle = () => sf(a, () => { const f = window.snapfort.feature; const t = [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind === "trooper"); return t.length ? [t.reduce((s, u) => s + u.x, 0) / t.length, t.reduce((s, u) => s + u.z, 0) / t.length] : null; });
+const near = (end) => until(a, ([x, z]) => { const f = window.snapfort.feature; const t = [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind === "trooper"); if (!t.length) return false; const mx = t.reduce((s, u) => s + u.x, 0) / t.length, mz = t.reduce((s, u) => s + u.z, 0) / t.length; return Math.hypot(mx - x, mz - z) < 8; }, [end[0], end[2]], 40000);
+const atA = await near(endA);
+check("11. the Troopers go to the first end", atA === true, JSON.stringify(await middle()));
+const atB = await near(endB);
+check("11. …then to the other", atB === true, JSON.stringify(await middle()));
+const backA = await near(endA);
+check("11. …and back again", backA === true, JSON.stringify(await middle()));
+await sf(a, () => window.snapfort.feature.run("desel"));
+
 await a.screenshot({ path: "qa/shots/mojave-select.png" });
 check("no errors on the page", errors.length === 0, errors.slice(0, 3).join(" | "));
 const passed = results.filter((r) => r.ok).length;

@@ -4,6 +4,7 @@ import { LEVEL, MAX_LEVEL } from "../src/game/constants";
 import { findLooseAfterRemoval, findUnsupported } from "../src/game/structure";
 import { fallEnd, planFall, type Fall } from "../src/game/fall";
 import type { Room } from "../src/worlds/serverDoors";
+import type { Box } from "../src/game/solids";
 import { checkRange, findImpact, hitPoints, launchPoint, pieceBounds, planFlight, strike, throwVelocity, trebuchetBase, type Flight, type Vec } from "../src/game/trebuchet";
 import { materialAllowed, type Piece } from "../src/game/pieces";
 import { halfCellsOf, saidName, type Environment } from "../src/game/environments";
@@ -848,9 +849,19 @@ export class World extends DurableObject<Env> {
     }, wait);
   }
 
+  /** This world's own solid things just now (see WorldServer.solids). */
+  private solidThings(): readonly Box[] {
+    try {
+      return serverOf(this.environment).solids?.(this.room()) ?? [];
+    } catch (error) {
+      console.error(error);
+      return [];
+    }
+  }
+
   /** Where a shot comes down: the first piece or the ground (the shared rules), or something of the world's own before that. */
   private whereItLands(flight: Flight, ignore: string): { time: number; point: Vec } {
-    const impact = findImpact(this.build, flight, ignore, this.environment);
+    const impact = findImpact(this.build, flight, ignore, this.environment, 0, () => this.solidThings());
     const own = serverOf(this.environment).shotHits?.(this.room(), flight);
     return own && own.time < impact.time ? own : impact;
   }
@@ -939,7 +950,7 @@ export class World extends DurableObject<Env> {
       // Not thrown: only someone who was standing on (or right by) a piece that went can fall.
       // (Anyone else, mid-jump say, is left alone.)
       if (!v && !gone.some((p) => wasStandingOn(p, centre, this.environment))) continue;
-      let fall = planFall(this.build, centre, v ?? [0, 0, 0], this.environment);
+      let fall = planFall(this.build, centre, v ?? [0, 0, 0], this.environment, () => this.solidThings());
       // Still standing on something: no fall.
       // A small drop (a step, a trebuchet's base) is left to the builder's own physics:
       // only a real fall knocks them down.
@@ -969,7 +980,7 @@ export class World extends DurableObject<Env> {
       // go, to whatever is under them now, the same way they were coming down.
       if (![...this.players.values()].includes(player)) return;
       // (A flight that ends in the air on purpose leaves them there: from then on they fly themselves.)
-      const on = planFall(this.build, fall.land, [0, 0, 0], this.environment);
+      const on = planFall(this.build, fall.land, [0, 0, 0], this.environment, () => this.solidThings());
       if (!planned.aloft && fall.land[1] - on.land[1] > 0.3) this.fly(player, fall.glideFrom === undefined ? on : { ...on, glideFrom: 0 });
     }, fall.time * 1000);
   }
@@ -1029,6 +1040,7 @@ export class World extends DurableObject<Env> {
       remove: (ids, by) => this.takeOut(ids, by),
       wear: (point, hits, by) => this.wear(point, hits, by),
       test: () => this.name.startsWith("test-"),
+      solidThings: () => this.solidThings(),
       toWorld: async (worldId, data) => {
         const to = WORLDS.find((w) => w.id === worldId);
         if (!to || to === this.environment) return undefined;

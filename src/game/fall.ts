@@ -3,6 +3,7 @@ import { CELL, LEVEL, THICK } from "./constants";
 import { halfCellsOf, type Environment, type RoofShape } from "./environments";
 import { normalizeSpec, type Piece } from "./pieces";
 import { roofHeight } from "./roofs";
+import { Solids, type Box } from "./solids";
 import { TREBUCHET_BASE, type Vec } from "./trebuchet";
 
 /**
@@ -74,6 +75,8 @@ export function standHeight(p: Piece, x: number, z: number, roof: RoofShape = "p
   }
   if (u < -r || u > 1 + r || w < -r || w > 1 + r) return null;
   const cu = Math.min(1, Math.max(0, u)), cw = Math.min(1, Math.max(0, w));
+  // A floor with a tile cut out has a hole there.
+  if (s.type === "floor" && p.edit && (p.edit & (1 << ((cu >= 0.5 ? 1 : 0) + (cw >= 0.5 ? 2 : 0)))) !== 0) return null;
   switch (s.type) {
     case "floor":
       return base + THICK / 2;
@@ -88,22 +91,21 @@ export function standHeight(p: Piece, x: number, z: number, roof: RoofShape = "p
   }
 }
 
-/** True when a body centred at `c` runs into the side of a wall (not standing on its top). */
-function hitsWallSide(p: Piece, c: Vec): boolean {
-  if (p.type !== "wall") return false;
-  const top = standHeight(p, c[0], c[2]);
-  if (top === null) return false;
-  const feet = c[1] - HALF, head = c[1] + HALF;
-  return feet < top - 0.25 && head > p.y * LEVEL;
-}
+/** How the straight middle of the builder's body reaches up and down from its centre: with the radius, 1.8 m tall. */
+const MIDDLE = HALF - RADIUS;
+/** Stored points of a flight are this many a second: close enough that a straight line between two never cuts a corner. */
+export const PATH_RATE = 30;
 
 /**
- * Plans a fall from `from` (body centre) with starting velocity `v`: gravity
- * pulls, the side of a wall stops the sideways motion, the underside of
- * something stops a rise, and the first surface met on the way down (or the
- * ground) is where they land.
+ * Plans a fall from `from` (body centre) with starting velocity `v`, against
+ * the build as it is drawn (a door cut in a wall is a way through, a ramp is
+ * a slope, a roof its own shape), and a world's own solid things (`extra`):
+ * gravity pulls, running into the side of anything stops the sideways
+ * motion, the underside of anything stops a rise, and the first surface met
+ * on the way down (or the ground) is where they land.
  */
-export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment): Fall {
+export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment, extra: () => readonly Box[] = () => []): Fall {
+  const solids = new Solids(state, env, extra);
   let [x, y, z] = from;
   let [vx, vy, vz] = v;
   const path: Vec[] = [[x, y, z]];
@@ -118,32 +120,24 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment)
     if (nz !== z + vz * STEP) vz = 0;
     let ny = y + vy * STEP;
     vy -= env.gravity * STEP;
-    const near = state.near(nx, ny - HALF, nz).concat(state.near(nx, ny + HALF, nz));
-    // Into a wall: lose the sideways speed and slide down it.
-    if (near.some((p) => hitsWallSide(p, [nx, ny, nz]))) {
+    // Into the side of something (not just onto its top): lose the sideways speed and slide down it.
+    if ((nx !== x || nz !== z) && solids.touch([nx, y, nz], RADIUS, MIDDLE, { stepUp: 0.25 })) {
       vx = vz = 0;
     } else {
       x = nx;
       z = nz;
     }
-    // Rising into the underside of a floor or anything above: stop rising.
+    // Rising into the underside of anything: stop rising.
     if (vy > 0) {
-      for (const p of near) {
-        if (p.type !== "floor") continue;
-        const under = p.y * LEVEL - THICK / 2;
-        if (standHeight(p, x, z, env.roof) !== null && y + HALF <= under && ny + HALF > under) {
-          ny = under - HALF;
-          vy = 0;
-        }
+      const under = solids.ceilingOver(x, z, y + HALF, RADIUS * 0.7);
+      if (ny + HALF > under) {
+        ny = Math.min(y, under - HALF);
+        vy = 0;
       }
     }
     // Coming down onto something, or the ground.
     if (vy <= 0) {
-      let surface = 0;
-      for (const p of near) {
-        const h = standHeight(p, x, z, env.roof);
-        if (h !== null && h <= y - HALF + 0.05 && h > surface) surface = h;
-      }
+      const surface = solids.surfaceUnder(x, z, y - HALF, RADIUS * 0.7, 2 * LEVEL);
       if (ny - HALF <= surface) {
         const land: Vec = [x, surface + HALF, z];
         path.push(land);
@@ -151,7 +145,7 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment)
       }
     }
     y = ny;
-    if (Math.floor((t + STEP) * 10 + 1e-9) !== Math.floor(t * 10 + 1e-9)) path.push([x, y, z]);
+    if (Math.floor((t + STEP) * PATH_RATE + 1e-9) !== Math.floor(t * PATH_RATE + 1e-9)) path.push([x, y, z]);
   }
   return { from, v, time: t, land: [x, Math.max(HALF, y), z], path };
 }
@@ -159,10 +153,12 @@ export function planFall(state: BuildState, from: Vec, v: Vec, env: Environment)
 /** Where a fall puts the body's centre `t` seconds after it starts. */
 export function fallPosition(f: Fall, t: number): Vec {
   if (t >= f.time) return f.land;
-  // Between the stored points (a tenth of a second apart, the last being the landing).
-  const i = Math.min(f.path.length - 2, Math.floor(t * 10));
+  // Between the stored points (PATH_RATE a second, the last being the landing). A flight sent by a server from before
+  // the points were closer has them a tenth of a second apart: told by how many there are for its time.
+  const rate = f.path.length - 2 > f.time * 12 ? PATH_RATE : 10;
+  const i = Math.min(f.path.length - 2, Math.floor(t * rate));
   const a = f.path[i]!, b = f.path[i + 1]!;
-  const t0 = i / 10, t1 = i + 1 === f.path.length - 1 ? f.time : (i + 1) / 10;
+  const t0 = i / rate, t1 = i + 1 === f.path.length - 1 ? f.time : (i + 1) / rate;
   const k = Math.min(1, Math.max(0, (t - t0) / Math.max(1e-6, t1 - t0)));
   return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 }

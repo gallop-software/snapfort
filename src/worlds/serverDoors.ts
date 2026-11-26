@@ -2,6 +2,7 @@ import type { BuildState } from "../game/buildState";
 import type { Environment } from "../game/environments";
 import type { Fall } from "../game/fall";
 import type { Piece } from "../game/pieces";
+import type { Box } from "../game/solids";
 import type { Flight, Vec } from "../game/trebuchet";
 
 /**
@@ -45,6 +46,12 @@ export interface WorldServer {
    * this world's own stands where it would go, so it cannot.
    */
   blocks?(room: Room, piece: Piece): boolean;
+  /**
+   * This world's own solid things just now, as boxes in metres (see
+   * `Room.solidThings`): thrown builders land on them and are stopped by
+   * them, stones burst on them. Optional: none.
+   */
+  solids?(room: Room): readonly Box[];
   /**
    * A builder wants to put this piece in the build: false refuses it (as
    * `blocks` does, but knowing who asks). After the action it came in,
@@ -131,6 +138,13 @@ export interface Room {
   wear?(point: Vec, hits: readonly (readonly [string, number])[], by: string): void;
   /** True in a test room on a developer's own computer (there are none on the live site): what is only for checks may be allowed there. */
   test?(): boolean;
+  /**
+   * This world's own solid things just now (boxes in metres: a launcher, a
+   * parked vehicle, a building), as `WorldServer.solids` gives them: for the
+   * shared rules' questions (a throw, a stone, where something comes down),
+   * so they meet them as they meet pieces.
+   */
+  solidThings?(): readonly Box[];
   /**
    * Sends plain data to another world's server half (its `fromWorld`), waking
    * that world if it sleeps. Resolves with its answer; undefined when there is

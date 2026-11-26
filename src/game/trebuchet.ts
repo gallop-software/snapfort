@@ -1,4 +1,5 @@
 import type { BuildState } from "./buildState";
+import { Solids, type Box } from "./solids";
 import { CELL, LEVEL, THICK } from "./constants";
 import type { Environment } from "./environments";
 import { gridBox, type Piece } from "./pieces";
@@ -181,16 +182,17 @@ export interface Impact {
  * Where the stone lands: the first piece (other than the trebuchet throwing it)
  * that it touches on its way, else the ground. Starting `fromTime` seconds in.
  */
-export function findImpact(state: BuildState, f: Flight, ignoreId: string, env: Environment, fromTime = 0): Impact {
+export function findImpact(state: BuildState, f: Flight, ignoreId: string, env: Environment, fromTime = 0, extra: () => readonly Box[] = () => []): Impact {
   const speed = Math.hypot(...f.v) + f.g * f.time;
   const step = Math.min(0.05, 0.3 / speed);
   const limit = f.time * 2.5;
+  // (Against the build as drawn: a stone goes through a window cut in a wall, and bursts on a ramp's slope, not over it.)
+  const solids = new Solids(state, env, extra);
   for (let t = Math.max(fromTime, step); t <= limit; t += step) {
     const q = positionAt(f, t);
     if (q[1] <= 0) return { time: t, point: [q[0], 0, q[2]] };
-    for (const p of state.near(q[0], q[1], q[2])) {
-      if (p.id !== ignoreId && distanceToPiece(p, q, env) <= env.siege.stoneRadius) return { time: t, point: q, pieceId: p.id };
-    }
+    const hit = solids.touch(q, env.siege.stoneRadius, 0, { stones: true, ignore: ignoreId });
+    if (hit) return { time: t, point: q, ...(hit.column.piece ? { pieceId: hit.column.piece } : {}) };
   }
   const q = positionAt(f, limit);
   return { time: limit, point: q };

@@ -64,6 +64,25 @@ import { clock, Hud, showStats, type HotbarItem } from "./ui/hud";
 
 type Tool = PieceType | "remove";
 /** The tools every world has. A world may add its own after them (WorldPage.tools). */
+/** Seconds in one step of the physics world. */
+const PHYSICS_STEP = 1 / 60;
+
+/**
+ * Havok, stepped in fixed steps: as many as the time since the last frame
+ * holds (at most six, so a long stall does not freeze the page catching up),
+ * the rest carried over. A frame that comes sooner than a step takes none.
+ */
+class SteadyHavok extends HavokPlugin {
+  private carry = 0;
+  override executeStep(delta: number, bodies: Parameters<HavokPlugin["executeStep"]>[1]): void {
+    this.carry = Math.min(this.carry + delta, PHYSICS_STEP * 6);
+    while (this.carry >= PHYSICS_STEP - 1e-6) {
+      super.executeStep(PHYSICS_STEP, bodies);
+      this.carry -= PHYSICS_STEP;
+    }
+  }
+}
+
 const SHARED_TOOLS: readonly Tool[] = ["wall", "floor", "ramp", "roof", "remove", "trebuchet"];
 /** Quick keys beside WASD, one per piece. F1 to F4 and the number keys work too. */
 const TOOL_KEYS: Record<Tool, string> = { wall: "Z", floor: "F", ramp: "X", roof: "C", remove: "V", trebuchet: "B" };
@@ -113,8 +132,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   scene.skipPointerMovePicking = true;
 
   const havok = await HavokPhysics({ locateFile: () => havokWasmUrl });
-  // The world's pull on rubble.
-  scene.enablePhysics(new Vector3(0, -env.rubbleGravity, 0), new HavokPlugin(true, havok));
+  // The world's pull on rubble. The world moves in fixed steps, as many as the time since the last frame holds (the rest
+  // carried over to the next), so rubble falls and bounces the same on every computer, however fast it draws.
+  scene.enablePhysics(new Vector3(0, -env.rubbleGravity, 0), new SteadyHavok(true, havok));
   const physics = scene.getPhysicsEngine() as PhysicsEngine;
 
   // Game logic: plain modules that know nothing about rendering.
@@ -195,7 +215,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
       hud.banner(wave === 1 ? "The army is here!" : `Wave ${wave}: ${soldiers} soldiers`);
       sfx.horn();
     },
-  });
+  }, Math.random, env);
 
   /** The selected hotbar slot, or -1 when nothing is selected (just running around). */
   /** A colour the world has dressed this player in, in place of their own (see PageGame.wear). */

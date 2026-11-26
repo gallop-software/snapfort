@@ -87,7 +87,7 @@ export class SoldierView {
       m[o] = cos; m[o + 1] = 0; m[o + 2] = -sin; m[o + 3] = 0;
       m[o + 4] = 0; m[o + 5] = 1; m[o + 6] = 0; m[o + 7] = 0;
       m[o + 8] = sin; m[o + 9] = 0; m[o + 10] = cos; m[o + 11] = 0;
-      m[o + 12] = s.x + sin * lunge; m[o + 13] = hop; m[o + 14] = s.z + cos * lunge; m[o + 15] = 1;
+      m[o + 12] = s.x + sin * lunge; m[o + 13] = s.y + hop; m[o + 14] = s.z + cos * lunge; m[o + 15] = 1;
     }
     // Count first: Babylon uploads only the first `thinInstanceCount` entries.
     this.mesh.thinInstanceCount = count;

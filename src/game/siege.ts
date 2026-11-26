@@ -1,6 +1,8 @@
 import type { BuildState } from "./buildState";
 import { CELL, WORLD_HALF_CELLS } from "./constants";
 import { pieceTransform, type Piece, type PieceType } from "./pieces";
+import type { Environment } from "./environments";
+import { Solids } from "./solids";
 import { findUnsupported } from "./structure";
 
 /**
@@ -46,6 +48,8 @@ export function soldierSpeed(wave: number): number {
 export interface Soldier {
   x: number;
   z: number;
+  /** How high its feet are: on the ground, or on a floor laid there. */
+  y: number;
   /** Direction faced, radians, 0 = toward +z. */
   heading: number;
   /** True while battering a piece. */
@@ -83,19 +87,26 @@ export class Siege {
   private readonly lastHit = new Map<string, number>();
   /** Pieces standing on the ground that block the army: what it goes for when the builder is out of reach. */
   private readonly ground = new Map<string, Piece>();
+  /** The cells with a piece of the ground storey in them ("x,z"): elsewhere a soldier has nothing to run into, and is not checked. */
+  private readonly groundCells = new Map<string, number>();
+  private readonly solids: Solids;
   private structureDirty = false;
 
   constructor(
     private readonly state: BuildState,
     private readonly hooks: SiegeHooks = {},
     private readonly rand: () => number = Math.random,
+    /** The world's shapes (its roof, its siege engines' height): what soldiers run into is the build as drawn there. */
+    env: Pick<Environment, "roof" | "siege"> = { roof: "pyramid", siege: { launchHeight: 6 } as Environment["siege"] },
   ) {
+    this.solids = new Solids(state, env as Environment);
     for (const piece of state.all()) this.track(piece);
     state.subscribe((op, piece) => {
       if (op.kind === "place") this.track(piece);
-      else if (op.kind === "edit") {
+      else if (op.kind === "remove") this.untrack(piece);
+      if (op.kind === "edit") {
         if (this.ground.has(piece.id)) this.ground.set(piece.id, piece);
-      } else {
+      } else if (op.kind === "remove") {
         this.ground.delete(piece.id);
         this.hits.delete(piece.id);
         this.lastHit.delete(piece.id);
@@ -183,20 +194,19 @@ export class Siege {
             }
           }
         }
-        const cx = Math.floor(s.x / CELL), cz = Math.floor(s.z / CELL);
+        // A step along each way in turn, unless its body would run into something (as the pieces are drawn: a door cut
+        // in a wall lets it through; a floor's edge is stepped onto).
         const nx = s.x + vx * dt;
-        const leadX = Math.floor((nx + Math.sign(vx) * r) / CELL);
-        const hitX = leadX === cx ? undefined : this.blockerBetween(cx, cz, leadX, cz);
+        const hitX = this.blockerAt(nx, s.y, s.z, r);
         if (hitX) blocker = hitX;
         else s.x = nx;
         const nz = s.z + vz * dt;
-        const cx2 = Math.floor(s.x / CELL);
-        const leadZ = Math.floor((nz + Math.sign(vz) * r) / CELL);
-        const hitZ = leadZ === cz ? undefined : this.blockerBetween(cx2, cz, cx2, leadZ);
+        const hitZ = this.blockerAt(s.x, s.y, nz, r);
         if (hitZ) {
           // Prefer the piece that is more squarely in the way.
           if (!blocker || Math.abs(dz) > Math.abs(dx)) blocker = hitZ;
         } else s.z = nz;
+        s.y = this.nearPieces(s.x, s.z, r) ? this.solids.surfaceUnder(s.x, s.z, s.y + 0.35, r * 0.5, 1) : 0;
       }
 
       if (dist > 0.05) {
@@ -220,16 +230,33 @@ export class Siege {
 
   private track(piece: Piece): void {
     if (piece.y === 0 && piece.type !== "floor") this.ground.set(piece.id, piece);
+    if (piece.y === 0) this.groundCells.set(`${piece.x},${piece.z}`, (this.groundCells.get(`${piece.x},${piece.z}`) ?? 0) + 1);
   }
 
-  /** The piece stopping a soldier on the ground from stepping between two neighbouring cells. */
-  private blockerBetween(fromX: number, fromZ: number, toX: number, toZ: number): Piece | undefined {
-    const wall =
-      toX !== fromX
-        ? this.state.occupant({ type: "wall", x: Math.max(fromX, toX), y: 0, z: fromZ, rot: 1 })
-        : this.state.occupant({ type: "wall", x: fromX, y: 0, z: Math.max(fromZ, toZ), rot: 0 });
-    // Ramps and roofs fill their cell.
-    return wall ?? this.state.occupant({ type: "roof", x: toX, y: 0, z: toZ, rot: 0 });
+  private untrack(piece: Piece): void {
+    if (piece.y !== 0) return;
+    const key = `${piece.x},${piece.z}`, n = (this.groundCells.get(key) ?? 0) - 1;
+    if (n > 0) this.groundCells.set(key, n);
+    else this.groundCells.delete(key);
+  }
+
+  /** Whether any piece of the ground storey is in, or on the edge of, a cell a body of radius `r` at (x, z) reaches into. */
+  private nearPieces(x: number, z: number, r: number): boolean {
+    const m = r + 0.3;
+    for (const cx of new Set([Math.floor((x - m) / CELL), Math.floor((x + m) / CELL)])) {
+      for (const cz of new Set([Math.floor((z - m) / CELL), Math.floor((z + m) / CELL)])) {
+        // (A wall on a cell's high edge belongs to the next cell over.)
+        for (const [ox, oz] of [[0, 0], [1, 0], [0, 1]] as const) if (this.groundCells.has(`${cx + ox},${cz + oz}`)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** The piece a soldier's body (feet at `y`) would run into at (x, z), or none. */
+  private blockerAt(x: number, y: number, z: number, r: number): Piece | undefined {
+    if (!this.nearPieces(x, z, r)) return undefined;
+    const hit = this.solids.touch([x, y + 0.9, z], r, 0.9 - r, { stepUp: 0.35 });
+    return hit?.column.piece ? this.state.get(hit.column.piece) : undefined;
   }
 
   private nearestGroundPiece(x: number, z: number): Piece | undefined {
@@ -290,6 +317,7 @@ export class Siege {
         this.soldiers.push({
           x: Math.max(-limit, Math.min(limit, x)),
           z: Math.max(-limit, Math.min(limit, z)),
+          y: 0,
           heading: angle + Math.PI,
           attacking: false,
           cooldown: this.rand() * SIEGE.hitInterval,

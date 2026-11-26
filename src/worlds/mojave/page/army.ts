@@ -62,6 +62,8 @@ export interface SeenUnit {
   tumble: { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; spin: number; axis: number } | null;
   /** When it was last hit (for its flash), and whether a blast did it (a Trooper flinches at a bullet, flies from a blast). */
   hitAt: number;
+  /** Whether the last word of it put it somewhere new: it is really on the move (a unit told to go somewhere may be standing to fire on the way). */
+  going: boolean;
   /** When it came into view (ms): it grows in from then. */
   seenAt: number;
   /** When it went out of view (ms), or 0: it shrinks away from then, and is forgotten. */
@@ -214,9 +216,10 @@ export class ArmyView {
       const x = u[i + 2]! / 10, y = u[i + 3]! / 10, z = u[i + 4]! / 10, h = (u[i + 5]! / 255) * Math.PI * 2;
       let unit = this.units.get(id);
       if (!unit) {
-        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0 };
+        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, going: false, seenAt: now, goneAt: 0 };
         this.units.set(id, unit);
       } else {
+        unit.going = Math.hypot(x - unit.tx, z - unit.tz) > 0.12;
         unit.fx = unit.x;
         unit.fy = unit.y;
         unit.fz = unit.z;
@@ -456,7 +459,8 @@ export class ArmyView {
         else roll = 1.2;
       }
     }
-    const moving = (u.flags & F_MOVING) !== 0;
+    // On the move: told to be, and really covering ground (word of a moving unit comes five times a second).
+    const moving = (u.flags & F_MOVING) !== 0 && u.going && now - u.at < 450;
     const c = rgbOf(this.colorOf(u.owner));
     // A flash of white when hit; cold and dim when stopped by an EMP.
     const flash = Math.max(0, 1 - (now - u.hitAt) / 160);

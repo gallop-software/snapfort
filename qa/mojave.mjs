@@ -215,6 +215,7 @@ wa = await war(a);
 check("` selects the whole army (not the Haulers)", wa.sel.length >= 16 && wa.sel.every((id) => wa.units.find((u) => u.id === id).kind !== "hauler"), `selected ${wa.sel.length}`);
 await rowHas(a, ["Attack"]);
 tiles = await row(a);
+check("the bank is still wholly on the screen beside the longer row", await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth - 4 && r.left >= document.getElementById("hotbar").getBoundingClientRect().right; }), await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return `${Math.round(r.left)}–${Math.round(r.right)} of ${innerWidth}`; }));
 check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "B" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 check("with units selected the keys are orders: Z does not pick a wall", await (async () => { await a.keyboard.press("z"); return sf(a, () => !document.querySelector("#hotbar .slot:not(.menu).selected")); })());
 // Troopers are people: drawn in poses, standing now.
@@ -260,7 +261,22 @@ await sf(a, () => {
   }, 50);
 });
 await click(a);
-await wait(22000);
+// While they fight: nobody runs on the spot. A Trooper drawn running is one that is covering ground.
+let ranInPlace = 0, firingStill = 0, before1 = [];
+for (let i = 0; i < 22; i++) {
+  await wait(1000);
+  const seen = await sf(a, () => { const f = window.snapfort.feature, now = performance.now(); const still = []; let firing = 0; for (const u of f.army.units.values()) { if (u.kind !== "trooper" || u.tumble) continue; const told = (u.flags & 1) !== 0, covering = Math.hypot(u.tx - u.fx, u.tz - u.fz) > 0.3 && now - u.at < 450; if (told && !covering && (u.flags & 2)) { firing++; if (u.going && now - u.at < 450) still.push(u.id); } } return { still, firing }; });
+  // (One sighting is the last stride of a Trooper coming to a stand; the same one a second later would be running on the spot.)
+  ranInPlace += seen.still.filter((id) => before1.includes(id)).length; firingStill += seen.firing; before1 = seen.still;
+  if (i === 6) {
+    // (A close look, from beside one of them.)
+    await sf(a, () => { const s = window.snapfort, f = s.feature; const t = [...f.army.units.values()].find((u) => u.kind === "trooper" && u.owner === f.slot && (u.flags & 2) && !u.tumble); if (!t) return; window.backTo = [s.player.position.x, s.player.position.z, s.rig.yaw, s.rig.pitch]; s.player.teleport(t.x - Math.cos(t.h) * 7, 0.95, t.z + Math.sin(t.h) * 7); s.rig.yaw = Math.atan2(t.x - s.player.position.x, t.z - s.player.position.z); s.rig.pitch = 0.12; });
+    await wait(350);
+    await a.screenshot({ path: "qa/shots/mojave-firing.png" });
+    await sf(a, () => { const s = window.snapfort, b = window.backTo; if (b) { s.player.teleport(b[0], 0.95, b[1]); s.rig.yaw = b[2]; s.rig.pitch = b[3]; } });
+  }
+}
+check("a Trooper standing to fire on the way somewhere holds the rifle up: nobody runs on the spot", ranInPlace === 0, `${firingStill} sightings of a Trooper firing from where it stood while told to go on, ${ranInPlace} drawn running`);
 wa = await war(a);
 const enemiesLeft = wa.units.filter((u) => u.owner === 8 && Math.hypot(u.x - enemyAt[0], u.z - enemyAt[1]) < 40).length;
 check("an attack-move fights what it meets: the enemy line is destroyed", enemiesLeft <= 2, `${enemiesLeft} of 12 left`);

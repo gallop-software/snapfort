@@ -18,6 +18,11 @@ body.scoped #mj-map { display: none; }
 #mj-bank[hidden], #mj-status[hidden] { display: none !important; }
 .mj-bank .sw { width: 18px; height: 18px; border-radius: 6px; border: 2px solid #fff8ea; flex: none; }
 body.touch .mj-bank .sw { width: 11px; height: 11px; border-radius: 4px; border-width: 1.5px; }
+/* Beside the row (a computer): each number under its name, so the bank is narrow enough to stay on the screen beside a long row of tiles. */
+#material .mj-bank > span:not(.sw) { display: flex; flex-direction: column; line-height: 1.15; }
+#material .mj-bank i { font-size: 10.5px; margin: 0; }
+#material .mj-bank .up { font-size: 10.5px; max-width: 54px; white-space: normal; }
+@media (max-width: 1180px) { #material.own { left: auto; right: 0; bottom: calc(100% + 46px); } }
 .mj-bank b { font-weight: 900; font-variant-numeric: tabular-nums; }
 .mj-bank .li b { color: #8fe8e0; }
 .mj-bank .pl b { color: #c9a2ff; }
@@ -123,7 +128,7 @@ export class Panel {
     this.bankHtml = html;
     this.bank.hidden = !bank;
     this.bank.innerHTML = html;
-    this.badge(bank ? `<span class="mj-bank" id="mj-bank-row" style="display:flex;gap:14px;align-items:center">${html}</span>` : null);
+    this.badge(bank ? `<span class="mj-bank" id="mj-bank-row" style="display:flex;gap:12px;align-items:center">${html}</span>` : null);
   }
 
   /** A line of what is selected or being done, on phones (a computer has it above the row). Null: none. */

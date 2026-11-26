@@ -2,6 +2,7 @@ import { CELL, LEVEL } from "../../../game/constants";
 import { gridBox, type Piece, type PieceSpec } from "../../../game/pieces";
 import type { PageGame, RowTile, WorldFeature } from "../../pageDoors";
 import {
+  buildingBox,
   BUILDING_KINDS,
   BUILDINGS,
   EMP,
@@ -1160,10 +1161,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     // Buildings stand still: as boxes, for the page's questions of what is solid (where to put a general down, say).
     solids() {
       const out: [number, number, number, number, number, number][] = [];
-      for (const b of army.buildings.values()) {
-        const def = BUILDINGS[b.kind];
-        out.push([b.x * CELL, 0, b.z * CELL, (b.x + def.size) * CELL, def.height * 0.8, (b.z + def.size) * CELL]);
-      }
+      for (const b of army.buildings.values()) out.push(buildingBox(b.kind, b.x, b.z));
       return out;
     },
     reports,

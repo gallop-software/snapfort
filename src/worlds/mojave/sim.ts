@@ -1,9 +1,10 @@
 import type { BuildState } from "../../game/buildState";
-import { CELL, LEVEL } from "../../game/constants";
+import { CELL, LEVEL, THICK } from "../../game/constants";
 import type { Environment } from "../../game/environments";
 import { gridBox, type Piece } from "../../game/pieces";
 import { distanceToPiece, type Vec } from "../../game/trebuchet";
 import {
+  buildingBox,
   BUILDINGS,
   BUILDING_KINDS,
   DIG_TIME,
@@ -38,7 +39,7 @@ import {
   type Weapon,
 } from "./kit";
 import { makeFields, mid, REFILL_MS, sentryPosts, STARTS, type Field } from "./map";
-import { DX, DZ, INF, INFANTRY, Nav, NO_OWNER, OPEN_WAY, SHUT_WAY, VEHICLE, WALL_WAY, type Flow, type MoveClass, type Node } from "./nav";
+import { DX, DZ, INF, INFANTRY, Nav, NO_OWNER, OPEN_WAY, SHUT_WAY, TOWERING, VEHICLE, WALL_WAY, type Flow, type MoveClass, type Node } from "./nav";
 import { HALF_CELLS } from "./world";
 
 /**
@@ -285,7 +286,8 @@ export const ARMY_COLORS = ["#e8463a", "#3a7be8", "#f2c230", "#3fbf5f", "#b455e0
 
 const dist2 = (ax: number, az: number, bx: number, bz: number) => (ax - bx) * (ax - bx) + (az - bz) * (az - bz);
 const clampEdge = (v: number) => Math.max(-EDGE, Math.min(EDGE, v));
-const classOf = (def: UnitDef): MoveClass => (def.infantry ? INFANTRY : VEHICLE);
+/** On foot; a vehicle; or a vehicle taller than a storey, which cannot go under a floor (a Titan). */
+const classOf = (def: UnitDef): MoveClass => (def.infantry ? INFANTRY : def.height > LEVEL - THICK ? TOWERING : VEHICLE);
 /** A number from 0 to 1 that is always the same for the same unit: for spreading units out. */
 const scatter = (id: number, salt: number) => (((id * 2654435761 + salt * 40503) >>> 0) % 1000) / 1000;
 
@@ -339,7 +341,8 @@ export class Sim {
     for (const f of this.fields) {
       this.fieldById.set(f.id, f);
       this.fieldAt.set(`${f.cx},${f.cz}`, f);
-      this.nav.fill(f.cx, f.cz, 1, true);
+      // (Low on the ground: no way through, but shots pass over.)
+      this.nav.fill(f.cx, f.cz, 1, true, false);
     }
     this.posts = sentryPosts().map(([x, z]) => ({ x, z, unit: 0, deadAt: -1e9 }));
     // (Nobody is near anybody yet.)
@@ -545,16 +548,35 @@ export class Sim {
       if (this.footprint.has(`${cx},${cz}`)) return "That vent already has a Tap";
       return "";
     }
+    // Every storey it stands up through.
+    const storeys = Math.ceil(def.height / LEVEL);
     for (let x = cx; x < cx + def.size; x++) {
       for (let z = cz; z < cz + def.size; z++) {
         if (!this.nav.clearGround(x, z) || this.footprint.has(`${x},${z}`)) return "Something is in the way";
-        // Nothing built in the cell, on its ground or along its inner edges.
-        if (this.build.occupant({ type: "floor", x, y: 0, z, rot: 0 })) return "Something is built there";
-        if (x > cx && this.build.occupant({ type: "wall", x, y: 0, z, rot: 1 })) return "Something is built there";
-        if (z > cz && this.build.occupant({ type: "wall", x, y: 0, z, rot: 0 })) return "Something is built there";
+        // Nothing built in the cell (on its ground or over it) or along its inner edges.
+        for (let y = 0; y < storeys; y++) {
+          if (this.build.occupant({ type: "floor", x, y, z, rot: 0 }) || this.build.occupant({ type: "ramp", x, y, z, rot: 0 })) return "Something is built there";
+          if (x > cx && this.build.occupant({ type: "wall", x, y, z, rot: 1 })) return "Something is built there";
+          if (z > cz && this.build.occupant({ type: "wall", x, y, z, rot: 0 })) return "Something is built there";
+        }
+      }
+    }
+    // Nobody stands where it goes: a general is not built into (units are moved out of the way).
+    const x0 = cx * CELL - 0.45, z0 = cz * CELL - 0.45, x1 = (cx + def.size) * CELL + 0.45, z1 = (cz + def.size) * CELL + 0.45;
+    for (const other of this.generals) {
+      for (const pid of other?.here ?? []) {
+        const at = this.host.positionOf(pid);
+        if (at && at[0] > x0 && at[0] < x1 && at[2] > z0 && at[2] < z1 && at[1] < def.height + 1) return "A general is standing there";
       }
     }
     return "";
+  }
+
+  /** Every building standing, as it is drawn (for the shared rules' questions: a builder thrown, a stone). */
+  solidBoxes(): [number, number, number, number, number, number][] {
+    const out: [number, number, number, number, number, number][] = [];
+    for (const b of this.buildings.values()) if (!b.dead) out.push(buildingBox(b.kind, b.cx, b.cz));
+    return out;
   }
 
   /** A routed general's free Core is ready. */
@@ -1044,6 +1066,7 @@ export class Sim {
       this.think(u, i);
     }
     this.separate();
+    this.flyOver();
     for (const b of this.buildings.values()) this.guard(b);
     this.landShells();
     if (this.step % 3 === 0) this.passWear();
@@ -1537,7 +1560,8 @@ export class Sim {
     found.sort((a, b) => a.score - b.score);
     // Of those it could shoot from here, one with a clear line is better than one behind a wall (which it would have to go round).
     for (const f of found.slice(0, 4)) {
-      const blocked = !w.lob && !air && !f.flying && f.d <= range && !this.nav.clearLine(u.x, u.z, f.x, f.z, Math.max(u.level, f.l));
+      const slack = f.tk === T_BUILDING ? (BUILDINGS[this.buildings.get(f.tid as number)!.kind].size * CELL) / 2 : 0;
+      const blocked = !w.lob && !air && !f.flying && f.d <= range && !this.nav.clearLine(u.x, u.z, f.x, f.z, Math.max(u.level, f.l), slack);
       if (!blocked) return f;
       f.score += 0.4;
     }
@@ -1580,7 +1604,7 @@ export class Sim {
     const d = Math.hypot(tx - x, tz - z) - slack;
     if (d > range || (w.minRange && d < w.minRange)) return "far";
     // A straight shot needs a clear line; drones and shells in an arc do not.
-    if (!w.lob && !air && !flying && !this.nav.clearLine(x, z, tx, tz, Math.max(level, tl))) return "far";
+    if (!w.lob && !air && !flying && !this.nav.clearLine(x, z, tx, tz, Math.max(level, tl), slack)) return "far";
     return "ok";
   }
 
@@ -1604,7 +1628,7 @@ export class Sim {
       const c = this.centreOf(b);
       const d = Math.max(0, Math.hypot(c[0] - x, c[2] - z) - (BUILDINGS[b.kind].size * CELL) / 2);
       if (d * d >= bestD || d * d < min2) continue;
-      if (!w.lob && !air && !this.nav.clearLine(x, z, c[0], c[2], level)) continue;
+      if (!w.lob && !air && !this.nav.clearLine(x, z, c[0], c[2], level, (BUILDINGS[b.kind].size * CELL) / 2)) continue;
       bestD = d * d;
       best = [T_BUILDING, b.id];
     }
@@ -2036,7 +2060,7 @@ export class Sim {
       const s = Math.min(reach, near);
       u.x = clampEdge(u.x + ((goal.ox - u.x) / near) * s);
       u.z = clampEdge(u.z + ((goal.oz - u.z) / near) * s);
-      u.y = FLIGHT_HEIGHT;
+      // (How high: see flyOver.)
       return;
     }
     if (near <= 0.7 + def.radius * 0.4 && this.t >= u.downUntil) {
@@ -2149,12 +2173,71 @@ export class Sim {
         cz += DZ[dir]!;
       } else nz = Math.max(cz * CELL + 0.05, Math.min((cz + 1) * CELL - 0.05, nz));
     }
+    // Its body's edge, not its middle, is what stops at a wall or a building: kept its width from any edge of its cell it cannot cross.
+    // (Never more than nearly half a cell: something wider still fits down a lane one cell across.)
+    const r = Math.min(UNITS[u.kind].radius, CELL / 2 - 0.1);
+    const lowX = cx * CELL, highX = (cx + 1) * CELL, lowZ = cz * CELL, highZ = (cz + 1) * CELL;
+    // (A wall stands half its thickness either side of the edge: that much further.)
+    const keep = (d: number): number => {
+      const way = this.nav.cross(l, cx, cz, d, cls);
+      return way === OPEN_WAY ? 0 : way === WALL_WAY ? r + THICK / 2 : r;
+    };
+    const reach = r + THICK / 2;
+    if (nx - lowX < reach) nx = Math.max(nx, lowX + keep(3));
+    if (highX - nx < reach) nx = Math.min(nx, highX - keep(1));
+    if (nz - lowZ < reach) nz = Math.max(nz, lowZ + keep(2));
+    if (highZ - nz < reach) nz = Math.min(nz, highZ - keep(0));
+    // Near a corner of its cell with both cells beside it open, but not the one across the corner (a building's or a wall's end):
+    // kept its width from the corner itself.
+    const sx = nx - lowX < reach ? -1 : highX - nx < reach ? 1 : 0, sz = nz - lowZ < reach ? -1 : highZ - nz < reach ? 1 : 0;
+    if (sx !== 0 && sz !== 0) {
+      const dirX = sx > 0 ? 1 : 3, dirZ = sz > 0 ? 0 : 2;
+      const viaX = this.nav.cross(l, cx, cz, dirX, cls) === OPEN_WAY && this.nav.cross(this.nav.toL, cx + sx, cz, dirZ, cls) === OPEN_WAY;
+      const viaZ = this.nav.cross(l, cx, cz, dirZ, cls) === OPEN_WAY && this.nav.cross(this.nav.toL, cx, cz + sz, dirX, cls) === OPEN_WAY;
+      if (!viaX || !viaZ) {
+        const kx = sx > 0 ? highX : lowX, kz = sz > 0 ? highZ : lowZ;
+        const d = Math.hypot(nx - kx, nz - kz);
+        if (d < reach) {
+          const k = d > 1e-6 ? reach / d : 1;
+          nx = d > 1e-6 ? kx + (nx - kx) * k : kx - sx * reach;
+          nz = d > 1e-6 ? kz + (nz - kz) * k : kz - sz * reach;
+        }
+      }
+    }
     u.x = nx;
     u.z = nz;
     u.cx = cx;
     u.cz = cz;
     u.level = l;
     u.y = this.nav.heightAt(l, nx, nz);
+  }
+
+  /**
+   * How high a drone flies over a spot: its usual height, or higher over
+   * anything taller there (a Core, a relay mast, a tower of pieces) within its
+   * width and a little way ahead.
+   */
+  private flightHeight(x: number, z: number, def: UnitDef): number {
+    let top = 0;
+    const reach = def.radius + 3;
+    for (let cx = Math.floor((x - reach) / CELL); cx <= Math.floor((x + reach) / CELL); cx++) {
+      for (let cz = Math.floor((z - reach) / CELL); cz <= Math.floor((z + reach) / CELL); cz++) {
+        top = Math.max(top, this.nav.pieceTop(cx, cz));
+        const b = this.footprint.get(`${cx},${cz}`);
+        if (b !== undefined) top = Math.max(top, BUILDINGS[this.buildings.get(b)?.kind ?? "tap"].height);
+      }
+    }
+    return Math.max(FLIGHT_HEIGHT, top + def.height + 2);
+  }
+
+  /** Every drone rises over whatever is under it (or comes back down to its usual height), moving or not. */
+  private flyOver(): void {
+    for (const u of this.units) {
+      const def = UNITS[u.kind];
+      if (!def.air || u.dead || u.inside) continue;
+      const want = this.flightHeight(u.x, u.z, def);
+      u.y += Math.max(-6 * DT, Math.min(24 * DT, want - u.y));
+    }
   }
 
   /** Units standing in each other push apart (ground with ground, drones with drones). Haulers at work pass through. */

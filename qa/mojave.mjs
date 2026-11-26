@@ -374,6 +374,19 @@ await dev(a, { do: "kill", slot: 8 });
 // ── Nothing walks through anything ───────────────────────────────────────
 const parked = await sf(a, () => { const f = window.snapfort.feature; const t = [...f.army.units.values()].find((u) => u.kind === "tank" && u.owner === f.slot && !u.tumble); return t ? [t.x, t.z, t.id] : null; });
 if (parked) {
+  // Out on its own first, 25 m off: tanks stand in groups, and the general would walk into the one beside it.
+  const lone = await sf(a, ([x, z]) => {
+    const f = window.snapfort.feature;
+    for (const r of [25, 35, 45]) for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+      const crowd = [...f.army.units.values()].some((u) => Math.hypot(u.x - px, u.z - pz) < 14);
+      const built = (f.solids?.() ?? []).some((b) => px > b[0] - 14 && px < b[3] + 14 && pz > b[2] - 14 && pz < b[5] + 14);
+      if (!crowd && !built) return [px, pz];
+    }
+    return [x + 25, z];
+  }, parked);
+  await sf(a, ([id, x, z]) => window.snapfort.net.sendWorld({ m: "order", ids: [id], k: "move", at: [x, 0, z] }), [parked[2], ...lone]);
+  await wait(5000);
   await sf(a, ([, , id]) => window.snapfort.net.sendWorld({ m: "order", ids: [id], k: "hold" }), parked);
   await wait(1500);
   const t = await sf(a, (id) => { const u = window.snapfort.feature.army.units.get(id); return [u.x, u.z, u.h]; }, parked[2]);
@@ -396,7 +409,15 @@ if (parked) {
   await a.keyboard.down("w");
   await wait(2200);
   await a.keyboard.up("w");
-  const walked = await sf(a, () => { const s = window.snapfort; s.scene.onAfterRenderObservable.remove(window.tankWatch); return { inside: window.inTank, nearest: window.nearest }; });
+  const walked = await sf(a, ([x, z]) => {
+    const s = window.snapfort;
+    s.scene.onAfterRenderObservable.remove(window.tankWatch);
+    const p = s.player.position;
+    // (What else stood near, should it be stopped short: buildings' boxes and units within 10 m of the tank.)
+    const near = [...(s.feature.solids?.() ?? [])].filter((b) => Math.hypot((b[0] + b[3]) / 2 - x, (b[2] + b[5]) / 2 - z) < 14).map((b) => b.map((v) => Math.round(v)));
+    const units = [...s.feature.army.units.values()].filter((u) => Math.hypot(u.x - x, u.z - z) < 10).map((u) => `${u.kind}@${Math.round(u.x)},${Math.round(u.z)}`);
+    return { inside: window.inTank, nearest: window.nearest, at: [p.x, p.z].map(Math.round), tank: [x, z].map(Math.round), near, units };
+  }, t);
   check("a general walking into a tank is stopped against it, never inside it", walked.inside === 0 && walked.nearest < 3.2, JSON.stringify(walked));
 }
 

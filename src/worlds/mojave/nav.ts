@@ -25,6 +25,8 @@ import { HALF_CELLS } from "./world";
 export const G = HALF_CELLS * 2;
 const H = HALF_CELLS;
 const FLOOR = 1, BUILDING = 2, RAMP = 4, SOLID = 32;
+/** A building (not a field of crystals or a vent) stands in the cell: shots do not pass through it. */
+const TALL = 64;
 const SHUT = BUILDING | SOLID;
 /** A wall on an edge: present, with a door, and whose it is (a general's slot + 1, shifted). */
 const WALL = 1, DOOR = 2;
@@ -34,8 +36,9 @@ export const NO_OWNER = 15;
 export const DX = [0, 1, 0, -1] as const;
 export const DZ = [1, 0, -1, 0] as const;
 
-export const INFANTRY = 0, VEHICLE = 1;
-export type MoveClass = typeof INFANTRY | typeof VEHICLE;
+/** How a unit gets about: on foot (through doors), as a vehicle, or as a vehicle too tall to go under a floor (a Titan). */
+export const INFANTRY = 0, VEHICLE = 1, TOWERING = 2;
+export type MoveClass = typeof INFANTRY | typeof VEHICLE | typeof TOWERING;
 
 const INF = 0x3fffffff;
 /** A step costs this; breaking through someone's wall, this much more (so a short way round is taken instead). */
@@ -136,13 +139,14 @@ export class Nav {
     else s.flags[i] = on ? s.flags[i]! | SOLID : s.flags[i]! & ~SOLID;
   }
 
-  /** A building or a field fills these ground cells (or no longer does). */
-  fill(cx: number, cz: number, size: number, on: boolean): void {
+  /** A building or a field fills these ground cells (or no longer does). `tall`: a building, which shots do not pass through. */
+  fill(cx: number, cz: number, size: number, on: boolean, tall = true): void {
+    const bits = BUILDING | (tall ? TALL : 0);
     for (let x = cx; x < cx + size; x++) {
       for (let z = cz; z < cz + size; z++) {
         if (!inside(x, z)) continue;
         const i = idx(x, z);
-        this.ground.flags[i] = on ? this.ground.flags[i]! | BUILDING : this.ground.flags[i]! & ~BUILDING;
+        this.ground.flags[i] = on ? this.ground.flags[i]! | bits : this.ground.flags[i]! & ~bits;
       }
     }
     this.version++;
@@ -212,6 +216,30 @@ export class Nav {
     return -1;
   }
 
+  /** True when something is built across cell (x, z) a storey over storey l (a floor, a ramp, a roof): no room under it for something taller than a storey. */
+  lowOver(l: number, x: number, z: number): boolean {
+    return (this.flag(l + 1, x, z) & (FLOOR | RAMP | SOLID)) !== 0 && inside(x, z);
+  }
+
+  /**
+   * The top of the tallest piece built in cell (x, z), m (0 when nothing is):
+   * what something flying over it must clear.
+   */
+  pieceTop(x: number, z: number): number {
+    if (!inside(x, z)) return 0;
+    let top = 0;
+    const i = idx(x, z);
+    for (const [l, s] of this.storeys) {
+      const f = s.flags[i]!;
+      // A wall round the cell, on any of its four edges.
+      const walled = s.wx[i] || s.wz[i] || (inside(x, z + 1) && s.wx[idx(x, z + 1)]) || (inside(x + 1, z) && s.wz[idx(x + 1, z)]);
+      // (A roof or a siege engine, SOLID, may stand taller than its storey.)
+      const h = f & SOLID ? (l + 2) * LEVEL : f & RAMP || walled ? (l + 1) * LEVEL : f & FLOOR ? l * LEVEL + THICK / 2 : 0;
+      if (h > top) top = h;
+    }
+    return top;
+  }
+
   /**
    * A unit in cell (x, z) on storey l goes one cell in direction d: SHUT_WAY,
    * OPEN_WAY (`toL` is the storey it arrives on) or WALL_WAY (a wall stands on
@@ -228,6 +256,8 @@ export class Nav {
     }
     const to = this.enter(height, x + DX[d]!, z + DZ[d]!, d);
     if (to < 0) return SHUT_WAY;
+    // Too tall to go under a floor (or anything else built) over the next cell: no way there.
+    if (cls === TOWERING && this.lowOver(to, x + DX[d]!, z + DZ[d]!)) return SHUT_WAY;
     this.toL = to;
     const w = this.wall(height, x, z, d);
     if (w && !(w & DOOR && cls === INFANTRY)) return WALL_WAY;
@@ -235,7 +265,7 @@ export class Nav {
   }
 
   /** True when nothing stands on any edge a straight line from one spot to another crosses, on that storey (a line of fire). */
-  clearLine(x0: number, z0: number, x1: number, z1: number, l: number): boolean {
+  clearLine(x0: number, z0: number, x1: number, z1: number, l: number, slack = 0): boolean {
     const s = l === 0 ? this.ground : this.storeys.get(l);
     if (!s) return true;
     let cx = Math.floor(x0 / CELL), cz = Math.floor(z0 / CELL);
@@ -261,6 +291,8 @@ export class Nav {
       }
       if (!inside(cx, cz)) return true;
       if (s.flags[idx(cx, cz)]! & SOLID) return false;
+      // A building in the way (on the ground: they stand there) stops it, unless it is the one aimed at: within `slack` of the end.
+      if (l === 0 && s.flags[idx(cx, cz)]! & TALL && Math.hypot((cx + 0.5) * CELL - x1, (cz + 0.5) * CELL - z1) > slack + CELL * 0.71) return false;
     }
     return true;
   }
@@ -476,10 +508,11 @@ export class Nav {
   heightAt(l: number, x: number, z: number): number {
     const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
     const r = this.rampAt(l, cx, cz);
-    if (r < 0) return l === 0 ? 0 : l * LEVEL + THICK / 2;
+    // On a floor's top (a floor on the ground too, half its thickness up), or up a ramp's slope (which starts on the floor's top).
+    if (r < 0) return l === 0 && !(this.flag(0, cx, cz) & FLOOR) ? 0 : l * LEVEL + THICK / 2;
     const u = x / CELL - cx, w = z / CELL - cz;
     const along = r === 0 ? w : r === 1 ? u : r === 2 ? 1 - w : 1 - u;
-    return (l + Math.max(0, Math.min(1, along))) * LEVEL;
+    return (l + Math.max(0, Math.min(1, along))) * LEVEL + THICK / 2;
   }
 }
 

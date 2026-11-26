@@ -16,7 +16,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { CELL } from "../../../game/constants";
 import { Solids } from "../../../game/solids";
 import type { PageGame } from "../../pageDoors";
-import { BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
+import { buildingBox, BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
 import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
 import { Many, place, rgbOf, turn } from "./many";
 import { buildingModel, crystalModel, headModel, MUZZLES, UNIT_HEADS, UNIT_MUZZLES, unitHeadModel, unitModel, ventModel } from "./models";
@@ -318,7 +318,9 @@ export class ArmyView {
       } else {
         unit.fa = unit.a;
         unit.ta = a;
-        unit.going = Math.hypot(x - unit.tx, z - unit.tz) > 0.12;
+        // Drawn running only when it is covering ground (3 m/s or more): the nudges a soldier standing to fire gets from those round it,
+        // or from a wall it is kept off, are not running on the spot.
+        unit.going = Math.hypot(x - unit.tx, z - unit.tz) > 0.3;
         unit.fx = unit.x;
         unit.fy = unit.y;
         unit.fz = unit.z;
@@ -391,12 +393,12 @@ export class ArmyView {
 
   /** A building is solid: builders bump into it, and the crosshair lands on it. */
   private makeSolid(b: SeenBuilding): void {
-    const def = BUILDINGS[b.kind];
-    const size = def.size * CELL;
     const node = new TransformNode(`mojave-solid-${b.i}`, this.scene);
-    node.position.set(b.x * CELL + size / 2, def.height * 0.4, b.z * CELL + size / 2);
+    // As wide and tall as it is drawn (kit.ts: buildingBox).
+    const box = buildingBox(b.kind, b.x, b.z);
+    node.position.set((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2);
     const body = new PhysicsBody(node, PhysicsMotionType.STATIC, false, this.scene);
-    const shape = new PhysicsShapeBox(Vector3.Zero(), Quaternion.Identity(), new Vector3(size * 0.86, def.height * 0.8, size * 0.86), this.scene);
+    const shape = new PhysicsShapeBox(Vector3.Zero(), Quaternion.Identity(), new Vector3(box[3] - box[0], box[4] - box[1], box[5] - box[2]), this.scene);
     body.shape = shape;
     this.solid.push(shape);
     b.body = body;

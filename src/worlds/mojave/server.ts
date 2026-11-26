@@ -1,5 +1,5 @@
 import type { WorldServer } from "../serverDoors";
-import { openWar, warBlocks, warJoined, warLeft, warMayChange, warMayPlace, warMessage, warPlaced } from "./armies";
+import { openWar, warBlocks, warJoined, warLeft, warMayChange, warMayPlace, warMessage, warPlaced, warSolids } from "./armies";
 
 /**
  * What Mojave does on the server beyond the shared rules: the war. There are
@@ -29,6 +29,9 @@ export const server: WorldServer = {
   },
   mayChange(room, playerId, piece) {
     return warMayChange(room, playerId, piece);
+  },
+  solids(room) {
+    return warSolids(room);
   },
   blocks(room, piece) {
     return warBlocks(room, piece);

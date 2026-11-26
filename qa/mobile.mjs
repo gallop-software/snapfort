@@ -257,7 +257,8 @@ const clearAll = () => sf(() => { const s = window.snapfort; for (const q of [..
 await tap("#hotbar .slot:nth-child(3)"); await wait(150); // Ramp
 // Turn lights up, shows the way, and is used once.
 await clearAll(); await wait(300);
-await sf(() => { const s = window.snapfort; s.player.teleport(2.5, 0.95, -60); s.rig.yaw = 0; s.rig.pitch = 0.1; }); await wait(300);
+// (A step back from the cell the ramp goes in: nothing is built into the builder standing there.)
+await sf(() => { const s = window.snapfort; s.player.teleport(2.5, 0.95, -61.5); s.rig.yaw = 0; s.rig.pitch = 0.1; }); await wait(300);
 await tap("#t-turn");
 check("Turn lights up and says which way", (await p.evaluate(() => document.getElementById("t-turn").classList.contains("on"))) && (await p.textContent("#t-turn")).includes("Right"), await p.textContent("#t-turn"));
 await tap("#t-place"); await wait(300);

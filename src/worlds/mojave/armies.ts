@@ -636,3 +636,5 @@ export const warPlaced = (room: Room, pid: string, pieces: readonly Piece[]): vo
 };
 export const warMayChange = (room: Room, pid: string, piece: Piece): boolean => war(room).sim.mayChange(pid, piece);
 export const warBlocks = (room: Room, piece: Piece): boolean => (room.memory ? war(room).sim.blocks(piece) : false);
+/** The buildings standing, as drawn: solid to builders thrown and to stones. */
+export const warSolids = (room: Room): [number, number, number, number, number, number][] => (room.memory ? war(room).sim.solidBoxes() : []);

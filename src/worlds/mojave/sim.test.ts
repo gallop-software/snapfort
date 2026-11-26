@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BuildState } from "../../game/buildState";
-import { CELL, LEVEL } from "../../game/constants";
+import { CELL, LEVEL, THICK } from "../../game/constants";
 import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
 import { BUILDINGS, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
@@ -252,6 +252,135 @@ describe("getting about", () => {
     run(12);
     expect(u.cx === cx && u.cz === cz).toBe(false);
     expect(u.order.k).toBe("stop");
+  });
+});
+
+describe("nothing passes through anything", () => {
+  it("a crowd marching past a building and the end of a wall keeps every body out of both", () => {
+    const { sim, general, piece } = setup();
+    const g = general("p1", 0);
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    // A Foundry (two cells square) and, beside it, a wall ending in the open: the way on is between them and round them.
+    sim.addBuilding("foundry", g.slot, cx + 4, cz + 3, true);
+    for (let z = cz - 2; z <= cz + 1; z++) piece("p1", "wall", cx + 8, 0, z, 1);
+    const units = [
+      ...Array.from({ length: 16 }, (_, i) => sim.addUnit("trooper", g.slot, (cx - 2) * CELL + (i % 4) * 2.2, (cz + 0.5) * CELL + Math.floor(i / 4) * 2.2)),
+      ...Array.from({ length: 6 }, (_, i) => sim.addUnit("tank", g.slot, (cx - 4) * CELL + (i % 2) * 5, (cz - 1) * CELL + Math.floor(i / 2) * 5)),
+    ];
+    sim.command(g.slot, units.map((u) => u.id), { k: "move", x: (cx + 14.5) * CELL, z: (cz + 2) * CELL, l: 0 });
+    const fx0 = (cx + 4) * CELL, fx1 = (cx + 6) * CELL, fz0 = (cz + 3) * CELL, fz1 = (cz + 5) * CELL;
+    const wx = (cx + 8) * CELL, wz0 = (cz - 2) * CELL, wz1 = (cz + 2) * CELL;
+    let worst = 0;
+    for (let i = 0; i < 250; i++) {
+      sim.tick();
+      for (const u of units) {
+        const r = UNITS[u.kind].radius;
+        // How deep its body is in the building: the distance from its middle to the nearest point of the building, short of its radius.
+        const qx = Math.max(fx0, Math.min(fx1, u.x)), qz = Math.max(fz0, Math.min(fz1, u.z));
+        worst = Math.max(worst, r - Math.hypot(u.x - qx, u.z - qz));
+        // And in the wall (0.3 m thick, along z).
+        const wqx = Math.max(wx - THICK / 2, Math.min(wx + THICK / 2, u.x)), wqz = Math.max(wz0, Math.min(wz1, u.z));
+        worst = Math.max(worst, r - Math.hypot(u.x - wqx, u.z - wqz));
+      }
+    }
+    expect(worst).toBeLessThan(0.1);
+    // And they got there.
+    expect(units.filter((u) => u.x > (cx + 9) * CELL).length).toBeGreaterThan(units.length * 0.8);
+  });
+
+  it("a Titan goes round a floor too low to walk under; a tank goes under it", () => {
+    const { sim, general, piece } = setup();
+    const g = general("p1", 0);
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    // A floor one storey up across cells cx..cx+2 on row cz, held up by walls at its ends: a low bridge over the way.
+    piece("p1", "wall", cx, 0, cz, 1);
+    piece("p1", "wall", cx + 3, 0, cz, 1);
+    for (let x = cx; x <= cx + 2; x++) piece("p1", "floor", x, 1, cz);
+    const titan = sim.addUnit("titan", g.slot, (cx + 1.5) * CELL, (cz - 3.5) * CELL);
+    const tank = sim.addUnit("tank", g.slot, (cx + 1.5) * CELL, (cz - 3.5) * CELL + 0.1);
+    sim.command(g.slot, [titan.id, tank.id], { k: "move", x: (cx + 1.5) * CELL, z: (cz + 3.5) * CELL, l: 0 });
+    let titanUnder = false, tankUnder = false;
+    for (let i = 0; i < 500; i++) {
+      sim.tick();
+      if (titan.cz === cz && titan.cx >= cx && titan.cx <= cx + 2 && titan.level === 0) titanUnder = true;
+      if (tank.cz === cz && tank.cx >= cx && tank.cx <= cx + 2 && tank.level === 0) tankUnder = true;
+    }
+    expect(titanUnder).toBe(false);
+    expect(tankUnder).toBe(true);
+    // The Titan went round, and got there too.
+    expect(Math.hypot(titan.x - (cx + 1.5) * CELL, titan.z - (cz + 3.5) * CELL)).toBeLessThan(10);
+  });
+
+  it("drones rise over a Core and a tower of pieces, and come back down past them", () => {
+    const { sim, general, piece } = setup();
+    const g = general("p1", 0);
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    sim.addBuilding("core", g.slot, cx + 6, cz - 1, true);
+    for (let y = 0; y < 6; y++) piece("p1", "wall", cx + 14, y, cz, 1);
+    const drone = sim.addUnit("gunship", g.slot, cx * CELL, (cz + 0.5) * CELL);
+    sim.command(g.slot, [drone.id], { k: "move", x: (cx + 20) * CELL, z: (cz + 0.5) * CELL, l: 0 });
+    let lowest = Infinity;
+    for (let i = 0; i < 120; i++) {
+      sim.tick();
+      const overCore = drone.x > (cx + 6) * CELL - 1.8 && drone.x < (cx + 9) * CELL + 1.8;
+      const overTower = Math.abs(drone.x - (cx + 14) * CELL) < 1.8 + 0.2;
+      if (overCore) lowest = Math.min(lowest, drone.y - UNITS.gunship.height / 2 - BUILDINGS.core.height);
+      if (overTower) lowest = Math.min(lowest, drone.y - UNITS.gunship.height / 2 - 6 * LEVEL);
+    }
+    expect(lowest).toBeGreaterThan(0.3);
+    // Past them, it settles back to its usual height.
+    for (let i = 0; i < 60; i++) sim.tick();
+    expect(drone.y).toBeCloseTo(14, 0);
+  });
+
+  it("a building between stops a straight shot; the building aimed at does not", () => {
+    const { sim, general } = setup();
+    const g = general("p1", 0), h = general("p2", 1);
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    const shooter = sim.addUnit("tank", g.slot, (cx + 0.5) * CELL, (cz + 0.5) * CELL);
+    const behind = sim.addUnit("trooper", h.slot, (cx + 6.5) * CELL, (cz + 0.5) * CELL);
+    expect(sim.nav.clearLine(shooter.x, shooter.z, behind.x, behind.z, 0)).toBe(true);
+    // A relay mast goes up between them.
+    sim.addBuilding("relay", g.slot, cx + 3, cz, true);
+    expect(sim.nav.clearLine(shooter.x, shooter.z, behind.x, behind.z, 0)).toBe(false);
+    // An enemy Foundry beyond: aimed at, its own cells do not get in the way.
+    const foundry = sim.addBuilding("foundry", h.slot, cx, cz + 4, true);
+    const c = [(cx + 1) * CELL, (cz + 5) * CELL];
+    expect(sim.nav.clearLine(shooter.x, shooter.z, c[0]!, c[1]!, 0, (BUILDINGS[foundry.kind].size * CELL) / 2)).toBe(true);
+    // A field of crystals is low: shots go over it.
+    const f = sim.fields[0]!;
+    expect(sim.nav.clearLine((f.cx - 3.5) * CELL, (f.cz + 0.5) * CELL, (f.cx + 4.5) * CELL, (f.cz + 0.5) * CELL, 0)).toBe(true);
+  });
+
+  it("stands on a floor's top on the ground, and on a ramp's slope", () => {
+    const { sim, general, piece } = setup();
+    const g = general("p1", 0);
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    piece("p1", "floor", cx + 2, 0, cz);
+    const u = sim.addUnit("trooper", g.slot, (cx + 0.5) * CELL, (cz + 0.5) * CELL);
+    sim.command(g.slot, [u.id], { k: "move", x: (cx + 2.5) * CELL, z: (cz + 0.5) * CELL, l: 0 });
+    for (let i = 0; i < 40; i++) sim.tick();
+    expect(u.cx).toBe(cx + 2);
+    expect(u.y).toBeCloseTo(THICK / 2, 5);
+  });
+
+  it("a building is not put down on a general, or under a floor over its ground", () => {
+    const { sim, general, piece, host } = setup();
+    const g = general("p1", 0);
+    g.lithium = 5000;
+    g.plasma = 5000;
+    const s = STARTS[g.start]!;
+    const inX = -Math.sign(s.cx) || 1, inZ = -Math.sign(s.cz) || 1;
+    const [bx, bz] = [s.cx + inX * 4, s.cz + inZ * 4];
+    // The general stands right where the Foundry would go.
+    host.at.set("p1", [(bx + 1) * CELL, 0.9, (bz + 1) * CELL]);
+    expect(sim.cannotBuild(g.slot, "foundry", bx, bz)).toBe("A general is standing there");
+    host.at.set("p1", [(bx - 3) * CELL, 0.9, bz * CELL]);
+    expect(sim.cannotBuild(g.slot, "foundry", bx, bz)).toBe("");
+    // A floor one storey up over one of its cells (held by walls beyond it): no.
+    piece("p1", "wall", bx + 2, 0, bz, 1);
+    piece("p1", "floor", bx + 1, 1, bz);
+    expect(sim.cannotBuild(g.slot, "foundry", bx, bz)).toBe("Something is built there");
   });
 });
 

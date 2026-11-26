@@ -124,6 +124,8 @@ export interface BuildingDef {
   time: number;
   sight: number;
   height: number;
+  /** How far across it is drawn, m (inside its cells): what builders bump into and throws land on. */
+  wide: number;
   needs?: readonly BuildingKind[];
   /** Supply it adds to its general's limit. */
   supply?: number;
@@ -134,24 +136,24 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Readonly<Record<BuildingKind, BuildingDef>> = {
-  core: { label: "Command Core", key: "C", lithium: 400, plasma: 0, hp: 1500, size: 3, time: 60, sight: 70, height: 14, supply: 12, blurb: "Makes Haulers, takes their lithium. Lose every Core and you are routed" },
-  tap: { label: "Tap", key: "T", lithium: 75, plasma: 0, hp: 400, size: 1, time: 20, sight: 30, height: 5, blurb: "On a plasma vent: draws plasma while the vent lasts" },
-  relay: { label: "Relay mast", key: "R", lithium: 100, plasma: 0, hp: 300, size: 1, time: 15, sight: 45, height: 12, supply: 10, blurb: "Raises your army limit by 10" },
-  foundry: { label: "Foundry", key: "F", lithium: 150, plasma: 0, hp: 800, size: 2, time: 30, sight: 45, height: 7, needs: ["core"], blurb: "Makes Troopers and vehicles" },
-  armory: { label: "Armory", key: "M", lithium: 125, plasma: 50, hp: 600, size: 2, time: 30, sight: 40, height: 6, needs: ["foundry"], advanced: true, blurb: "Upgrades weapons and armour; unlocks artillery, missile trucks and the EMP" },
-  skyport: { label: "Skyport", key: "K", lithium: 150, plasma: 100, hp: 700, size: 2, time: 35, sight: 50, height: 9, needs: ["foundry"], advanced: true, blurb: "Makes drones" },
-  titanbay: { label: "Titan bay", key: "B", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 45, height: 12, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
+  core: { label: "Command Core", key: "C", lithium: 400, plasma: 0, hp: 1500, size: 3, time: 60, sight: 70, height: 14, wide: 11.4, supply: 12, blurb: "Makes Haulers, takes their lithium. Lose every Core and you are routed" },
+  tap: { label: "Tap", key: "T", lithium: 75, plasma: 0, hp: 400, size: 1, time: 20, sight: 30, height: 5, wide: 3.8, blurb: "On a plasma vent: draws plasma while the vent lasts" },
+  relay: { label: "Relay mast", key: "R", lithium: 100, plasma: 0, hp: 300, size: 1, time: 15, sight: 45, height: 12, wide: 3.0, supply: 10, blurb: "Raises your army limit by 10" },
+  foundry: { label: "Foundry", key: "F", lithium: 150, plasma: 0, hp: 800, size: 2, time: 30, sight: 45, height: 7, wide: 9.2, needs: ["core"], blurb: "Makes Troopers and vehicles" },
+  armory: { label: "Armory", key: "M", lithium: 125, plasma: 50, hp: 600, size: 2, time: 30, sight: 40, height: 6, wide: 9.2, needs: ["foundry"], advanced: true, blurb: "Upgrades weapons and armour; unlocks artillery, missile trucks and the EMP" },
+  skyport: { label: "Skyport", key: "K", lithium: 150, plasma: 100, hp: 700, size: 2, time: 35, sight: 50, height: 9, wide: 9.8, needs: ["foundry"], advanced: true, blurb: "Makes drones" },
+  titanbay: { label: "Titan bay", key: "B", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 45, height: 12, wide: 14.2, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
   sentry: {
-    label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 45, height: 4, needs: ["foundry"],
+    label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 45, height: 4, wide: 2.2, needs: ["foundry"],
     weapon: { range: 36, damage: 10, cooldown: 0.6, splash: 0, air: false, ground: true, wear: 0, look: "bullet" },
     blurb: "Guards a spot against ground units",
   },
   flak: {
-    label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 50, height: 4, needs: ["foundry"],
+    label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 50, height: 4, wide: 2.2, needs: ["foundry"],
     weapon: { range: 48, damage: 16, cooldown: 0.7, splash: 0, air: true, ground: false, wear: 0, look: "bullet" },
     blurb: "Guards a spot against drones",
   },
-  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 40, height: 6, needs: ["armory"], advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
+  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 40, height: 6, wide: 2.2, needs: ["armory"], advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
 };
 
 /** What each building makes, in the order of its buttons. */
@@ -210,3 +212,14 @@ export const LEAVE_GRACE = 60;
 export const ROUTED_WAIT = 20;
 /** A routed general's free Core comes with at least this much lithium: enough for the first Haulers. */
 export const ROUTED_LITHIUM = 200;
+
+/**
+ * The space a building in cells (cx, cz) fills as it is drawn, m: [x0, y0,
+ * z0, x1, y1, z1], in the middle of its cells. (The very top, a mast's tip or
+ * a turret's barrel, is let through.)
+ */
+export function buildingBox(kind: BuildingKind, cx: number, cz: number): [number, number, number, number, number, number] {
+  const def = BUILDINGS[kind];
+  const mx = (cx + def.size / 2) * 5, mz = (cz + def.size / 2) * 5, h = def.wide / 2;
+  return [mx - h, 0, mz - h, mx + h, def.height * 0.92, mz + h];
+}

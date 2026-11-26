@@ -5,7 +5,7 @@ import { throwVelocity, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
 import { BUILDING_KINDS, BUILDINGS, LEAVE_GRACE, MAX_UNITS, ROUTED_WAIT, UNIT_KINDS, UNITS, UPGRADES, type BuildingKind, type UnitKind } from "./kit";
 import { mid, STARTS } from "./map";
-import { DT, NEUTRAL, emptyHappened, Sim, T_BUILDING, T_GENERAL, T_PIECE, T_UNIT, type Building, type General, type Order, type TargetKind, type Unit } from "./sim";
+import { ARMY_COLOR_NAMES, ARMY_COLORS, DT, NEUTRAL, emptyHappened, Sim, T_BUILDING, T_GENERAL, T_PIECE, T_UNIT, type Building, type General, type Order, type TargetKind, type Unit } from "./sim";
 import { F_DEPLOYED, F_DIGGING, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, LOOKS, type ToPage, type ToServer, type WireBuilding } from "./wire";
 import { HALF_CELLS } from "./world";
 
@@ -15,12 +15,16 @@ import { HALF_CELLS } from "./world";
  * page what its army can see and nothing more (an enemy out of sight is never
  * sent, so nobody can see further by tampering with their page).
  *
- * There are always eight armies, one of each colour, and no computer plays
- * any of them. Any number of people may serve an army, each commanding all
- * of it; a general chooses which, and may change at any moment. An army
- * nobody serves stands as it is: its Haulers mine, its units and turrets
- * defend themselves. With nobody here at all the war is paused, kept as it
- * stands. Someone without the Full Game is told so and sent nothing of the
+ * There are eight colours, and an army only for someone playing: no computer
+ * plays one. A general chooses a colour; one nobody has begins an army
+ * afresh, with a Core, four Haulers and the first lithium, and with nobody
+ * else here they are alone, to practise and build up. Any number of people
+ * may serve one army, each commanding all of it, and a general may change
+ * at any moment. An army nobody serves is kept for a minute (a reload or a
+ * dropped connection comes straight back to it), then everything of it
+ * disappears, what was built for it too: someone who comes back later
+ * begins again, as anyone new does. With nobody here at all the war is
+ * paused. Someone without the Full Game is told so and sent nothing of the
  * war: nobody watches.
  */
 
@@ -60,6 +64,10 @@ interface War {
   swept: boolean;
   /** Since when no page has been connected to the room (ms), or 0. */
   empty: number;
+  /** Since when nobody has served each army (ms, by slot): after LEAVE_GRACE it is gone. */
+  gone: Map<number, number>;
+  /** For the load test only (a test room): armies nobody serves are kept, not swept away after a minute. */
+  keep: boolean;
   /** How long steps have been taking (for the load test): how many, the milliseconds in all, the worst, and the characters sent. */
   perf: { steps: number; ms: number; worst: number; sent: number };
 }
@@ -88,15 +96,15 @@ export function openWar(room: Room): War {
     wear: (point, hits, by) => room.wear?.(point, hits, by),
     removePieces: (ids, by) => room.remove?.(ids, by),
   });
-  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, dirty: false, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
+  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, dirty: false, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, gone: new Map(), keep: false, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
   // The war is taken up where it was left, however long ago: it has no end.
   const saved = room.load("war") as { at?: number; sim?: unknown } | undefined;
   if (saved && typeof saved.at === "number" && sim.restore(saved.sim)) {
-    // (Nobody is serving an army when a room wakes: whoever is still connected takes theirs up again as soon as they are known.)
+    // (Nobody is serving an army when a room wakes: whoever is still connected takes theirs up again as soon as they are known,
+    // and an army nobody has served for a minute since it was saved is gone.)
     w.swept = true;
+    for (const g of sim.generals) if (g) w.gone.set(g.slot, saved.at);
   } else sim.postSentries(true);
-  // Eight armies, always.
-  sim.fill();
   return w;
 }
 
@@ -132,12 +140,39 @@ export function warJoined(room: Room, pid: string): void {
   // (Nobody builds a siege engine here any more: one left standing from before is taken away.)
   const engines = [...room.build.all()].filter((p) => p.type === "trebuchet").map((p) => p.id);
   if (engines.length > 0) room.remove?.(engines, "left");
+  // (An army left for longer than it is kept, while the war was paused, is gone before anyone could take it up.)
+  sweep(room);
   const viewer = newViewer(pid);
   w.viewers.set(pid, viewer);
   enlist(room, viewer);
   w.gens = "";
   everyoneViews(room);
   run(room);
+}
+
+/**
+ * An army nobody has served for LEAVE_GRACE seconds disappears, everything of
+ * it (what was built for it too), and its colour is free: whoever takes it up
+ * next begins afresh.
+ */
+function sweep(room: Room): void {
+  const w = war(room);
+  const now = Date.now();
+  for (const g of w.sim.generals) {
+    if (!g) continue;
+    if (g.here.length > 0 || w.keep) {
+      w.gone.delete(g.slot);
+      continue;
+    }
+    const since = w.gone.get(g.slot);
+    if (since === undefined) w.gone.set(g.slot, now);
+    else if (now - since >= LEAVE_GRACE * 1000) {
+      w.sim.wipe(g.slot);
+      w.gone.delete(g.slot);
+      w.gens = "";
+      w.dirty = true;
+    }
+  }
 }
 
 /** Where a general stands on arriving: before their army's Core, on the side toward the middle of the map. */
@@ -193,7 +228,8 @@ function tell(room: Room, viewer: Viewer, why?: "choose" | "visitor"): void {
   w.gens = "";
 }
 
-const gensFor = (w: War): ToPage => ({ m: "gens", g: w.sim.generals.flatMap((g) => (g ? [{ slot: g.slot, name: g.name, color: g.color, pids: [...g.here] }] : [])) });
+/** The eight colours, and who serves each now (a colour with no army is nobody's: taking it up begins one). */
+const gensFor = (w: War): ToPage => ({ m: "gens", g: w.sim.generals.map((g, slot) => (g ? { slot, name: g.name, color: g.color, pids: [...g.here] } : { slot, name: `${ARMY_COLOR_NAMES[slot]!} army`, color: ARMY_COLORS[slot]!, pids: [] })) });
 
 /** A general chooses the army they serve (on arriving, or changing sides at any moment): they command all of it from now, and stand before its Core. */
 function serve(room: Room, viewer: Viewer, slot: number): void {
@@ -212,6 +248,7 @@ export function warLeft(room: Room, pid: string): void {
   w.viewers.delete(pid);
   w.sim.leave(pid);
   w.gens = "";
+  sweep(room);
 }
 
 /** Runs the war while anyone serves an army. With nobody, it is paused: kept exactly as it stands. */
@@ -224,6 +261,7 @@ function run(room: Room): void {
   w.empty = 0;
   const stop = () => {
     w.running = false;
+    sweep(room);
     w.sim.forgetPaths();
     w.sim.happened = emptyHappened();
     save(room);
@@ -253,7 +291,7 @@ function run(room: Room): void {
       try {
         const served = new Map([...w.viewers.values()].map((v) => [v.pid, v.slot]));
         for (const g of w.sim.generals) if (g) w.sim.wipe(g.slot);
-        w.sim.fill();
+        w.gone.clear();
         // Everyone serves the army they did, begun afresh.
         for (const v of w.viewers.values()) {
           const slot = served.get(v.pid) ?? -1;
@@ -301,8 +339,7 @@ function step(room: Room): void {
 function everySecond(room: Room): void {
   const w = war(room);
   const sim = w.sim;
-  // (An army emptied, by a check or a fault, is begun again.)
-  sim.fill();
+  sweep(room);
   for (const v of w.viewers.values()) {
     // Their army is not theirs any more (it was begun afresh): they choose again.
     if (v.slot >= 0 && sim.generalOf(v.pid)?.slot !== v.slot) v.slot = -1;
@@ -596,7 +633,6 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
     // This general's army as a war begins it: a Core, four Haulers, the first lithium, nothing else; whoever served it still does.
     const at = g.slot, people = [...g.here];
     sim.wipe(at);
-    sim.seat(at);
     for (const who of people) {
       sim.serve(who, at, room.tabOf?.(who) ?? null);
       const v = w.viewers.get(who);
@@ -617,7 +653,10 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
   } else if (msg.do === "kill") {
     for (const u of [...sim.units]) if (u.owner === slot) sim.kill(u, false);
   } else if (msg.do === "stress") {
-    // All eight generals with a full army each, all sent to the middle.
+    // All eight generals with a full army each, all sent to the middle (an army begun on every colour nobody has, and kept).
+    w.keep = true;
+    sim.fill();
+    w.gens = "";
     const kinds: UnitKind[] = ["trooper", "trooper", "trooper", "tank", "scout", "gunship", "artillery", "missile"];
     for (const general of sim.generals) {
       if (!general) continue;

@@ -1,7 +1,9 @@
 /**
- * Mojave: eight armies, one of each colour, and no computer plays any. A
- * general chooses the army they serve from tiles on the row, commands all of
- * it with whoever else serves it, and may change sides at any moment. They
+ * Mojave: eight colours, an army only for someone playing, and no computer
+ * plays any. A general chooses a colour from tiles on the row (one nobody
+ * serves begins a new army), commands all of it with whoever else serves it,
+ * and may change sides at any moment; an army nobody serves for a minute is
+ * gone, everything of it. They
  * mine, build (the building shown before it is placed, standing at once),
  * make units (the queue shown as pictures, with a bar on the one being
  * made), select and order them with the keys and the mouse, and fight. The
@@ -563,15 +565,16 @@ check("pressing 4, they serve green from that moment: stood before its Core, com
 check("they wear green now, and are told so", await until(c2, () => { const s = window.snapfort; return s.player.avatar.jacket.diffuseColor.toHexString().toLowerCase() === s.feature.generals[3].color.toLowerCase() && /You serve the green army/.test(document.getElementById("mj-notes").textContent) ? true : null; }) === true);
 check("red stands as it was, with the general who stayed", await until(a, () => { const g = window.snapfort.feature.generals; return g[0].pids.length === 1 && g[3].pids.length === 1 ? true : null; }) === true && (await war(a)).units.filter((u) => u.owner === 0).length >= unitsBefore - 2);
 
-// ── Leaving takes nothing away, and nobody plays an army nobody serves ───
+// ── Leaving: the army is kept a minute (a reload comes back to it), then everything of it is gone ───
 await b.close();
-check("a general who leaves: their army has nobody, and stands", await until(a, () => window.snapfort.feature.generals[1].pids.length === 0 ? true : null, null, 10000) === true);
-await dev(a, { do: "speed", n: 15 });
-await wait(6000);
-await dev(a, { do: "speed", n: 1 });
-check("long after, their wall still stands", await sf(a, (id) => !!window.snapfort.state.get(id), placedId));
+const leftAt = Date.now();
+check("a general who leaves: their army has nobody, and stands for now", await until(a, () => window.snapfort.feature.generals[1].pids.length === 0 ? true : null, null, 10000) === true);
+check("inside the minute, their wall still stands", await sf(a, (id) => !!window.snapfort.state.get(id), placedId));
+// (The minute is the clock's, not the game's: speeding the game up does not hurry it.)
+await wait(Math.max(0, leftAt + 63_000 - Date.now()));
+check("a minute on, everything of it is gone: the wall they built too", await until(a, (id) => !window.snapfort.state.get(id) ? true : null, placedId, 10000) === true);
 await dev(a, { do: "spawn", kind: "scout", n: 1, at: [bx - Math.sign(bx) * 40, 0, bz - Math.sign(bz) * 40] });
-check("their Core is still there when looked at again, and nothing has been built since: no computer plays it", await until(a, () => { const f = window.snapfort.feature; const theirs = [...f.army.buildings.values()].filter((x) => x.o === 1); return theirs.length === 1 && theirs[0].kind === "core" && !theirs[0].stale ? true : null; }) === true);
+check("looked at again, their base is gone: no Core, nothing of theirs; no computer plays blue", await until(a, () => { const f = window.snapfort.feature; return [...f.army.buildings.values()].every((x) => x.o !== 1) && ![...f.army.units.values()].some((u) => u.owner === 1) ? true : null; }, null, 15000) === true);
 await c2.close();
 
 check("no errors on any page", errors.length === 0, errors.slice(0, 4).join(" | "));

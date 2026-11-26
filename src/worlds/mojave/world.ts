@@ -27,9 +27,9 @@ export const world: Environment = {
   room: "mojave",
   paid: true,
   card: {
-    blurb: "Be the general: mine, build an army and command it from the ground. Eight armies, one desert.",
+    blurb: "Be the general: mine, build an army and command it from the ground. Up to eight armies, one desert.",
     picture: "https://cdn.snapfort.io/worlds/mojave.jpg",
-    perks: ["Mine lithium and plasma, build an army", "Tanks, drones, artillery and Titans", "Eight armies: choose your colour, change sides at any moment"],
+    perks: ["Mine lithium and plasma, build an army", "Tanks, drones, artillery and Titans", "Up to eight generals: choose your colour, team up or go it alone"],
   },
 
   // No ship lands here and none leaves: what a general has, they made here.

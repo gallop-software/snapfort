@@ -113,12 +113,12 @@ function fakeRoom(opts: { saved?: Map<string, unknown>; test?: boolean; visitors
 }
 
 describe("who is a general", () => {
-  it("someone who may command chooses an army and commands it at once, as it stands; a visitor is kept out, and sent nothing of the war", () => {
+  it("someone who may command chooses a colour and an army is begun for them; a visitor is kept out, and sent nothing of the war", () => {
     const r = fakeRoom({ visitors: ["v"] });
-    // Eight armies before anyone comes, nobody serving any.
-    expect(r.sim().generals.every((x) => x && x.here.length === 0)).toBe(true);
+    // No army before anyone comes: there is one only for someone playing.
+    expect(r.sim().generals.every((x) => x === null)).toBe(true);
     const buildings = r.sim().buildings.size, units = r.sim().units.length;
-    // Arriving: asked to choose, told which armies there are, and sent nothing else of the war.
+    // Arriving: asked to choose, told the eight colours (nobody serving any), and sent nothing else of the war.
     expect(r.join("a")).toBeNull();
     const first = r.to("a").find((m) => m.m === "you") as Extract<ToPage, { m: "you" }>;
     expect(first.slot).toBe(-1);
@@ -126,14 +126,16 @@ describe("who is a general", () => {
     const list = r.to("a").find((m) => m.m === "gens") as Extract<ToPage, { m: "gens" }>;
     expect(list.g.map((x) => x.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(new Set(list.g.map((x) => x.color)).size).toBe(MAX_GENERALS);
+    expect(list.g.every((x) => x.pids.length === 0)).toBe(true);
     r.run(3);
     expect(r.to("a").some((m) => m.m === "tick" || m.m === "res" || m.m === "fields")).toBe(false);
-    // Choosing: they command it at once; nothing was begun afresh for them.
+    // Choosing: an army of their own, begun for them (a Core, four Haulers, the first lithium), and they command it at once.
     r.say("a", { m: "serve", slot: 2 });
     const g = r.sim().generalOf("a")!;
     expect(g.slot).toBe(2);
-    expect(r.sim().buildings.size).toBe(buildings);
-    expect(r.sim().units.length).toBe(units);
+    expect(g.lithium).toBe(START_LITHIUM);
+    expect(r.sim().buildings.size).toBe(buildings + 1);
+    expect(r.sim().units.length).toBe(units + 4);
     const you = r.to("a").filter((m) => m.m === "you").pop() as Extract<ToPage, { m: "you" }>;
     expect(you.slot).toBe(2);
     // (Where to stand: before the army's Core, on the side toward the middle of the map.)
@@ -202,22 +204,21 @@ describe("who is a general", () => {
     // The army they left stands, with nobody: nothing of it was removed, and nobody plays it.
     expect(r.sim().units.filter((u) => u.owner === 0)).toHaveLength(4);
     expect([...r.sim().buildings.values()].filter((x) => x.owner === 0)).toHaveLength(1);
-    // And they may go back.
+    // And they may go back within the minute: it is theirs, as it stands.
     r.say("a", { m: "serve", slot: 0 });
-    expect(r.sim().generalOf("a")!.slot).toBe(0);
+    expect(r.sim().generalOf("a")).toBe(a);
     // Nonsense is ignored.
     for (const bad of [{ m: "serve" }, { m: "serve", slot: 9 }, { m: "serve", slot: -1 }, { m: "serve", slot: "blue" }, { m: "bots", n: 3 }, { m: "ally", slot: 1 }]) expect(() => r.say("a", bad)).not.toThrow();
     expect(r.sim().generalOf("a")!.slot).toBe(0);
   });
 
-  it("no computer plays any army: one nobody serves builds nothing and attacks nobody, however long", () => {
+  it("no computer plays any army: alone, a general is alone, however long", () => {
     const r = fakeRoom();
     r.join("a", 0);
     r.run(240);
-    for (let slot = 1; slot < MAX_GENERALS; slot++) {
-      expect([...r.sim().buildings.values()].filter((b) => b.owner === slot)).toHaveLength(1);
-      expect(r.sim().units.filter((u) => u.owner === slot)).toHaveLength(4);
-    }
+    for (let slot = 1; slot < MAX_GENERALS; slot++) expect(r.sim().generals[slot]).toBeNull();
+    expect(r.sim().units.every((u) => u.owner === 0 || u.owner === MAX_GENERALS)).toBe(true);
+    expect([...r.sim().buildings.values()].every((b) => b.owner === 0)).toBe(true);
   });
 });
 
@@ -375,13 +376,13 @@ describe("pieces", () => {
 });
 
 describe("leaving and sleeping", () => {
-  it("the same tab back is in the army it last served, without being asked again", () => {
+  it("the same tab back within a minute is in the army it last served, without being asked again", () => {
     const r = fakeRoom();
     const g = r.join("a", 4, "tab-one-xyz")!;
     r.join("other", 0);
     r.run(2);
     r.leave("a");
-    r.run(100);
+    r.run(LEAVE_GRACE - 10);
     const back = r.join("a2", -1, "tab-one-xyz")!;
     expect(back).toBe(g);
     const you = r.to("a2").find((m) => m.m === "you") as Extract<ToPage, { m: "you" }>;
@@ -392,7 +393,42 @@ describe("leaving and sleeping", () => {
     expect([...r.knows("a2").values()].filter((o) => o === g.slot).length).toBeGreaterThanOrEqual(4);
   });
 
-  it("with nobody serving any army the war is paused, kept exactly as it stands; the next general starts it again", () => {
+  it("an army nobody serves for a minute disappears, everything of it: whoever comes back later begins again", () => {
+    const r = fakeRoom();
+    const g = r.join("a", 4, "tab-gone-1")!;
+    r.join("other", 0);
+    const wall: Piece = { id: "a-1", type: "wall", x: 60, y: 0, z: 60, rot: 0, material: "wood", edit: 0 };
+    r.build.apply({ kind: "place", piece: wall });
+    server.placed!(r.room, "a", [wall]);
+    g.lithium = 5000;
+    r.run(2);
+    r.leave("a");
+    r.run(LEAVE_GRACE + 2);
+    // Gone: its Core, its units, what was built for it; the other army is untouched, and is told it went.
+    expect(r.sim().generals[4]).toBeNull();
+    expect(r.sim().units.some((u) => u.owner === 4)).toBe(false);
+    expect([...r.sim().buildings.values()].some((b) => b.owner === 4)).toBe(false);
+    expect(r.removed).toEqual(["a-1"]);
+    expect(r.sim().generals[0]!.here).toEqual(["other"]);
+    const gens = r.to("other").filter((m) => m.m === "gens").pop() as Extract<ToPage, { m: "gens" }>;
+    expect(gens.g.find((x) => x.slot === 4)!.pids).toEqual([]);
+    // The same tab, back later: asked to choose like anyone; the same colour is begun afresh.
+    expect(r.join("a2", -1, "tab-gone-1")).toBeNull();
+    r.say("a2", { m: "serve", slot: 4 });
+    const fresh = r.sim().generalOf("a2")!;
+    expect(fresh).not.toBe(g);
+    expect(fresh.lithium).toBe(START_LITHIUM);
+    // Someone else taking up an army whose general has just gone (inside the minute) begins it afresh too: nobody inherits one.
+    const before = r.sim().generals[0]!;
+    before.lithium = 9999;
+    r.leave("other");
+    r.run(5);
+    r.join("newcomer", 0, "tab-newcomer");
+    expect(r.sim().generalOf("newcomer")).not.toBe(before);
+    expect(r.sim().generalOf("newcomer")!.lithium).toBe(START_LITHIUM);
+  });
+
+  it("with nobody serving any army the war is paused; the next general starts it again, and an army left for over a minute is gone by then", () => {
     const r = fakeRoom();
     r.join("a", 0);
     r.run(3);
@@ -409,12 +445,13 @@ describe("leaving and sleeping", () => {
     r.join("b");
     r.run(3);
     expect(r.sim().t).toBe(t);
+    expect(r.sim().generals[0]).toBeNull();
     r.say("b", { m: "serve", slot: 6 });
     r.run(3);
     expect(r.sim().t).toBeGreaterThan(t + 2);
   });
 
-  it("a room that sleeps and wakes carries the war on, however long it slept", () => {
+  it("a room restarted takes the war up where it was: the same tab back within the minute is in its army; after longer, the army is gone", () => {
     const first = fakeRoom();
     const g = first.join("a", 2, "tab-keep-1")!;
     g.lithium = 1234;
@@ -422,22 +459,30 @@ describe("leaving and sleeping", () => {
     expect(first.saved.has("war")).toBe(true);
     const units = first.sim().units.length;
 
-    // Days later: the same war, all eight armies, nothing begun afresh; and the tab is in its army again without being asked.
-    now += 3 * 24 * 3600_000;
-    vi.setSystemTime(now);
+    // Restarted at once (a new version went out): the same war, and the tab is in its army again without being asked.
     const second = fakeRoom({ saved: first.saved });
     expect(second.sim().units.length).toBe(units);
-    expect(second.sim().generals.every((x) => x && x.here.length === 0)).toBe(true);
+    expect(second.sim().generals[2]!.here).toHaveLength(0);
     expect(second.sim().generals[2]!.lithium).toBeGreaterThanOrEqual(1234);
     const back = second.join("a", -1, "tab-keep-1")!;
     expect(back.slot).toBe(2);
+    expect(back.lithium).toBeGreaterThanOrEqual(1234);
     second.run(3);
     expect(second.sim().t).toBeGreaterThan(12.5);
+
+    // Days later: nothing of it is left, and the tab begins again like anyone.
+    now += 3 * 24 * 3600_000;
+    vi.setSystemTime(now);
+    const third = fakeRoom({ saved: first.saved });
+    expect(third.join("a", -1, "tab-keep-1")).toBeNull();
+    expect(third.sim().generals.every((x) => x === null)).toBe(true);
+    expect(third.sim().units.every((u) => u.owner === MAX_GENERALS)).toBe(true);
   });
 
-  it("a war saved under earlier rules is taken up: its armies kept, the empty slots filled, buildings that were printing finished, nobody serving until they come", () => {
+  it("a war saved under earlier rules is taken up: its armies kept, buildings that were printing finished, nobody serving until they come", () => {
     const first = fakeRoom();
     const g = first.join("a", 0, "tab-old-1")!;
+    first.join("b", 1, "tab-old-2");
     first.run(12);
     const old = JSON.parse(JSON.stringify(first.saved.get("war"))) as { sim: { generals: (Record<string, unknown> | null)[]; units: { owner: number }[]; buildings: { owner: number; doneAt: number }[]; truces?: unknown; owners?: unknown; tabs?: unknown } };
     for (const slot of [5, 6, 7]) {
@@ -456,16 +501,17 @@ describe("leaving and sleeping", () => {
     delete old.sim.tabs;
     const second = fakeRoom({ saved: new Map<string, unknown>([["war", old]]) });
     const sim = second.sim();
-    expect(sim.generals.every((x) => x !== null && x.here.length === 0)).toBe(true);
+    expect(sim.generals.every((x) => x === null || x.here.length === 0)).toBe(true);
+    expect(sim.generals.slice(5).every((x) => x === null)).toBe(true);
     expect(sim.hostile(g.slot, 1)).toBe(true);
-    expect(new Set(sim.generals.map((x) => x!.color)).size).toBe(MAX_GENERALS);
+    expect(sim.generals[g.slot]!.color).not.toBe("#123456");
     expect(sim.generals[1]!.name).toMatch(/army$/);
     expect([...sim.buildings.values()].every((b) => b.doneAt === 0)).toBe(true);
-    expect([...sim.buildings.values()].filter((b) => b.owner === 6 && b.kind === "core")).toHaveLength(1);
-    // The one who was its general is asked to choose, like anyone, and may serve it again.
+    // The one who was its general is asked to choose, like anyone (their tab was not saved then): their colour is begun afresh.
     expect(second.join("a2", -1, "tab-old-1")).toBeNull();
     second.say("a2", { m: "serve", slot: g.slot });
     expect(sim.generalOf("a2")!.slot).toBe(g.slot);
+    expect(sim.generalOf("a2")!.lithium).toBe(START_LITHIUM);
   });
 });
 
@@ -495,13 +541,13 @@ describe("a war never runs wild", () => {
     r.run(LEAVE_GRACE + 20);
     expect(g.here).toEqual(["a"]);
     r.run(20);
-    expect(r.sim().generals.every((x) => x && x.here.length === 0)).toBe(true);
+    expect(r.sim().generals.every((x) => !x || x.here.length === 0)).toBe(true);
     const t = r.sim().t;
     r.run(5);
     expect(r.sim().t).toBe(t);
   });
 
-  it("a fault in the war begins it afresh, and everyone is told; the room carries on, with its eight armies and whoever served them", () => {
+  it("a fault in the war begins it afresh, and everyone is told; the room carries on, with an army begun again for whoever served one", () => {
     const r = fakeRoom();
     r.join("a", 5);
     r.run(2);
@@ -515,14 +561,14 @@ describe("a war never runs wild", () => {
       }
       tick();
     };
-    sim.addUnit("titan", 2, 0, 0);
+    sim.addUnit("titan", 5, 0, 0);
     const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
     r.run(1);
     quiet.mockRestore();
     expect(r.to("a").some((m) => m.m === "note" && /fault/.test(m.text))).toBe(true);
-    expect(sim.generals.every((x) => x !== null)).toBe(true);
+    expect(sim.generals.filter((x) => x !== null).map((x) => x!.slot)).toEqual([5]);
     expect(sim.units.some((u) => u.kind === "titan")).toBe(false);
-    expect([...sim.buildings.values()].filter((b) => b.kind === "core")).toHaveLength(MAX_GENERALS);
+    expect([...sim.buildings.values()].filter((b) => b.kind === "core")).toHaveLength(1);
     expect(sim.generalOf("a")?.slot).toBe(5);
     const t = sim.t;
     r.run(3);

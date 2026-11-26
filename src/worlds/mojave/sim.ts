@@ -382,11 +382,19 @@ export class Sim {
   /**
    * A builder serves an army: from now they command all of it, with everyone
    * else who serves it. Whatever army they served before, they have left.
-   * Null when there is no such army.
+   * An army is begun afresh for them on a colour nobody has, and on one whose
+   * army nobody serves now unless it is theirs (they served it a moment ago,
+   * or their tab did: a reload or a dropped connection, back within the
+   * minute it is kept for). Null when there is no such colour.
    */
   serve(pid: string, slot: number, tab: string | null = null): General | null {
-    const g = this.generals[slot];
-    if (!g) return null;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= MAX_GENERALS) return null;
+    let g = this.generals[slot];
+    if (g && g.here.length === 0 && !g.pids.includes(pid) && !(tab !== null && this.lastOfTab.get(tab) === slot)) {
+      this.wipe(slot);
+      g = null;
+    }
+    g ??= this.seat(slot);
     if (this.serving.get(pid) !== slot) {
       this.leave(pid);
       g.here.push(pid);
@@ -422,7 +430,7 @@ export class Sim {
     return g;
   }
 
-  /** There are always eight armies: one is begun on every empty slot. */
+  /** An army begun on every colour nobody has (for checks: in a war, an army is begun only for someone who takes it up). */
   fill(): void {
     for (let slot = 0; slot < MAX_GENERALS; slot++) if (!this.generals[slot]) this.seat(slot);
   }
@@ -451,6 +459,8 @@ export class Sim {
     for (const pid of g.here) this.serving.delete(pid);
     if (ids.length > 0) this.host.removePieces(ids, "left");
     for (const pid of g.pids) this.slotOfPid.delete(pid);
+    // (Nobody comes back to it: a tab that served it begins afresh like anyone else.)
+    for (const [tab, at] of this.lastOfTab) if (at === slot) this.lastOfTab.delete(tab);
     this.generals[slot] = null;
   }
 

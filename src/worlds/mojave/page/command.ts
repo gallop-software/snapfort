@@ -538,7 +538,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
    */
   function row(): { tiles: RowTile[] | null; status: string | null; html?: string } {
     const tile = (id: string, key: string, label: string, icon: string, more: Partial<RowTile> = {}): RowTile => ({ id, key, label, icon: ICONS[icon] ?? "", ...more });
-    /** The eight armies, each a tile in its colour, with how many generals serve it now. */
+    /** The eight colours, each a tile, with how many generals serve its army now ("nobody": taking it up begins one afresh). */
     const armies = (): RowTile[] =>
       [...generals]
         .sort((a, b) => a.slot - b.slot)
@@ -548,7 +548,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           return tile(`serve:${g.slot}`, `${g.slot + 1}`, name[0]!.toUpperCase() + name.slice(1), "", { icon: flag(g.color), sub: g.slot === slot ? (others ? `you + ${others}` : "you") : others === 0 ? "nobody" : others === 1 ? "1 general" : `${others} generals`, on: g.slot === slot });
         });
     // Not a general of any army yet: the armies, to choose from.
-    if (slot < 0) return why === "choose" ? { tiles: armies(), status: `Choose the army you serve: ${game.touch ? "tap its colour" : "press its number"}. You command all of it, with whoever else serves it, and may change sides at any moment.` } : { tiles: null, status: null };
+    if (slot < 0) return why === "choose" ? { tiles: armies(), status: `Choose your colour: ${game.touch ? "tap it" : "press its number"}. One nobody serves begins a new army of your own; one with generals, you command with them.` } : { tiles: null, status: null };
     const cost = (lithium: number, plasma: number) => (plasma > 0 ? `${lithium} · ${plasma} pl` : `${lithium}`);
     const has = (kind: BuildingKind) => [...army.buildings.values()].some((b) => mine(b.o) && b.kind === kind && b.d === 0);
     const back = (label = "Back") => tile("back", "⌫", label, label === "Back" ? "back" : "cancel");
@@ -576,7 +576,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. Click a unit or building of yours to select it; right click sends what is selected.`,
       };
     }
-    if (mode?.k === "menu" && mode.page === "army") return { tiles: [...armies(), back()], status: "Change army: press the number of the one to serve. You leave this one as it stands, and command all of the other." };
+    if (mode?.k === "menu" && mode.page === "army") return { tiles: [...armies(), back()], status: "Change army: press the number of the one to serve. One nobody serves begins afresh. An army you leave with nobody in it is gone in a minute, all of it." };
     if (mode?.k === "menu") {
       const page = mode.page as 0 | 1;
       const kinds = BUILDING_KINDS.filter((k) => !!BUILDINGS[k].advanced === (page === 1));

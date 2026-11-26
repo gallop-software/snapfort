@@ -3,7 +3,7 @@ import { openWar, warBlocks, warJoined, warLeft, warMayChange, warMayPlace, warM
 
 /**
  * What Mojave does on the server beyond the shared rules: the war. There are
- * always eight generals, people or computers (sim.ts is the rules, armies.ts
+ * an army for each colour someone plays, and no computers (sim.ts is the rules, armies.ts
  * runs them in the room and tells each page what its general can see). Pieces
  * cost lithium here and belong to the place they were built for, nothing is
  * built into a building or a field, and nobody builds a siege engine.

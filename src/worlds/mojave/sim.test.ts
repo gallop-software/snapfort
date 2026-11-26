@@ -3,7 +3,7 @@ import { BuildState } from "../../game/buildState";
 import { CELL, LEVEL, THICK } from "../../game/constants";
 import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
-import { buildingBox, BUILDINGS, MAX_GENERALS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
+import { buildingBox, BUILDINGS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
 import { STARTS } from "./map";
 import { DT, emptyHappened, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
 import { HALF_CELLS, world } from "./world";
@@ -39,10 +39,9 @@ function setup() {
   const run = (seconds: number) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) sim.tick();
   };
-  /** A person serving the army at start `start` (begun afresh if it was not there), standing by its Core. */
+  /** A person serving the army at start `start` (begun for them if nobody serves it), standing by its Core. */
   let r = 0;
   const general = (pid: string, start: number) => {
-    if (!sim.generals[start]) sim.seat(start);
     const g = sim.serve(pid, start, `tab${pid}${r++}`.padEnd(8, "x"))!;
     host.at.set(pid, [STARTS[g.start]!.spawn[0], 0.9, STARTS[g.start]!.spawn[1]]);
     return g;
@@ -71,19 +70,20 @@ describe("a general arrives", () => {
     expect(g.lithium).toBeGreaterThan(START_LITHIUM + 100);
   });
 
-  it("there are always eight armies, each at a start of its own in a colour of its own; any number of generals serve one, and each may change sides at any moment", () => {
+  it("an army is begun only for someone who takes up its colour, at a start of its own; any number of generals serve one, and each may change sides at any moment", () => {
     const { sim } = setup();
-    sim.fill();
-    expect(sim.generals.every((g) => g && g.here.length === 0)).toBe(true);
-    expect(new Set(sim.generals.map((g) => g!.start)).size).toBe(MAX_GENERALS);
-    expect(new Set(sim.generals.map((g) => g!.color)).size).toBe(MAX_GENERALS);
-    // An army stands whether anyone serves it or not: joining it begins nothing afresh, and takes nothing away.
-    const blue = sim.generals[1]!;
+    // Nobody here: no army at all (no computer plays one).
+    expect(sim.generals.every((g) => g === null)).toBe(true);
+    const blue = sim.serve("p0", 1, "tabtab0")!;
+    expect(blue.slot).toBe(1);
+    expect(blue.lithium).toBe(START_LITHIUM);
+    expect(sim.generals.filter((g) => g !== null)).toHaveLength(1);
+    // Joining an army someone serves begins nothing afresh, and takes nothing away.
     blue.lithium = 4321;
     const tank = sim.addUnit("tank", 1, STARTS[blue.start]!.spawn[0], STARTS[blue.start]!.spawn[1]);
     const buildings = sim.buildings.size, units = sim.units.length;
     // Twelve people, all serving blue: more than there are armies.
-    for (let i = 0; i < 12; i++) expect(sim.serve(`p${i}`, 1, `tabtab${i}`)).toBe(blue);
+    for (let i = 1; i < 12; i++) expect(sim.serve(`p${i}`, 1, `tabtab${i}`)).toBe(blue);
     expect(blue.here).toHaveLength(12);
     expect(sim.generalOf("p7")).toBe(blue);
     expect(blue.lithium).toBe(4321);
@@ -92,19 +92,22 @@ describe("a general arrives", () => {
     expect(sim.units.length).toBe(units);
     // Each commands all of it: any of them may order its units, and its bank is the one bank.
     expect(sim.command(1, [tank.id], { k: "hold" })).toBe("");
-    // One changes sides: they serve red now, and blue stands as it was, with the other eleven.
+    // One changes sides: red is begun for them, and blue stands as it was, with the other eleven.
     const red = sim.serve("p3", 0, "tabtab3")!;
     expect(red.slot).toBe(0);
+    expect(red.start).not.toBe(blue.start);
+    expect(red.color).not.toBe(blue.color);
     expect(sim.generalOf("p3")).toBe(red);
     expect(blue.here).toHaveLength(11);
     expect(blue.here).not.toContain("p3");
     expect(red.here).toEqual(["p3"]);
-    expect(sim.units.length).toBe(units);
+    expect(sim.units.length).toBe(units + START_HAULERS);
     // Their tab is remembered: a reload comes back to the army they last served.
     expect(sim.lastServed("tabtab3")).toBe(0);
     expect(sim.lastServed("tabtab5")).toBe(1);
     expect(sim.lastServed("never-seen")).toBe(-1);
     expect(sim.serve("px", 99)).toBeNull();
+    expect(sim.serve("px", -1)).toBeNull();
   });
 
   it("makes units at a building: paid for, counted against supply, there after their time", () => {
@@ -743,9 +746,9 @@ describe("pieces", () => {
 });
 
 describe("leaving, and changing sides", () => {
-  it("a general who leaves takes nothing with them: the army stands as it is, pieces too, for whoever serves it next", () => {
-    const { sim, general, run, piece, host } = setup();
-    const g = general("p1", 0);
+  it("an army whose general left is theirs to come back to; to anyone else it is begun afresh, and what was built for it goes", () => {
+    const { sim, run, piece, host } = setup();
+    const g = sim.serve("p1", 0, "tab-left-1")!;
     const wall = piece("p1", "wall", 10, 0, 10);
     sim.placed("p1", [wall]);
     g.lithium = 600;
@@ -753,20 +756,27 @@ describe("leaving, and changing sides", () => {
     sim.leave("p1");
     expect(g.here).toHaveLength(0);
     expect(sim.generalOf("p1")).toBeNull();
-    run(120);
+    run(30);
+    // (How long it is kept is the room's to say: the war itself takes nothing away.)
     expect(sim.generals[0]).toBe(g);
     expect(tank.dead).toBe(false);
-    expect([...sim.buildings.values()].filter((b) => b.owner === 0 && b.kind === "core")).toHaveLength(1);
     expect(host.removed).toHaveLength(0);
-    // Nobody plays an army nobody serves: it has built nothing more (its Haulers have gone on mining).
+    // Nobody plays an army nobody serves: it has built nothing more.
     expect([...sim.buildings.values()].filter((b) => b.owner === 0)).toHaveLength(1);
-    expect(g.lithium).toBeGreaterThan(600);
-    // The wall is the army's: whoever serves it may change it, and nobody else.
-    expect(sim.ownerOfPiece(wall.id)).toBe(0);
-    general("p2", 0);
-    general("p3", 4);
-    expect(sim.mayChange("p2", wall)).toBe(true);
-    expect(sim.mayChange("p3", wall)).toBe(false);
+    // The same tab back (a reload: a new id): the army as it stands.
+    expect(sim.serve("p1b", 0, "tab-left-1")).toBe(g);
+    expect(tank.dead).toBe(false);
+    expect(sim.mayChange("p1b", wall)).toBe(true);
+    // They go again, and someone else takes up red: begun afresh, and nothing of the old is left, the wall neither.
+    sim.leave("p1b");
+    const fresh = sim.serve("p2", 0, "tab-someone-else")!;
+    expect(fresh).not.toBe(g);
+    expect(fresh.lithium).toBe(START_LITHIUM);
+    expect(tank.dead).toBe(true);
+    expect(sim.units.filter((u) => u.owner === 0 && !u.dead).map((u) => u.kind)).toEqual(["hauler", "hauler", "hauler", "hauler"]);
+    expect(host.removed).toContain(wall.id);
+    // And the tab that served the old one is not taken back to the new.
+    expect(sim.lastServed("tab-left-1")).toBe(-1);
   });
 
   it("what a general built stays with the army they built it for when they change sides", () => {

@@ -65,47 +65,47 @@ export interface UnitDef {
 }
 
 export const UNITS: Readonly<Record<UnitKind, UnitDef>> = {
-  hauler: { label: "Hauler", key: "H", lithium: 50, plasma: 0, supply: 1, hp: 40, speed: 9, sight: 40, radius: 1.3, height: 1.8, time: 12, madeAt: "core", blurb: "Mines lithium and carries it to a Core" },
+  hauler: { label: "Hauler", key: "H", lithium: 50, plasma: 0, supply: 1, hp: 40, speed: 9, sight: 80, radius: 1.3, height: 1.8, time: 12, madeAt: "core", blurb: "Mines lithium and carries it to a Core" },
   trooper: {
-    label: "Trooper", key: "T", lithium: 50, plasma: 0, supply: 1, hp: 45, speed: 7, sight: 45, radius: 0.6, height: 1.9, infantry: true, time: 14, madeAt: "foundry",
+    label: "Trooper", key: "T", lithium: 50, plasma: 0, supply: 1, hp: 45, speed: 7, sight: 90, radius: 0.6, height: 1.9, infantry: true, time: 14, madeAt: "foundry",
     weapon: { range: 28, damage: 6, cooldown: 0.8, splash: 0, air: true, ground: true, wear: 0.05, look: "bullet" },
     blurb: "Cheap infantry: goes through doors, shoots at anything",
   },
   scout: {
-    label: "Scout buggy", key: "C", lithium: 75, plasma: 0, supply: 2, hp: 80, speed: 20, sight: 85, radius: 1.4, height: 1.3, time: 16, madeAt: "foundry",
+    label: "Scout buggy", key: "C", lithium: 75, plasma: 0, supply: 2, hp: 80, speed: 20, sight: 170, radius: 1.4, height: 1.3, time: 16, madeAt: "foundry",
     weapon: { range: 26, damage: 8, cooldown: 0.6, splash: 0, air: false, ground: true, wear: 0.04, look: "bullet" },
     blurb: "Fast, sees far: for exploring and for raiding Haulers",
   },
   tank: {
-    label: "Tank", key: "K", lithium: 150, plasma: 50, supply: 3, hp: 180, speed: 10, sight: 50, radius: 2, height: 2.2, time: 26, madeAt: "foundry",
+    label: "Tank", key: "K", lithium: 150, plasma: 50, supply: 3, hp: 180, speed: 10, sight: 100, radius: 2, height: 2.2, time: 26, madeAt: "foundry",
     weapon: { range: 36, damage: 30, cooldown: 2.2, splash: 2.5, air: false, ground: true, wear: 0.25, look: "shell" },
     blurb: "The front line: tough, and its shells break walls",
   },
   artillery: {
-    label: "Rail artillery", key: "R", lithium: 150, plasma: 100, supply: 3, hp: 90, speed: 7, sight: 45, radius: 2, height: 2.4, time: 30, madeAt: "foundry", needs: ["armory"], deploy: 2,
+    label: "Rail artillery", key: "R", lithium: 150, plasma: 100, supply: 3, hp: 90, speed: 7, sight: 90, radius: 2, height: 2.4, time: 30, madeAt: "foundry", needs: ["armory"], deploy: 2,
     weapon: { range: 95, minRange: 22, damage: 60, cooldown: 5, splash: 5, air: false, ground: true, lob: true, wear: 1, look: "shell" },
     blurb: "Outranges everything, breaks forts; sets up to fire and is helpless up close",
   },
   missile: {
-    label: "Missile truck", key: "M", lithium: 100, plasma: 50, supply: 2, hp: 90, speed: 11, sight: 55, radius: 1.8, height: 2.2, time: 22, madeAt: "foundry", needs: ["armory"],
+    label: "Missile truck", key: "M", lithium: 100, plasma: 50, supply: 2, hp: 90, speed: 11, sight: 110, radius: 1.8, height: 2.2, time: 22, madeAt: "foundry", needs: ["armory"],
     weapon: { range: 55, damage: 22, cooldown: 1.6, splash: 0, air: true, ground: false, wear: 0, look: "missile" },
     blurb: "Shoots down drones from far off; cannot hit the ground",
   },
   gunship: {
-    label: "Gunship drone", key: "G", lithium: 100, plasma: 75, supply: 2, hp: 90, speed: 18, sight: 55, radius: 1.8, height: 1.2, air: true, time: 24, madeAt: "skyport",
+    label: "Gunship drone", key: "G", lithium: 100, plasma: 75, supply: 2, hp: 90, speed: 18, sight: 110, radius: 1.8, height: 1.2, air: true, time: 24, madeAt: "skyport",
     weapon: { range: 30, damage: 9, cooldown: 0.5, splash: 0, air: true, ground: true, wear: 0.04, look: "bullet" },
     blurb: "Flies over walls",
   },
   transport: {
-    label: "Transport drone", key: "T", lithium: 100, plasma: 50, supply: 2, hp: 120, speed: 16, sight: 45, radius: 2.6, height: 2.4, air: true, cargo: 8, time: 24, madeAt: "skyport",
+    label: "Transport drone", key: "T", lithium: 100, plasma: 50, supply: 2, hp: 120, speed: 16, sight: 90, radius: 2.6, height: 2.4, air: true, cargo: 8, time: 24, madeAt: "skyport",
     blurb: "Carries ground units over walls and behind the lines",
   },
   emp: {
-    label: "EMP drone", key: "E", lithium: 75, plasma: 100, supply: 2, hp: 60, speed: 16, sight: 50, radius: 1.4, height: 1.2, air: true, time: 26, madeAt: "skyport", needs: ["armory"],
+    label: "EMP drone", key: "E", lithium: 75, plasma: 100, supply: 2, hp: 60, speed: 16, sight: 100, radius: 1.4, height: 1.2, air: true, time: 26, madeAt: "skyport", needs: ["armory"],
     blurb: "Its pulse stops every enemy unit and turret near a spot for a few seconds",
   },
   titan: {
-    label: "Titan walker", key: "T", lithium: 400, plasma: 300, supply: 8, hp: 900, speed: 6, sight: 55, radius: 3.2, height: 7, time: 60, madeAt: "titanbay",
+    label: "Titan walker", key: "T", lithium: 400, plasma: 300, supply: 8, hp: 900, speed: 6, sight: 110, radius: 3.2, height: 7, time: 60, madeAt: "titanbay",
     weapon: { range: 42, damage: 70, cooldown: 2.5, splash: 4, air: true, ground: true, wear: 0.5, look: "shell" },
     blurb: "The late game: slow, enormous, and very hard to stop",
   },
@@ -136,24 +136,24 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Readonly<Record<BuildingKind, BuildingDef>> = {
-  core: { label: "Command Core", key: "C", lithium: 400, plasma: 0, hp: 1500, size: 3, time: 60, sight: 70, height: 14, wide: 11.4, supply: 12, blurb: "Makes Haulers, takes their lithium. Lose every Core and you are routed" },
-  tap: { label: "Tap", key: "T", lithium: 75, plasma: 0, hp: 400, size: 1, time: 20, sight: 30, height: 5, wide: 3.8, blurb: "On a plasma vent: draws plasma while the vent lasts" },
-  relay: { label: "Relay mast", key: "R", lithium: 100, plasma: 0, hp: 300, size: 1, time: 15, sight: 45, height: 12, wide: 3.0, supply: 10, blurb: "Raises your army limit by 10" },
-  foundry: { label: "Foundry", key: "F", lithium: 150, plasma: 0, hp: 800, size: 2, time: 30, sight: 45, height: 7, wide: 9.2, needs: ["core"], blurb: "Makes Troopers and vehicles" },
-  armory: { label: "Armory", key: "M", lithium: 125, plasma: 50, hp: 600, size: 2, time: 30, sight: 40, height: 6, wide: 9.2, needs: ["foundry"], advanced: true, blurb: "Upgrades weapons and armour; unlocks artillery, missile trucks and the EMP" },
-  skyport: { label: "Skyport", key: "K", lithium: 150, plasma: 100, hp: 700, size: 2, time: 35, sight: 50, height: 9, wide: 9.8, needs: ["foundry"], advanced: true, blurb: "Makes drones" },
-  titanbay: { label: "Titan bay", key: "T", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 45, height: 12, wide: 14.2, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
+  core: { label: "Command Core", key: "C", lithium: 400, plasma: 0, hp: 1500, size: 3, time: 60, sight: 140, height: 14, wide: 11.4, supply: 12, blurb: "Makes Haulers, takes their lithium. Lose every Core and you are routed" },
+  tap: { label: "Tap", key: "T", lithium: 75, plasma: 0, hp: 400, size: 1, time: 20, sight: 60, height: 5, wide: 3.8, blurb: "On a plasma vent: draws plasma while the vent lasts" },
+  relay: { label: "Relay mast", key: "R", lithium: 100, plasma: 0, hp: 300, size: 1, time: 15, sight: 90, height: 12, wide: 3.0, supply: 10, blurb: "Raises your army limit by 10" },
+  foundry: { label: "Foundry", key: "F", lithium: 150, plasma: 0, hp: 800, size: 2, time: 30, sight: 90, height: 7, wide: 9.2, needs: ["core"], blurb: "Makes Troopers and vehicles" },
+  armory: { label: "Armory", key: "M", lithium: 125, plasma: 50, hp: 600, size: 2, time: 30, sight: 80, height: 6, wide: 9.2, needs: ["foundry"], advanced: true, blurb: "Upgrades weapons and armour; unlocks artillery, missile trucks and the EMP" },
+  skyport: { label: "Skyport", key: "K", lithium: 150, plasma: 100, hp: 700, size: 2, time: 35, sight: 100, height: 9, wide: 9.8, needs: ["foundry"], advanced: true, blurb: "Makes drones" },
+  titanbay: { label: "Titan bay", key: "T", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 90, height: 12, wide: 14.2, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
   sentry: {
-    label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 45, height: 4, wide: 2.2, needs: ["foundry"],
+    label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 90, height: 4, wide: 2.2, needs: ["foundry"],
     weapon: { range: 36, damage: 10, cooldown: 0.6, splash: 0, air: false, ground: true, wear: 0, look: "bullet" },
     blurb: "Guards a spot against ground units",
   },
   flak: {
-    label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 50, height: 4, wide: 2.2, needs: ["foundry"],
+    label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 100, height: 4, wide: 2.2, needs: ["foundry"],
     weapon: { range: 48, damage: 16, cooldown: 0.7, splash: 0, air: true, ground: false, wear: 0, look: "bullet" },
     blurb: "Guards a spot against drones",
   },
-  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 40, height: 6, wide: 2.2, needs: ["armory"], advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
+  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 80, height: 6, wide: 2.2, needs: ["armory"], advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
 };
 
 /** What each building makes, in the order of its buttons. */
@@ -202,10 +202,12 @@ export const EMP = { radius: 12, stun: 6, cooldown: 30, range: 40 } as const;
 /** A general thrown by a hit cannot be thrown again for this long after getting up. */
 export const GENERAL_IMMUNE = 5;
 /** How far a general sees on foot; standing higher adds this much for every metre, up to three times as far. */
-export const GENERAL_SIGHT = 60;
-export const SIGHT_PER_METRE = 1.2;
+export const GENERAL_SIGHT = 120;
+export const SIGHT_PER_METRE = 2.4;
 /** Units and buildings on an upper storey see and shoot this much further. */
 export const HIGH_GROUND = 1.3;
+/** Units go after an enemy on their own within this share of their sight: they see further than they chase. */
+export const CHASE_OF_SIGHT = 0.5;
 /** With no page connected to the room at all for this long (and a little more), whoever the war still believes is serving an army is taken to have gone, seconds. */
 export const LEAVE_GRACE = 60;
 /** A routed general may drop a new Core, free, after this long. */

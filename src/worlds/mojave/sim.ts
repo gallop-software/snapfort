@@ -11,6 +11,7 @@ import {
   EMP,
   FLIGHT_HEIGHT,
   GENERAL_IMMUNE,
+  CHASE_OF_SIGHT,
   GENERAL_SIGHT,
   HIGH_GROUND,
   LOAD,
@@ -1423,9 +1424,9 @@ export class Sim {
     const ordered = order.k === "attack";
     // Standing with no spot of its own yet (made, or put there): this is where it stands.
     if (order.k === "stop" && !u.home && !u.tk && !u.chase) u.home = [u.x, u.z, u.level];
-    // Hold: only what it can hit from where it stands. Anything else: anything it can see.
+    // Hold: only what it can hit from where it stands. Anything else: anything near enough to go after (it sees further).
     const roam = order.k !== "hold";
-    const acquire = roam ? Math.max(range * 1.1, def.sight) : range;
+    const acquire = roam ? Math.max(range * 1.1, def.sight * CHASE_OF_SIGHT) : range;
     if (ordered && (u.tk !== order.tk || u.tid !== order.id)) {
       u.tk = order.tk;
       u.tid = order.id;

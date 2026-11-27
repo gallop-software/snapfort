@@ -338,6 +338,20 @@ describe("nothing passes through anything", () => {
     expect(g.lithium - before).toBeGreaterThan(1000);
   });
 
+  it("Troopers and Tanks through a gap one cell wide: every one gets there in the end, nobody settles on the way", () => {
+    const { sim, general, piece, run } = setup();
+    const g = general("p1", 0);
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    // A long wall of their own across the way, with one cell left open in the middle.
+    for (let i = -10; i <= 10; i++) if (i !== 0) piece("p1", "wall", cx + i, 0, cz, 0);
+    // (Held up in the crowd, a unit looks for its way afresh and steps aside, rather than settle where it is.)
+    const units = Array.from({ length: 24 }, (_, i) => sim.addUnit(i % 3 === 0 ? "tank" : "trooper", g.slot, (cx - 6) * CELL + (i % 10) * 3, (cz - 6) * CELL - Math.floor(i / 10) * 3));
+    sim.command(g.slot, units.map((u) => u.id), { k: "move", x: (cx + 0.5) * CELL, z: (cz + 12) * CELL, l: 0 });
+    run(120);
+    const short = units.filter((u) => u.z < (cz + 3) * CELL);
+    expect(short.map((u) => [Math.round(u.x), Math.round(u.z)])).toEqual([]);
+  });
+
   it("a crowd marching past a building and the end of a wall keeps every body out of both", () => {
     const { sim, general, piece } = setup();
     const g = general("p1", 0);
@@ -576,6 +590,49 @@ describe("each soldier thinks for itself", () => {
     run(30);
     // The spot reached in the end.
     for (const u of red.filter((u) => !u.dead)) expect(Math.hypot(u.x - X - 5, u.z - Z - DZ)).toBeLessThan(30);
+  });
+
+  it("told to attack something shut in by walls nobody's army holds any more, they break in and get it", () => {
+    const { sim, a, run, piece, host, build } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    // A closed square, 3 cells a side, built by someone who serves no army now (nobody's walls: anyone may break them).
+    const walls: Piece[] = [];
+    for (let i = 0; i < 3; i++) {
+      walls.push(piece("gone", "wall", cx + i, 0, cz, 0), piece("gone", "wall", cx + i, 0, cz + 3, 0), piece("gone", "wall", cx, 0, cz + i, 1), piece("gone", "wall", cx + 3, 0, cz + i, 1));
+    }
+    const inside = sim.addUnit("hauler", NEUTRAL, (cx + 1.5) * CELL, (cz + 1.5) * CELL);
+    const tanks = Array.from({ length: 4 }, (_, i) => sim.addUnit("tank", a.slot, (cx - 2 + i * 2) * CELL, (cz - 7) * CELL));
+    sim.command(a.slot, tanks.map((t) => t.id), { k: "attack", tk: T_UNIT, id: inside.id });
+    run(20);
+    // They shoot the walls (the room takes a wall down once worn through: here, by hand).
+    const ids = new Set(walls.map((w) => w.id));
+    expect(host.worn.filter(([id]) => ids.has(id)).reduce((t, [, h]) => t + h, 0)).toBeGreaterThan(2);
+    expect(tanks.every((t) => t.order.k === "attack")).toBe(true);
+    for (const w of walls) build.apply({ kind: "remove", id: w.id });
+    run(20);
+    expect(inside.dead).toBe(true);
+  });
+
+  it("with a building between it and its target, a unit goes round to another side for a shot", () => {
+    const { sim, a, b, run } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    // A Foundry (two cells square) with the target hard against its far side, and a Tank straight across from it.
+    sim.addBuilding("foundry", b.slot, cx, cz, true);
+    const target = sim.addUnit("hauler", NEUTRAL, (cx + 1) * CELL, (cz + 2) * CELL + 1.6);
+    const tank = sim.addUnit("tank", a.slot, (cx + 1) * CELL, (cz - 5) * CELL);
+    sim.command(a.slot, [tank.id], { k: "attack", tk: T_UNIT, id: target.id });
+    run(40);
+    expect(target.dead).toBe(true);
+  });
+
+  it("an order to attack what its weapon cannot hit is over at once (a Tank at a drone)", () => {
+    const { sim, a, b, run } = twoSides();
+    const tank = sim.addUnit("tank", a.slot, OPEN[0], OPEN[1]);
+    const drone = sim.addUnit("gunship", b.slot, OPEN[0] + 20, OPEN[1]);
+    sim.command(b.slot, [drone.id], { k: "hold" });
+    sim.command(a.slot, [tank.id], { k: "attack", tk: T_UNIT, id: drone.id });
+    run(1);
+    expect(tank.order.k).toBe("stop");
   });
 
   it("one with nothing to shoot joins in what its neighbour is fighting", () => {

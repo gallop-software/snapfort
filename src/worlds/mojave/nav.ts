@@ -267,6 +267,41 @@ export class Nav {
   }
 
   /**
+   * True when a unit of this class could walk a straight line on the ground
+   * from one spot to another as far as the cells go: none shut (a building, a
+   * field), no ramp, and (for a Titan) nothing built low over one. Walls on the
+   * way are clearLine's to find.
+   */
+  openLine(x0: number, z0: number, x1: number, z1: number, cls: MoveClass, ahead = 40): boolean {
+    // Only so far ahead (it is asked again at every step, so what is further off is found nearer to): cell by cell.
+    const d = Math.hypot(x1 - x0, z1 - z0);
+    if (d > ahead) {
+      x1 = x0 + ((x1 - x0) / d) * ahead;
+      z1 = z0 + ((z1 - z0) / d) * ahead;
+    }
+    let x = Math.floor(x0 / CELL), z = Math.floor(z0 / CELL);
+    const ex = Math.floor(x1 / CELL), ez = Math.floor(z1 / CELL);
+    const dx = x1 - x0, dz = z1 - z0;
+    const sx = dx > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+    const tdx = dx !== 0 ? Math.abs(CELL / dx) : Infinity, tdz = dz !== 0 ? Math.abs(CELL / dz) : Infinity;
+    let tx = dx !== 0 ? ((dx > 0 ? (x + 1) * CELL - x0 : x0 - x * CELL) / Math.abs(dx)) : Infinity;
+    let tz = dz !== 0 ? ((dz > 0 ? (z + 1) * CELL - z0 : z0 - z * CELL) / Math.abs(dz)) : Infinity;
+    for (let n = 0; n < 64; n++) {
+      if (!inside(x, z) || this.ground.flags[idx(x, z)]! & (SHUT | RAMP)) return false;
+      if (cls === TOWERING && this.lowOver(0, x, z)) return false;
+      if (x === ex && z === ez) return true;
+      if (tx < tz) {
+        x += sx;
+        tx += tdx;
+      } else {
+        z += sz;
+        tz += tdz;
+      }
+    }
+    return true;
+  }
+
+  /**
    * True when nothing stands on any edge a straight line from one spot to
    * another crosses, on that storey (a line of fire). The walls of `pass` (an
    * army's slot) are let through: an army shoots out over its own walls. With
@@ -321,7 +356,7 @@ export class Nav {
    * With `breach`, a wall whose owner it accepts can be gone through at a
    * price (the unit breaks it down when it gets there).
    */
-  flow(seeds: readonly Node[], cls: MoveClass, breach: ((owner: number) => boolean) | null, at = 0): Flow {
+  flow(seeds: readonly Node[], cls: MoveClass, breach: ((owner: number) => boolean) | null, at = 0, limit = Infinity): Flow {
     // Cells are named by one number: storey, then place on the storey.
     const AREA = G * G;
     const ground = new Int32Array(AREA).fill(INF);
@@ -389,6 +424,8 @@ export class Nav {
       }
       keys[i] = kd;
       cells[i] = kc;
+      // (Only so far out, when asked: everything left is further.)
+      if (d > limit) break;
       if (d > get(node)) continue;
       visit(d, node);
     }

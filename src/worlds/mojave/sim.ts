@@ -68,6 +68,10 @@ const BUCKET = 16;
 const BUCKETS = Math.ceil((HALF_CELLS * 2 * CELL) / BUCKET);
 /** How far a general can be from where they put a building, m. */
 export const BUILD_REACH = 45;
+/** The other sides a unit goes round to for a shot, once as near as it gets has done no good (radians from its own). */
+const TRY_ANGLES = [0, 1.05, -1.05, 2.1, -2.1, Math.PI] as const;
+/** A target no side of which could be got at is let go of for this long, s. */
+const GIVE_UP_FOR = 20;
 /** A unit with nothing to shoot joins in what one of its own this near it is fighting, m. */
 const ASSIST_RANGE = 30;
 /** A Hauler choosing crystals counts each other Hauler already at a patch as this much further to go, m (one digs at a time: about the walk it waits). */
@@ -162,6 +166,13 @@ export interface Unit {
   chaseZ: number;
   /** How near to close in, as a part of its range: less each time it gets there and still cannot fire (a wall between, say). */
   closer: number;
+  /** Ways tried to get a shot at what it is after, once as near as it gets will not do: other sides of it, then through walls; then it gives that one up a while. */
+  tries: number;
+  /** The same as `stuck` and `linger`, for its own way (`chase`) rather than the order's. */
+  chaseStuck: number;
+  chaseLinger: number;
+  /** Times it has looked again for the way, held up on its order's way (in a crowd, say), before settling for where it is. */
+  replans: number;
   /** Standing (no order): where it stood, to come back to after a fight. */
   home: [number, number, number] | null;
   /** Shot at from out of sight while standing: where from, and until when it goes to look. */
@@ -209,6 +220,8 @@ interface Goal {
   key: string;
   seeds: readonly Node[];
   breach: boolean;
+  /** How far out from the goal its flow is worked out (in steps of the way: 10 a cell); beyond that, no way. Infinite for an order's own goal. */
+  limit: number;
   /** Near enough to the goal to stop. */
   radius: number;
   /** The next spot on the way (the middle of the next cell, a little off centre), when set. */
@@ -320,6 +333,8 @@ export class Sim {
   private nextBuilding = 1;
   private nextGroup = 1;
   private readonly flows = new Map<string, Flow & { used: number }>();
+  /** Units' own short ways (to something in sight): see flowOf. */
+  private readonly nearFlows = new Map<string, Flow & { used: number }>();
   /** Who is near whom: the first unit in each bucket, and the next after each unit (by place in `units`). */
   private readonly head = new Int32Array(BUCKETS * BUCKETS);
   private next = new Int32Array(256);
@@ -805,6 +820,7 @@ export class Sim {
       order: { k: "stop" }, queue: [], goal: null, group: 0, arrived: true, tk: 0, tid: 0, coolAt: 0, stunUntil: 0, downUntil: 0, deployedAt: 0, packedAt: 0,
       carry: 0, phase: 0, digUntil: 0, field: 0, cargo: [], inside: 0, empAt: 0, stuck: 0, linger: 0, hitUntil: 0, post: -1, dead: false,
       aim: 0, chase: null, chaseAt: 0, chaseX: 0, chaseZ: 0, closer: 0.85, home: null, alarmX: 0, alarmZ: 0, alarmUntil: 0,
+      tries: 0, chaseStuck: 0, chaseLinger: 0, replans: 0,
     };
     if (!def.air) this.putOnGround(u, x, z);
     this.units.push(u);
@@ -1009,6 +1025,8 @@ export class Sim {
     u.tk = 0;
     u.chase = null;
     u.closer = 0.85;
+    u.tries = 0;
+    u.replans = 0;
     u.alarmUntil = 0;
     // Standing: this is where it stands, and comes back to after a fight. Any other order: it has no such spot.
     u.home = order.k === "stop" ? [u.x, u.z, u.level] : null;
@@ -1058,7 +1076,7 @@ export class Sim {
     const place = this.places.get(u.id);
     const ox = clampEdge(x + (place?.[0] ?? 0)), oz = clampEdge(z + (place?.[1] ?? 0));
     if (def.air) {
-      u.goal = { x, z, ox, oz, reach: 0, key: "", seeds: [], breach: false, radius, wx: ox, wz: oz, set: true };
+      u.goal = { x, z, ox, oz, reach: 0, key: "", seeds: [], breach: false, limit: Infinity, radius, wx: ox, wz: oz, set: true };
       return;
     }
     const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
@@ -1074,27 +1092,33 @@ export class Sim {
   }
 
   /** The way to any of `seeds`, and from there to a spot of its own. */
-  private goalTo(u: Unit, x: number, z: number, seeds: readonly Node[], radius: number, breach: boolean, ox = x, oz = z): Goal {
+  private goalTo(u: Unit, x: number, z: number, seeds: readonly Node[], radius: number, breach: boolean, ox = x, oz = z, near = false): Goal {
     const def = UNITS[u.kind];
     const first = seeds[0];
-    const key = `${classOf(def)}|${breach ? this.teamOf(u.owner) : "-"}|${seeds.length}|${first ? `${first.x},${first.z},${first.l}` : ""}`;
+    // Near (its own way to something in sight): the flow is worked out only so far round the goal, well past where the
+    // unit is (half as far again as straight there, and more): a whole map's worth for every chase would cost too much.
+    const limit = near ? Math.ceil(((Math.hypot(u.x - x, u.z - z) / CELL) * 1.5 + 12) / 10) * 100 : Infinity;
+    const key = `${classOf(def)}|${breach ? this.teamOf(u.owner) : "-"}|${seeds.length}|${first ? `${first.x},${first.z},${first.l}` : ""}|${limit}`;
     // (A step of the way is 10: see nav.ts.)
     const reach = ox === x && oz === z ? 0 : (Math.ceil(Math.hypot(ox - x, oz - z) / CELL) + 1) * 10;
-    return { x, z, ox, oz, reach, key, seeds, breach, radius, wx: 0, wz: 0, set: false };
+    return { x, z, ox, oz, reach, key, seeds, breach, limit, radius, wx: 0, wz: 0, set: false };
   }
 
   private flowOf(u: Unit, goal: Goal): Flow {
-    let flow = this.flows.get(goal.key);
+    // (A unit's own short ways are kept apart from orders' ways: there are many more of them, and they would push the
+    // orders' out, to be worked out again across the whole map.)
+    const flows = goal.limit < Infinity ? this.nearFlows : this.flows;
+    let flow = flows.get(goal.key);
     // Worked out again when the build has changed (not more than about twice a second each).
     if (!flow || (flow.version !== this.nav.version && this.t - flow.at > 0.5)) {
       const owner = u.owner;
-      const made = this.nav.flow(goal.seeds, classOf(UNITS[u.kind]), goal.breach ? (o) => o !== NO_OWNER && this.hostile(owner, o) : null, this.t);
+      const made = this.nav.flow(goal.seeds, classOf(UNITS[u.kind]), goal.breach ? (o) => o === NO_OWNER || this.hostile(owner, o) : null, this.t, goal.limit);
       flow = Object.assign(made, { used: this.t });
-      this.flows.set(goal.key, flow);
-      if (this.flows.size > 48) {
+      flows.set(goal.key, flow);
+      if (flows.size > 48) {
         // The longest unused go (each is a number for every cell of the map: a room has only so much memory).
-        const old = [...this.flows].sort((a, b) => a[1].used - b[1].used).slice(0, 16);
-        for (const [k] of old) this.flows.delete(k);
+        const old = [...flows].sort((a, b) => a[1].used - b[1].used).slice(0, 16);
+        for (const [k] of old) flows.delete(k);
       }
     }
     flow.used = this.t;
@@ -1327,6 +1351,8 @@ export class Sim {
         u.chase = null;
         return;
       }
+      // Nothing it can do to it (a gun for the air, told to attack something on the ground): the order is over.
+      if (state === "none" && !u.tk) return this.done(u);
       return this.closeIn(u, def, w, order.fan);
     }
     if (order.k === "amove" || order.k === "patrol") {
@@ -1338,7 +1364,7 @@ export class Sim {
         return;
       }
       if (state === "close") return this.closeIn(u, def, w);
-      if (this.t < u.alarmUntil && Math.hypot(u.alarmX - u.x, u.alarmZ - u.z) > w.range * 0.6) return this.walkTo(u, def, u.alarmX, u.alarmZ);
+      if (this.t < u.alarmUntil && Math.hypot(u.alarmX - u.x, u.alarmZ - u.z) > w.range * 0.6) return this.walkTo(u, def, u.alarmX, u.alarmZ, w.wear > 0);
       u.chase = null;
       if (!u.goal) return this.done(u);
       this.travel(u, def);
@@ -1360,7 +1386,7 @@ export class Sim {
       }
       if (state === "close") return this.closeIn(u, def, w);
       // Shot at by something it cannot see: it goes to look, a little way.
-      if (this.t < u.alarmUntil && Math.hypot(u.alarmX - u.x, u.alarmZ - u.z) > w.range * 0.6) return this.walkTo(u, def, u.alarmX, u.alarmZ);
+      if (this.t < u.alarmUntil && Math.hypot(u.alarmX - u.x, u.alarmZ - u.z) > w.range * 0.6) return this.walkTo(u, def, u.alarmX, u.alarmZ, w.wear > 0);
       // Nothing to fight: back to where it stood.
       if (u.home && Math.hypot(u.home[0] - u.x, u.home[1] - u.z) > 3) return this.walkTo(u, def, u.home[0], u.home[1]);
       u.chase = null;
@@ -1398,28 +1424,58 @@ export class Sim {
       }
       const range = w.range * (u.level > 0 && !def.air ? HIGH_GROUND : 1);
       const r = Math.max(w.minRange ? w.minRange + 4 : 0, slack + Math.max(2, range * u.closer - def.radius));
-      // Its own angle: the one the order gave it, else a little either side of where it comes from (by who it is).
-      const off = fan ?? (scatter(u.id, 31) - 0.5) * 1.3;
+      // Its own angle: the one the order gave it, else a little either side of where it comes from (by who it is); and,
+      // as near as it gets having done no good, another side of the target each time (round the back in the end).
+      const off = (fan ?? (scatter(u.id, 31) - 0.5) * 1.3) + TRY_ANGLES[u.tries % TRY_ANGLES.length]!;
       const from = Math.atan2(u.x - target[0], u.z - target[1]) + off;
       const ox = clampEdge(target[0] + Math.sin(from) * r), oz = clampEdge(target[1] + Math.cos(from) * r);
       // (A weapon that can break walls breaks through one in its way, as an attack-move does.)
-      u.chase = def.air ? this.airGoal(ox, oz) : this.goalTo(u, target[0], target[1], this.seedsAt(u.tk as TargetKind, u.tid, target), 1, w.wear > 0, ox, oz);
+      u.chase = def.air ? this.airGoal(ox, oz) : this.goalTo(u, target[0], target[1], this.seedsAt(u.tk as TargetKind, u.tid, target), 1, w.wear > 0, ox, oz, true);
       u.chaseAt = this.t;
       u.chaseX = target[0];
       u.chaseZ = target[1];
+      u.chaseStuck = 0;
+      u.chaseLinger = 0;
     }
     this.follow(u, def);
     if (u.chase === null) {
-      // There and still no shot: nearer next time.
-      u.closer = Math.max(0.25, u.closer * 0.7);
+      // There and still no shot: nearer next time; as near as that gets, from another side; every side tried, it gives
+      // that one up for a while (and an order to attack it is over) rather than stand there.
+      if (u.closer > 0.26) u.closer = Math.max(0.25, u.closer * 0.7);
+      else if (++u.tries >= TRY_ANGLES.length) this.giveUp(u);
     }
   }
 
-  /** Walks to a spot on its own way, the order's own way kept for after (back to where it stood, or toward whoever shot at it). */
-  private walkTo(u: Unit, def: UnitDef, x: number, z: number): void {
+  /** What it is after cannot be got at from anywhere it can go: let go of it for a while (see `unreachable`), and of an order to attack it. */
+  private giveUp(u: Unit): void {
+    if (!u.tk) return;
+    this.unreachable.set(`${u.id}|${u.tk}|${u.tid}`, this.t + GIVE_UP_FOR);
+    const was = u.order.k === "attack" && u.order.tk === u.tk && u.order.id === u.tid;
+    const w = UNITS[u.kind].weapon;
+    if (w) this.pledge(u, w, -1);
+    u.tk = 0;
+    u.chase = null;
+    u.closer = 0.85;
+    u.tries = 0;
+    if (was) this.done(u);
+  }
+
+  /** Targets a unit has given up on (see giveUp), until when: "unit|kind|id". */
+  private readonly unreachable = new Map<string, number>();
+
+  /** Whether a unit gave this target up a moment ago. */
+  private gaveUp(u: Unit, tk: TargetKind, tid: number | string): boolean {
+    const until = this.unreachable.get(`${u.id}|${tk}|${tid}`);
+    return until !== undefined && this.t < until;
+  }
+
+  /** Walks to a spot on its own way, the order's own way kept for after (back to where it stood, or toward whoever shot at it: through walls, if it can break them). */
+  private walkTo(u: Unit, def: UnitDef, x: number, z: number, breach = false): void {
     if (!u.chase || Math.hypot(u.chase.ox - x, u.chase.oz - z) > 2) {
       const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
-      u.chase = def.air ? this.airGoal(x, z) : this.goalTo(u, x, z, [{ x: cx, z: cz, l: 0 }, ...this.nav.around(cx, cz, 1)], 1, false, x, z);
+      u.chase = def.air ? this.airGoal(x, z) : this.goalTo(u, x, z, [{ x: cx, z: cz, l: 0 }, ...this.nav.around(cx, cz, 1)], 1, breach, x, z, true);
+      u.chaseStuck = 0;
+      u.chaseLinger = 0;
     }
     this.follow(u, def);
   }
@@ -1428,7 +1484,8 @@ export class Sim {
   private follow(u: Unit, def: UnitDef): void {
     const c = u.chase;
     // Open ground all the way there (the usual case in a fight): straight there, no way to work out.
-    if (c && !def.air && u.level === 0 && this.t >= u.downUntil && !(def.deploy && this.t < u.packedAt) && this.nav.clearLine(u.x, u.z, c.ox, c.oz, 0)) {
+    // (Open ground: no wall, building, field, ramp, or floor too low for a Titan along the way.)
+    if (c && !def.air && u.level === 0 && this.t >= u.downUntil && !(def.deploy && this.t < u.packedAt) && this.nav.clearLine(u.x, u.z, c.ox, c.oz, 0) && this.nav.openLine(u.x, u.z, c.ox, c.oz, classOf(def))) {
       const dx = c.ox - u.x, dz = c.oz - u.z;
       const d = Math.hypot(dx, dz);
       if (d <= 0.7 + def.radius * 0.4) {
@@ -1446,21 +1503,30 @@ export class Sim {
       const [sx, sz] = this.clearStep(u, def, dx / d, dz / d, step, d);
       this.shift(u, u.x + sx, u.z + sz, classOf(def));
       if (Math.hypot(u.x - bx, u.z - bz) < step * 0.3) {
-        u.stuck += DT;
-        if (u.stuck > 3) {
-          u.stuck = 0;
+        u.chaseStuck += DT;
+        if (u.chaseStuck > 3) {
+          u.chaseStuck = 0;
           u.chase = null;
         }
-      } else u.stuck = Math.max(0, u.stuck - DT * 0.5);
+      } else u.chaseStuck = Math.max(0, u.chaseStuck - DT * 0.5);
       return;
     }
-    const keep = u.goal, kept = u.arrived;
+    // Along its own way, with its own way's counters (the order's are kept for the order).
+    const keep = u.goal, kept = u.arrived, stuck = u.stuck, linger = u.linger, replans = u.replans;
     u.goal = u.chase;
     u.arrived = false;
+    u.stuck = u.chaseStuck;
+    u.linger = u.chaseLinger;
+    u.replans = 3;
     this.travel(u, def);
     u.chase = u.arrived ? null : u.goal;
+    u.chaseStuck = u.chase ? u.stuck : 0;
+    u.chaseLinger = u.chase ? u.linger : 0;
     u.goal = keep;
     u.arrived = kept;
+    u.stuck = stuck;
+    u.linger = linger;
+    u.replans = replans;
   }
 
   /** Where a target can be got at: the cells to find the way to (shared by everyone going for that target, so the way is worked out once). */
@@ -1478,7 +1544,7 @@ export class Sim {
   }
 
   private airGoal(x: number, z: number): Goal {
-    return { x, z, ox: x, oz: z, reach: 0, key: "", seeds: [], breach: false, radius: 1, wx: x, wz: z, set: true };
+    return { x, z, ox: x, oz: z, reach: 0, key: "", seeds: [], breach: false, limit: Infinity, radius: 1, wx: x, wz: z, set: true };
   }
 
   /** The order is finished: on to the next one queued, or stand. */
@@ -1514,6 +1580,7 @@ export class Sim {
       u.tk = order.tk;
       u.tid = order.id;
       u.closer = 0.85;
+      u.tries = 0;
     }
     let state: "fire" | "close" | "none" = "none";
     /** A wall of the enemy's between it and its target: shot first. */
@@ -1533,6 +1600,7 @@ export class Sim {
           u.tk = pick.tk;
           u.tid = pick.tid;
           u.closer = 0.85;
+          u.tries = 0;
           u.chase = null;
           this.pledge(u, w, 1);
           state = this.judge(u, def, w, range, acquire, roam, false);
@@ -1548,6 +1616,7 @@ export class Sim {
         u.tk = help[0];
         u.tid = help[1];
         u.closer = 0.85;
+        u.tries = 0;
         u.chase = null;
         this.pledge(u, w, 1);
         state = this.judge(u, def, w, range, acquire * 1.25, roam, false);
@@ -1566,6 +1635,7 @@ export class Sim {
       if (state === "fire" && !moving && (def.infantry || def.air || def.deploy)) u.heading = u.aim;
     }
     if (state !== "fire") return state;
+    u.tries = 0;
     // Artillery fires only once set up.
     if (def.deploy) {
       if (u.deployedAt === 0) {
@@ -1594,7 +1664,7 @@ export class Sim {
       const d = dist2(o.x, o.z, u.x, u.z);
       if (d > ASSIST_RANGE * ASSIST_RANGE || d >= bestD) return;
       const spot = this.spotOf(o.tk, o.tid);
-      if (!spot || Math.hypot(spot[0] - u.x, spot[1] - u.z) > acquire * 1.2) return;
+      if (!spot || Math.hypot(spot[0] - u.x, spot[1] - u.z) > acquire * 1.2 || this.gaveUp(u, o.tk, o.tid as number)) return;
       if (o.tk === T_UNIT) {
         const t = this.unitById.get(o.tid as number);
         if (!t || (UNITS[t.kind].air ? !w.air : !w.ground)) return;
@@ -1689,6 +1759,7 @@ export class Sim {
       const d = Math.hypot(o.x - u.x, o.z - u.z);
       if (d > acquire || (min && d < min)) return;
       if (u.home && Math.hypot(o.x - u.home[0], o.z - u.home[1]) > leash) return;
+      if (this.gaveUp(u, T_UNIT, o.id)) return;
       found.push({ tk: T_UNIT, tid: o.id, score: this.scoreOf(u, w, range, T_UNIT, o.id, false), d, x: o.x, z: o.z, l: o.level, flying });
     });
     if (w.ground) {
@@ -1698,6 +1769,7 @@ export class Sim {
         const d = Math.max(0, Math.hypot(c[0] - u.x, c[2] - u.z) - (BUILDINGS[b.kind].size * CELL) / 2);
         if (d > acquire || (min && d < min)) continue;
         if (u.home && Math.hypot(c[0] - u.home[0], c[2] - u.home[1]) > leash) continue;
+        if (this.gaveUp(u, T_BUILDING, b.id)) continue;
         found.push({ tk: T_BUILDING, tid: b.id, score: this.scoreOf(u, w, range, T_BUILDING, b.id, false), d, x: c[0], z: c[2], l: 0, flying: false });
       }
     }
@@ -1771,7 +1843,8 @@ export class Sim {
     if (!flying && !this.lineOfFire(x, z, tx, tz, Math.max(level, tl), slack, owner, !!w.lob || air)) {
       // A wall of the enemy's in the way, that this weapon wears: that is what it shoots, until it is down.
       const lw = this.nav.lineWall;
-      if (!lw || w.wear <= 0 || lw.owner === NO_OWNER || !this.hostile(owner, lw.owner)) return "far";
+      // (A wall nobody's army holds any more is anyone's to break.)
+      if (!lw || w.wear <= 0 || (lw.owner !== NO_OWNER && !this.hostile(owner, lw.owner))) return "far";
       const wall = this.build.occupant({ type: "wall", x: lw.x, y: lw.l, z: lw.z, rot: lw.rot });
       const at = wall ? this.spotOf(T_PIECE, wall.id) : null;
       if (!wall || !at || (w.minRange && Math.hypot(at[0] - x, at[1] - z) < w.minRange)) return "far";
@@ -2296,10 +2369,18 @@ export class Sim {
     if (u.cx === Math.floor(goal.wx / CELL) && u.cz === Math.floor(goal.wz / CELL) && d < CELL * 0.6) goal.set = false;
     const moved = Math.hypot(u.x - bx, u.z - bz);
     if (moved < s * 0.3) {
-      // Held up: look again for the way, and give up in the end.
+      // Held up: look again for the way. Still held up: a step aside, the other way, and on; only after that, again and
+      // again, does it settle for where it is.
       u.stuck += DT;
       goal.set = false;
-      if (u.stuck > 5) u.arrived = true;
+      if (u.stuck > 5) {
+        if (u.replans < 3) {
+          u.replans++;
+          u.stuck = 0;
+          u.side = -u.side;
+          u.sideUntil = this.t + 2;
+        } else u.arrived = true;
+      }
     } else u.stuck = Math.max(0, u.stuck - DT * 0.5);
   }
 
@@ -2647,6 +2728,7 @@ export class Sim {
   /** Lets go of every path worked out (the war has stopped: they are worked out again when wanted). */
   forgetPaths(): void {
     this.flows.clear();
+    this.nearFlows.clear();
   }
 
   // ── Keeping it through a sleep ─────────────────────────────────────────
@@ -2722,6 +2804,10 @@ export class Sim {
         u.alarmX ??= 0;
         u.alarmZ ??= 0;
         u.alarmUntil ??= 0;
+        u.tries ??= 0;
+        u.chaseStuck ??= 0;
+        u.chaseLinger ??= 0;
+        u.replans ??= 0;
         u.arrived = true;
         this.units.push(u);
         this.unitById.set(u.id, u);
@@ -2759,6 +2845,7 @@ export class Sim {
     }
     for (const id of this.pieceOwner.keys()) if (!this.build.get(id)) this.pieceOwner.delete(id);
     for (const id of this.haulTo.keys()) if (!this.unitById.has(id)) this.haulTo.delete(id);
+    for (const [k, until] of this.unreachable) if (this.t >= until) this.unreachable.delete(k);
   }
 
   /** How much there is of everything, for checks and the load test. */

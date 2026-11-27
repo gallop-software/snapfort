@@ -236,6 +236,17 @@ await frames(a, 4);
 v = await look(a);
 say("C (not an order)", v);
 check("4c. with Troopers selected, C (not an order) does nothing: the Troopers stay selected", v.mode === null && v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
+// What is selected is shown as pictures over the row: a tile for each kind, how many on it, and a bar for their health.
+await sf(a, () => { const s = window.snapfort, p = s.player.position; s.net.sendWorld({ m: "dev", do: "spawn", kind: "tank", n: 3, at: [p.x + 8, 0, p.z + 8] }); });
+await until(a, () => { const f = window.snapfort.feature; return [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind === "tank").length >= 3 || null; });
+await sf(a, () => window.snapfort.feature.run("desel"));
+await a.keyboard.press("Backquote");
+await a.keyboard.press("Backquote");
+const pics = await until(a, () => { const q = document.querySelector("#world-panel .mjq"); const tiles = q ? [...q.querySelectorAll(".q.sel i.sel")] : []; return tiles.length >= 2 ? { title: q.querySelector("b").textContent, tiles: tiles.map((t) => ({ n: t.querySelector(":scope > b")?.textContent ?? "1", icon: !!t.querySelector("svg path, svg circle, svg rect"), hp: parseFloat(t.querySelector("u.hp")?.style.width ?? "0") })), words: q.querySelector("small").textContent } : null; });
+const selCount = await sf(a, () => window.snapfort.feature.selected.size);
+await a.screenshot({ path: "qa/shots/mojave-selected.png" });
+check("4e. what is selected is shown as pictures: a tile for each kind with its count and a health bar, the counts adding up", !!pics && /\d+ selected/.test(pics.title) && pics.tiles.every((t) => t.icon && t.hp > 0) && pics.tiles.reduce((n, t) => n + Number(t.n), 0) === selCount && /3 Tanks/.test(pics.words), JSON.stringify(pics));
+await sf(a, () => window.snapfort.feature.run("desel"));
 await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");
 await a.keyboard.press("z");

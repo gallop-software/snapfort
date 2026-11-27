@@ -27,6 +27,16 @@ body.scoped #mj-map { display: none; }
 .mjq .q i.now svg { stroke: #1f2a37; margin-top: 0; }
 .mjq .q em { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 5px; border-radius: 3px; background: rgba(31, 42, 55, 0.25); overflow: hidden; }
 .mjq .q u { display: block; height: 100%; background: #2f8f8a; transition: width 0.2s linear; }
+/* What is selected: a light tile for each kind, how many on a badge at its corner, and their health on a bar under the icon. */
+.mjq .q.sel { gap: 11px; padding: 6px 6px 0 0; }
+.mjq .q i.sel { background: rgba(255, 248, 234, 0.92); }
+.mjq .q i.sel svg { stroke: #1f2a37; margin-top: 0; }
+.mjq .q i.sel > b { position: absolute; right: -8px; top: -8px; min-width: 19px; height: 19px; padding: 0 5px; box-sizing: border-box; border-radius: 10px; background: #1f2a37; color: #fff8ea; font-size: 11px; font-weight: 900; line-height: 19px; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px #fff8ea; }
+.mjq .q u.hp { background: #3fae5a; }
+.mjq .q u.hp.mid { background: #e0a030; }
+.mjq .q u.hp.low { background: #d9483b; }
+body.touch .mjq .q.sel { gap: 9px; padding: 5px 5px 0 0; }
+body.touch .mjq .q i.sel > b { min-width: 15px; height: 15px; line-height: 15px; font-size: 9px; padding: 0 3px; right: -6px; top: -6px; }
 .mjq small { font-weight: 600; opacity: 0.85; }
 .mjq small.bad { color: #ffb0a2; opacity: 1; }
 body.touch .mjq .q i { width: 24px; height: 24px; border-radius: 6px; }

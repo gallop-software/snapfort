@@ -10,6 +10,7 @@ import {
   HIGH_GROUND,
   MAKES,
   PIECE_COST,
+  UNIT_KINDS,
   UNITS,
   UPGRADE_COST,
   UPGRADE_KEYS,
@@ -692,6 +693,32 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
    * menu that is open, or what is selected and what it can be told. Null row:
    * the pieces (nothing selected, nothing open).
    */
+  /**
+   * What is selected, as pictures over the row (as a building's queue is): a tile for each kind, its count on it and a
+   * bar for their health (green, amber, red); a line under them saying it in words. One unit: its name, health and what
+   * it does.
+   */
+  function selectedPictures(counts: ReadonlyMap<UnitKind, number>, only: SeenUnit | undefined): string {
+    const health = new Map<UnitKind, { sum: number; n: number }>();
+    for (const id of selected) {
+      const u = army.units.get(id);
+      if (!u) continue;
+      const h = health.get(u.kind) ?? { sum: 0, n: 0 };
+      h.sum += u.hp;
+      h.n++;
+      health.set(u.kind, h);
+    }
+    const kinds = UNIT_KINDS.filter((k) => counts.has(k));
+    const pics = kinds.map((k) => {
+      const n = counts.get(k)!, h = health.get(k), hp = h ? Math.round(h.sum / h.n) : 100;
+      const tone = hp > 60 ? "" : hp > 30 ? " mid" : " low";
+      return `<i class="sel" title="${escapeHtml(`${n} ${UNITS[k].label}`)}"><svg viewBox="0 0 40 40" aria-hidden="true">${ICONS[k === "emp" ? "emp_unit" : k] ?? ""}</svg><em><u class="hp${tone}" style="width:${hp}%"></u></em>${n > 1 || !only ? `<b>${n}</b>` : ""}</i>`;
+    });
+    const title = only ? `${UNITS[only.kind].label} · ${only.hp}%` : `${selected.size} selected`;
+    const words = only ? UNITS[only.kind].blurb : kinds.map((k) => `${counts.get(k)} ${UNITS[k].label}${counts.get(k)! > 1 ? "s" : ""}`).join(" · ");
+    return `<span class="mjq"><b>${escapeHtml(title)}</b><span class="q sel">${pics.join("")}</span><small>${escapeHtml(words)}</small></span>`;
+  }
+
   function row(): { tiles: RowTile[] | null; status: string | null; html?: string } {
     const tile = (id: string, key: string, label: string, icon: string, more: Partial<RowTile> = {}): RowTile => ({ id, key, label, icon: ICONS[icon] ?? "", ...more });
     /** The eight colours, each a tile, with how many generals serve its army now ("nobody": taking it up begins one afresh). */
@@ -756,7 +783,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const status = only ? `${UNITS[only.kind].label} · ${only.hp}% · ${UNITS[only.kind].blurb}` : `${selected.size} selected: ${[...counts].map(([k, n]) => `${n} ${UNITS[k].label}`).join(", ")}`;
       const tiles = orders().map(([, key, k, label]) => tile(`o:${k}`, key, label, k));
       tiles.push(tile("menu:0", "B", "Build", "build"), back("Deselect"));
-      return { tiles, status };
+      return { tiles, status, html: selectedPictures(counts, only) };
     }
     if (selectedBuildings.size > 0) {
       const list = [...selectedBuildings].flatMap((id) => army.buildings.get(id) ?? []);

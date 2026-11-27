@@ -98,9 +98,9 @@ for (const name of screens) {
   await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); f.selectedBuildings.add([...f.army.buildings.keys()][0]); });
   await wait(700);
   states.push(["the Core selected", await layoutProblems(p)]);
-  await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); f.run("menu:cmd"); });
+  await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); f.run("menu:army"); });
   await wait(700);
-  states.push(["the general's own menu", await layoutProblems(p)]);
+  states.push(["Change army", await layoutProblems(p)]);
   await p.evaluate(() => window.snapfort.feature.run("b:foundry"));
   await wait(700);
   states.push(["placing a building", await layoutProblems(p)]);
@@ -152,7 +152,7 @@ check("Order, with the crosshair on the ground, sends them there", moved === tru
 await p.tap('#hotbar .slot[data-id="back"]');
 check("Deselect lets go, and the pieces are back on the row", await until(p, () => window.snapfort.feature.selected.size === 0) && await until(p, () => [...document.querySelectorAll("#hotbar .slot .label")].some((l) => l.textContent === "Wall")));
 await p.tap("#hotbar .slot:last-child");
-check("a tap on Command opens the general's own menu", await until(p, () => !!document.querySelector('#hotbar .slot[data-id="menu:sel"]')));
+check("a tap on Select (the last tile on the row) opens the select menu", await until(p, () => window.snapfort.feature.mode?.k === "menu" && window.snapfort.feature.mode.page === "sel" ? true : null));
 await p.tap('#hotbar .slot[data-id="back"]');
 await p.tap('[data-id="t-map"]');
 check("Map opens the map", await until(p, () => document.getElementById("mj").classList.contains("big")));

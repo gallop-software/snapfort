@@ -201,6 +201,13 @@ export const PIECE_COST = 8;
 export const FLIGHT_HEIGHT = 14;
 /** Turrets (sentry, flak, point-defence laser) go up only this close to a finished Core of their own army, m (centre to centre): an army guards its own base, nobody builds guns in someone else's (not within this of another army's Core either, so a Core dropped by someone's base does not let turrets in). */
 export const GUARD_RADIUS = 75;
+
+/**
+ * How many times a weapon's `wear` counts on a wall (floors and ramps take it
+ * as it is). 4 (2026-11-27, the user: "too hard to destroy walls, make it 4
+ * times easier"): a wall goes down in a quarter of the shots it took before.
+ */
+export const WALL_WEAR = 4;
 /** The EMP: how wide, how long it stops things, and how long until the drone can pulse again. */
 export const EMP = { radius: 12, stun: 6, cooldown: 30, range: 40 } as const;
 /** How far a general sees on foot; standing higher adds this much for every metre, up to three times as far. */

@@ -101,7 +101,7 @@ const [coreX, coreZ] = centreOf(core, 3);
 check("they stand by their Core, at one of the eight starts", Math.hypot(wa.pos[0] - coreX, wa.pos[2] - coreZ) < 40 && Math.hypot(coreX, coreZ) > 300, wa.pos.map(Math.round).join(","));
 check("nothing is picked to build with at first (pieces cost lithium here)", await sf(a, () => !document.querySelector("#hotbar .selected")));
 tiles = await row(a);
-check("the row: the Wall, the Floor and the Ramp (no canopy), Remove, and Command where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Floor,Ramp,Remove,Command" && keysOf(tiles).Command === "C", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("the row: the Wall, the Floor and the Ramp (no canopy), Remove, then Build (B) and Select (`) where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Floor,Ramp,Remove,Build,Select" && keysOf(tiles).Build === "B" && keysOf(tiles).Select === "`", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 check("the bank is beside the row, where the material is elsewhere; there is no material to choose", await sf(a, () => { const m = document.getElementById("material"); const r = m.getBoundingClientRect(), h = document.getElementById("hotbar").getBoundingClientRect(); return /Lithium/.test(m.textContent) && /Supply/.test(m.textContent) && !m.querySelector(".swatch") && r.left >= h.right && r.width > 0 && Math.abs(r.bottom - h.bottom) < 30; }));
 check("there is no command card, and the map is on screen", await sf(a, () => !document.getElementById("mj-card") && document.getElementById("mj-map").getBoundingClientRect().width > 100));
 const before = wa.l;
@@ -142,31 +142,25 @@ await a.keyboard.press("h");
 wa = await until(a, (id) => { const f = window.snapfort.feature; return f.army.buildings.get(id).q.length === 1 && document.querySelectorAll("#world-panel .mjq .q i").length === 1 && /Hauler · \d+ s/.test(document.getElementById("world-panel").textContent) ? true : null; }, core.id);
 check("H orders a Hauler: it is in the Core's queue, and the row says so", wa === true);
 await clear(a);
-check("letting go of the selection, the pieces are back on the row", (await war(a)).selB.length === 0 && (await rowHas(a, ["Wall", "Command"])) === true);
+check("letting go of the selection, the pieces are back on the row", (await war(a)).selB.length === 0 && (await rowHas(a, ["Wall", "Select"])) === true);
 
-// ── Command, and building ────────────────────────────────────────────────
+// ── Building ────────────────────────────────────────────────
 await dev(a, { do: "rich" });
 await until(a, () => window.snapfort.feature.bank.l > 10000);
 const inX = -Math.sign(coreX), inZ = -Math.sign(coreZ);
 const site = [coreX + inX * 32, coreZ + inZ * 32];
-await a.keyboard.press("c");
-await rowHas(a, ["Select"]);
-tiles = await row(a);
-check("C (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Select,Map,Change army,Back" && keysOf(tiles).Build === "B" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("b");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);
-check("N opens the buildings, each with its key and price; one that cannot be built yet is faded, and says what it needs", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").sub === "needs Foundry" && tiles.find((t) => t.label === "Sentry turret").off && !tiles.find((t) => t.label === "Foundry").off, tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("B opens the buildings, each with its key and price; one that cannot be built yet is faded, and says what it needs", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").sub === "needs Foundry" && tiles.find((t) => t.label === "Sentry turret").off && !tiles.find((t) => t.label === "Foundry").off, tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("f");
 check("F picks the Foundry to place", (await war(a)).mode === "place");
-// Backspace goes back one step at a time: to the buildings, to the general's own menu, to the pieces.
+// Backspace goes back one step at a time: to the buildings, to the pieces.
 await a.keyboard.press("Backspace");
 const step1 = (await war(a)).mode === "menu" && (await rowHas(a, ["Foundry", "Advanced"])) === true;
 await a.keyboard.press("Backspace");
-const step2 = (await rowHas(a, ["Select", "Build"])) === true;
-await a.keyboard.press("Backspace");
-const step3 = (await war(a)).mode === null && (await rowHas(a, ["Wall", "Command"])) === true;
-check("Backspace goes back one step: from placing to the buildings, to the general's own menu, to the pieces", step1 && step2 && step3, `${step1} ${step2} ${step3}`);
+const step2 = (await war(a)).mode === null && (await rowHas(a, ["Wall", "Select"])) === true;
+check("Backspace goes back one step: from placing to the buildings, to the pieces", step1 && step2, `${step1} ${step2}`);
 await a.keyboard.press("b");
 await a.keyboard.press("f");
 await frames(a, 3);
@@ -277,22 +271,20 @@ await rowHas(a, ["Attack"]);
 tiles = await row(a);
 check("the bank is still wholly on the screen beside the longer row", await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth - 4 && r.left >= document.getElementById("hotbar").getBoundingClientRect().right; }), await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return `${Math.round(r.left)}–${Math.round(r.right)} of ${innerWidth}`; }));
 check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "B" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
-// C is the general's own menu and B the buildings, with units selected as without; Backspace goes up one level
-// however the row was reached (placing an advanced building → advanced → basic → Command → the selection).
-await a.keyboard.press("c");
-const bCmd = (await rowHas(a, ["Select", "Change army"])) === true && (await war(a)).sel.length >= 16;
-await a.keyboard.press("c");
+// B is the buildings with units selected as without (B again closes them); Backspace goes up one level
+// however the row was reached (placing an advanced building → advanced → basic → the selection).
+await a.keyboard.press("b");
+const bBuild = (await rowHas(a, ["Foundry", "Advanced"])) === true && (await war(a)).sel.length >= 16;
+await a.keyboard.press("b");
+const bAgain = (await rowHas(a, ["Move", "Deselect"])) === true;
 await a.keyboard.press("b"); await a.keyboard.press("v"); await a.keyboard.press("k");
 const placing = (await war(a)).mode === "place";
-await a.keyboard.press("c");
-const bFromPlace = (await rowHas(a, ["Select", "Change army"])) === true;
-await a.keyboard.press("b"); await a.keyboard.press("v"); await a.keyboard.press("k");
 const ups = [];
-for (const want of [["Skyport", "Basic"], ["Foundry", "Advanced"], ["Select", "Change army"], ["Move", "Deselect"]]) {
+for (const want of [["Skyport", "Basic"], ["Foundry", "Advanced"], ["Move", "Deselect"]]) {
   await a.keyboard.press("Backspace");
   ups.push((await rowHas(a, want)) === true);
 }
-check("C opens Command (C again closes it) and B the buildings with units selected too; C while placing a building is Command again; Backspace goes up a level each time", bCmd && placing && bFromPlace && ups.every(Boolean) && (await war(a)).sel.length >= 16, `${bCmd} ${placing} ${bFromPlace} ${ups}`);
+check("B opens the buildings with units selected too (B again closes them); Backspace goes up a level each time", bBuild && bAgain && placing && ups.every(Boolean) && (await war(a)).sel.length >= 16, `${bBuild} ${bAgain} ${placing} ${ups}`);
 check("with units selected the keys are orders; Z, which is none, lets go of them and picks a Wall", await (async () => { await a.keyboard.press("z"); return (await until(a, () => window.snapfort.feature.selected.size === 0 && /Wall/.test(document.querySelector("#hotbar .slot:not(.menu).selected")?.textContent ?? ""), null, 2000)) === true; })());
 // (The army again, with nothing in hand, for what follows.)
 await a.keyboard.press("z");
@@ -559,8 +551,19 @@ check("nobody builds a siege engine: the world refuses one", await sf(a, (id) =>
 // ── No alliances ─────────────────────────────────────────────────────────
 await clear(a);
 await a.keyboard.press("j");
+await rowHas(a, ["Red", "Back"]);
+check("there are no alliances: J is Change army (the eight armies, nothing about allies)", (await war(a)).mode === "menu" && (await row(a)).every((t) => !/all/i.test(t.label)));
+await a.keyboard.press("Backspace");
 await frames(a, 3);
-check("there are no alliances: J opens nothing, and the two generals' armies are enemies", (await war(a)).mode === null && (await row(a)).every((t) => !/all/i.test(t.label) || t.label === "Wall"));
+// (Esc in a real browser lets go of the mouse; headless, it has to be let go of by hand.)
+await sf(a, () => window.snapfort.input.unlock()); await wait(900);
+const escExtra = await sf(a, () => { const box = document.getElementById("paused-extras"); return !document.getElementById("view-paused").hidden && !box.hidden ? [...box.querySelectorAll("button")].map((b) => b.textContent).join(",") : null; });
+await a.click("#paused-extras button"); await wait(1500);
+if (!(await sf(a, () => window.snapfort.input.locked))) { await a.mouse.click(640, 300); await wait(1300); }
+const escArmy = await rowHas(a, ["Red", "Back"]);
+check("the Esc menu offers Change army (J), and it opens the armies on the row, back in play", escExtra === "Change army (J)" && escArmy === true && (await sf(a, () => window.snapfort.input.locked)), `${escExtra} ${escArmy}`);
+await a.keyboard.press("Backspace");
+await frames(a, 3);
 
 // ── The map ──────────────────────────────────────────────────────────────
 await a.keyboard.press("Tab");
@@ -608,12 +611,10 @@ check("what one orders, the other sees done", await until(a, ([id, x]) => { cons
 check("they see each other, both in the army's colour", await until(a, () => { const s = window.snapfort, g = s.feature.generals[0]; const other = g.pids.find((id) => id !== s.myId); return other && s.remotes.worn.get(other) === g.color && !s.remotes.concealed.has(other) ? true : null; }) === true);
 
 // ── Changing sides ───────────────────────────────────────────────────────
-await c2.keyboard.press("c");
-await rowHas(c2, ["Change army"]);
 await c2.keyboard.press("j");
 await rowHas(c2, ["Red", "Green", "Back"]);
 tiles = await row(c2);
-check("Command, then Change army: the eight armies again, the one served marked, and who serves each", tiles.find((t) => t.label === "Red").on && tiles.find((t) => t.label === "Red").sub === "you + 1" && tiles.find((t) => t.label === "Blue").sub === "1 general" && tiles.find((t) => t.label === "Green").sub === "nobody", tiles.map((t) => `${t.key}:${t.label} (${t.sub})`).join(" "));
+check("J, Change army: the eight armies again, the one served marked, and who serves each", tiles.find((t) => t.label === "Red").on && tiles.find((t) => t.label === "Red").sub === "you + 1" && tiles.find((t) => t.label === "Blue").sub === "1 general" && tiles.find((t) => t.label === "Green").sub === "nobody", tiles.map((t) => `${t.key}:${t.label} (${t.sub})`).join(" "));
 const posBefore = (await war(c2)).pos;
 await c2.keyboard.press("4");
 const sided = await until(c2, () => { const f = window.snapfort.feature; const p = window.snapfort.player.position; return f.slot === 3 && [...f.army.units.values()].filter((u) => u.owner === 3).length >= 4 && ![...f.army.units.values()].some((u) => u.owner === 0) ? [p.x, p.z] : null; });

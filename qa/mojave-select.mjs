@@ -165,8 +165,8 @@ v = await look(a);
 say("after Deselect", v);
 check("2. …and letting go of the Core, the piece in hand is the one from before (the wheel did not change it out of sight)", new RegExp(`:${held2}\\*`).test(v.row), `${held2} then ${v.row}`);
 
-// ── 3. Core selected, a building from the menu (C, B: through Command; or B straight) ──
-for (const [path, keys] of [["C, B then F", ["c", "b", "f"]], ["B then F", ["b", "f"]], ["B then T (Tap)", ["b", "t"]], ["B then E (Sentry)", ["b", "e"]]]) {
+// ── 3. Core selected, a building from the menu (B, or the Build tile) ──
+for (const [path, keys] of [["B then F", ["b", "f"]], ["B then T (Tap)", ["b", "t"]], ["B then E (Sentry)", ["b", "e"]]]) {
   await selectCore(`3: Core selected, ${path}`);
   for (const k of keys) {
     await a.keyboard.press(k);
@@ -235,7 +235,7 @@ await a.keyboard.press("c");
 await frames(a, 4);
 v = await look(a);
 say("C (not an order)", v);
-check("4c. with Troopers selected, C (not an order) opens Command, the Troopers still selected", v.mode === "menu:cmd" && v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
+check("4c. with Troopers selected, C (not an order) does nothing: the Troopers stay selected", v.mode === null && v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
 await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");
 await a.keyboard.press("z");
@@ -286,20 +286,20 @@ await click(a, "right");
 v = await look(a);
 say("right click", v);
 
-// ── 8. Placing a building, the Command tile (C) again ──
-await selectCore("8: Core selected, B, F, then C");
+// ── 8. Placing a building, B (the Build tile) again ──
+await selectCore("8: Core selected, B, F, then B");
 await a.keyboard.press("b"); await a.keyboard.press("f");
 await aim(a, ground);
-await a.keyboard.press("c");
+await a.keyboard.press("b");
 await frames(a, 3);
 v = await look(a);
-say("C while placing", v);
-check("8. C while placing a building opens Command, as C does wherever no tile on the row is C, the Core still selected", v.mode === "menu:cmd" && v.selB === 1, JSON.stringify(v));
+say("B while placing", v);
+check("8. B while placing a building goes back to the buildings, the Core still selected", v.mode === "menu:0" && v.selB === 1, JSON.stringify(v));
 await a.keyboard.press("z");
 await frames(a, 4);
 v = await look(a);
 say("then Z", v);
-check("8. …and Z from Command picks the Wall, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /Z:Wall\*/.test(v.row), JSON.stringify(v));
+check("8. …and Z from the buildings picks the Wall, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /Z:Wall\*/.test(v.row), JSON.stringify(v));
 
 // ── 9. A building planned over a general: red, and the line says why ──
 console.log("\n── 9: a Foundry planned over a general");

@@ -745,6 +745,12 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     }
     chat.close();
     finishEdit(false);
+    // The world's own things for the Esc menu, as they are now: pressing one goes back to playing and does it.
+    const extras = feature?.extras?.() ?? [];
+    hud.setExtras(extras, (i) => {
+      backToBuilding();
+      extras[i]?.run();
+    });
     // On the way to another world: no panel, the game stays in view until that world's page takes over.
     if (leaving) return;
     if (outdated) return hud.show("update");

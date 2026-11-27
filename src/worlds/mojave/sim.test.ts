@@ -3,7 +3,7 @@ import { BuildState } from "../../game/buildState";
 import { CELL, LEVEL, THICK } from "../../game/constants";
 import type { MaterialId, Piece, PieceType, Rot } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
-import { buildingBox, BUILDINGS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
+import { buildingBox, BUILDINGS, PIECE_COST, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS, WALL_WEAR } from "./kit";
 import { STARTS } from "./map";
 import { DT, emptyHappened, NEUTRAL, Sim, T_BUILDING, T_UNIT, type Host, type Unit } from "./sim";
 import { HALF_CELLS, world } from "./world";
@@ -925,6 +925,19 @@ describe("fighting", () => {
 });
 
 describe("pieces", () => {
+  it("walls wear down four times as fast as floors and ramps", () => {
+    const { sim, piece, host, run } = setup();
+    const cx = Math.round(OPEN[0] / CELL), cz = Math.round(OPEN[1] / CELL);
+    const wall = piece("x", "wall", cx, 0, cz);
+    const floor = piece("x", "floor", cx, 0, cz);
+    sim.blast([(cx + 0.5) * CELL, 1, (cz + 0.5) * CELL], 8, 0, 0, { air: false, ground: true, wear: 0.25 });
+    run(1);
+    const worn = (id: string) => host.worn.filter(([w]) => w === id).reduce((a, [, h]) => a + h, 0);
+    expect(WALL_WEAR).toBe(4);
+    expect(worn(floor.id)).toBeCloseTo(0.25);
+    expect(worn(wall.id)).toBeCloseTo(0.25 * WALL_WEAR);
+  });
+
   it("cost lithium, belong to who built them, and cannot be built into a building or a field", () => {
     const { sim, general, build } = setup();
     const g = general("p1", 0), other = general("p2", 4);

@@ -341,6 +341,22 @@ export class Hud {
     else for (const slot of this.slots) bar.appendChild(slot);
   }
 
+  /** A world's own buttons in the Esc menu, under Back to building (none: the row of them hidden). `pick` is told which, by its place in the list. */
+  setExtras(items: readonly { label: string; key?: string }[], pick: (index: number) => void): void {
+    const box = el("paused-extras");
+    box.replaceChildren(
+      ...items.map((item, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "secondary";
+        b.textContent = item.key ? `${item.label} (${item.key})` : item.label;
+        b.addEventListener("click", () => pick(i));
+        return b;
+      }),
+    );
+    box.hidden = items.length === 0;
+  }
+
   /** A world's own words where the material badge is (HTML), or none (null). */
   setBadge(html: string | null): void {
     const badge = el("material");

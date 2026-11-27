@@ -49,7 +49,7 @@ import { Sight } from "./sight";
 
 type Pending = "move" | "amove" | "patrol" | "unload" | "emp" | "rally";
 /** A menu on the row: the general's own (what the Command tile opens), the eight armies to serve, or the buildings (basic, advanced). */
-type Menu = "cmd" | "army" | "sel" | 0 | 1;
+type Menu = "army" | "sel" | 0 | 1;
 /** (`from`: a patrol's first end, once it has been clicked.) */
 type Mode = null | { k: "target"; what: Pending; from?: WireSpot } | { k: "menu"; page: Menu } | { k: "place"; kind: BuildingKind };
 /** An enemy unit seen and no longer in sight: where it was, and when. */
@@ -592,7 +592,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         return setMode({ k: "target", what: k });
       }
       case "menu": {
-        const page: Menu = arg === "cmd" ? "cmd" : arg === "army" ? "army" : arg === "sel" ? "sel" : arg === "1" ? 1 : 0;
+        const page: Menu = arg === "army" ? "army" : arg === "sel" ? "sel" : arg === "1" ? 1 : 0;
         return setMode(mode?.k === "menu" && mode.page === page ? null : { k: "menu", page });
       }
       case "b":
@@ -635,8 +635,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       case "back":
         // One level up, however the row was reached: from placing a building to its page of buildings, from the advanced
-        // ones to the basic, from the buildings (or the armies) to the general's own menu, from that menu or an order
-        // waiting for its click to what is selected, and from a selection to nothing selected.
+        // ones to the basic, from any other menu or an order waiting for its click to what is selected, and from a
+        // selection to nothing selected.
         if (mapOn) return toggleMap();
         // (Someone who serves no army yet has only the armies to choose from: there is nothing to go back to.)
         if (slot < 0) return;
@@ -644,9 +644,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         if (ring) return void (ring = null);
         if (mode?.k === "place") return setMode({ k: "menu", page: BUILDINGS[mode.kind].advanced ? 1 : 0 });
         if (mode?.k === "menu" && mode.page === 1) return setMode({ k: "menu", page: 0 });
-        // (The select menu, opened by `: back to nothing.)
-        if (mode?.k === "menu" && mode.page === "sel") return setMode(null);
-        if (mode?.k === "menu" && mode.page !== "cmd") return setMode({ k: "menu", page: "cmd" });
         if (mode) return setMode(null);
         return deselect();
     }
@@ -699,19 +696,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const tiles = [found ? tile(`o:${what}`, found[1], found[3], what, { on: true }) : tile("rally", "R", "Rally point", "rally", { on: true }), back("Cancel")];
       return { tiles, status: pendingText(mode).replace("click", game.touch ? "aim and tap Go" : "click") };
     }
-    if (mode?.k === "menu" && mode.page === "cmd") {
-      const with_ = (general(slot)?.pids.length ?? 1) - 1;
-      return {
-        tiles: [
-          tile("menu:0", "B", "Build", "build"),
-          tile("menu:sel", "`", "Select", "army", { sub: `${myUnits().length}` }),
-          tile("map", "Tab", "Map", "map"),
-          tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }),
-          back(),
-        ],
-        status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. \` selects: \` again for the whole army, or a kind's key; or hold the left button on the ground and look away for a ring of them.`,
-      };
-    }
     if (mode?.k === "menu" && mode.page === "sel") {
       // ` again: the whole army; a kind's key: every one of that kind.
       const kinds = kindsOf();
@@ -720,7 +704,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         status: kinds.length ? `Select: ${game.touch ? "tap Whole army, or a kind" : "` again for the whole army, or a kind's key (Shift adds)"}.` : "You have no army yet: a Foundry makes Troopers.",
       };
     }
-    if (mode?.k === "menu" && mode.page === "army") return { tiles: [...armies(), back()], status: "Change army: press the number of the one to serve. One nobody serves begins afresh. An army you leave with nobody in it is gone in a minute, all of it." };
+    if (mode?.k === "menu" && mode.page === "army") {
+      const with_ = (general(slot)?.pids.length ?? 1) - 1;
+      const serving = `You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. `;
+      return { tiles: [...armies(), back()], status: `${routed}${serving}Change army: press the number of the one to serve. One nobody serves begins afresh. An army you leave with nobody in it is gone in a minute, all of it.` };
+    }
     if (mode?.k === "menu") {
       const page = mode.page as 0 | 1;
       const kinds = BUILDING_KINDS.filter((k) => !!BUILDINGS[k].advanced === (page === 1));
@@ -832,7 +820,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
     const lines = game.touch
       ? ["Aim at your Core and tap Select, then tap Hauler for more of them.", "Build opens the build menu: a Foundry makes Troopers. Buildings stand at once; units take a little time.", "Army picks every fighting unit; aim at the ground and tap Order to send them."]
-      : ["Click your Core, then press H for more Haulers. Command (C) is your own menu: you can change army there.", "B opens the build menu: a Foundry makes Troopers. Buildings stand at once; units take a little time.", "Click a unit to select it (twice for all of its kind); right click sends them. Tab is the map."];
+      : ["Click your Core, then press H for more Haulers. ` (Select) picks your units; Esc has Change army.", "B opens the build menu: a Foundry makes Troopers. Buildings stand at once; units take a little time.", "Click a unit to select it (twice for all of its kind); right click sends them. Tab is the map."];
     lines.forEach((text, i) => setTimeout(() => panel.note(text, "info"), 1500 + i * 6500));
   }
 
@@ -994,6 +982,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     // ` opens the select menu; ` again there, the whole army.
     if (code === "Backquote") return act(mode?.k === "menu" && mode.page === "sel" ? "army" : "menu:sel"), true;
     if (code === "Backspace") return act("back"), true;
+    // J: Change army (also in the Esc menu), wherever.
+    if (code === "KeyJ" && slot >= 0) return act("menu:army"), true;
     const piece = PIECE_KEYS[code];
     /** Lets go of every menu, order and selection, and picks the piece: building again, its preview showing. */
     const toPieces = (tool: PieceTool) => {
@@ -1003,19 +993,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return true;
     };
     if (mode?.k === "menu" && mode.page === "sel") {
-      // The select menu: a kind's key selects every one of that kind (C is Scouts when there are any); then C, Command; B, Build; a piece's key builds; anything else closes it.
+      // The select menu: a kind's key selects every one of that kind; B, Build; a piece's key builds; anything else closes it.
       const kind = kindsOf().find(([k]) => `Key${SELECT_KEYS[k]}` === code)?.[0];
       if (kind) act(`sel:${kind}`);
-      else if (code === "KeyC") act("menu:cmd");
       else if (code === "KeyB") act("menu:0");
-      else if (piece) return toPieces(piece);
-      else setMode(null);
-      return true;
-    }
-    if (mode?.k === "menu" && mode.page === "cmd") {
-      // The general's own menu: its tiles' keys; a piece's key builds; anything else (C again too) closes it.
-      if (code === "KeyB") act("menu:0");
-      else if (code === "KeyJ") act("menu:army");
       else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
@@ -1026,8 +1007,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const kind = BUILDING_KINDS.find((k) => !!BUILDINGS[k].advanced === (page === 1) && BUILDINGS[k].key === key);
       if (kind) act(`b:${kind}`);
       else if (code === "KeyV") act(`menu:${page === 1 ? 0 : 1}`);
-      // A building's own letter comes first (C is the Command Core here); then C is the general's own menu, and B the basic buildings (again: closed).
-      else if (code === "KeyC") act("menu:cmd");
+      // B, the basic buildings (again: closed).
       else if (code === "KeyB") act("menu:0");
       else if (piece) return toPieces(piece);
       else setMode(null);
@@ -1040,7 +1020,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (selected.size > 0) {
       const found = orders().find(([c]) => c === code);
       if (found) return act(`o:${found[2]}`, event.shiftKey), true;
-      if (code === "KeyC") return act("menu:cmd"), true;
       if (piece) return toPieces(piece);
       // The other building keys of every world (R turns, T, G, Q, E) would only confuse while commanding.
       return /^Key[A-Z]$/.test(code);
@@ -1058,8 +1037,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       if (code === "KeyR" || code === "KeyY") return act("rally"), true;
       if (code === "KeyQ") return act("cancel"), true;
-      // (After what it makes: at a Foundry, C is the Scout buggy.)
-      if (code === "KeyC") return act("menu:cmd"), true;
       if (piece) return toPieces(piece);
       return /^Key[A-Z]$/.test(code);
     }
@@ -1389,9 +1366,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return [2.5, 0.95, -62.5];
     },
     useTool(id) {
-      // The Command tile: the general's own menu, on the row.
-      if (id === "command") act("menu:cmd");
+      // Build and Select, on the row beside the pieces.
+      if (id === "build") act("menu:0");
+      else if (id === "select") act("menu:sel");
     },
+    extras: () => (slot >= 0 ? [{ label: "Change army", key: "J", run: () => act("menu:army") }] : []),
     blocks: (spec) => slot < 0 || cutsIn(spec) || bank.l < PIECE_COST || !!wallWhy(spec),
     whyBlocked(spec) {
       if (slot < 0) return "Choose an army first";

@@ -259,6 +259,8 @@ export interface WorldFeature {
   aimRemove?(): void;
   /** The player used Remove (the tool, or the right button) and the crosshair was not on a piece: take away what of this world's own is there. True when something was. */
   remove?(): boolean;
+  /** Things of this world's own used too seldom for the row, offered in the Esc menu (asked each time it opens): pressing one goes back to playing and runs it. */
+  extras?(): { label: string; key?: string; run(): void }[];
 }
 
 /** A seat a builder sits on: where its surface is, and how it is turned (radians: about the vertical, nose down, and rolled). */

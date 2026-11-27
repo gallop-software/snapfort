@@ -13,6 +13,7 @@ import {
   CHASE_OF_SIGHT,
   GENERAL_SIGHT,
   GUARD_RADIUS,
+  WALL_WEAR,
   HIGH_GROUND,
   LOAD,
   MAKES,
@@ -2016,6 +2017,8 @@ export class Sim {
   }
 
   private wearPiece(id: string, hits: number, at: Vec, by: number): void {
+    // Walls give way four times as fast as floors and ramps (WALL_WEAR).
+    if (this.build.get(id)?.type === "wall") hits *= WALL_WEAR;
     const w = this.worn.get(id);
     if (w) w.hits += hits;
     else this.worn.set(id, { hits, at, by });

@@ -695,8 +695,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
    */
   /**
    * What is selected, as pictures over the row (as a building's queue is): a tile for each kind, its count on it and a
-   * bar for their health (green, amber, red); a line under them saying it in words. One unit: its name, health and what
-   * it does.
+   * bar for their health (green, amber, red); no words under them (the user: "the visual is enough"). One unit: its
+   * name, health and what it does.
    */
   function selectedPictures(counts: ReadonlyMap<UnitKind, number>, only: SeenUnit | undefined): string {
     const health = new Map<UnitKind, { sum: number; n: number }>();
@@ -715,8 +715,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return `<i class="sel" title="${escapeHtml(`${n} ${UNITS[k].label}`)}"><svg viewBox="0 0 40 40" aria-hidden="true">${ICONS[k === "emp" ? "emp_unit" : k] ?? ""}</svg><em><u class="hp${tone}" style="width:${hp}%"></u></em>${n > 1 || !only ? `<b>${n}</b>` : ""}</i>`;
     });
     const title = only ? `${UNITS[only.kind].label} · ${only.hp}%` : `${selected.size} selected`;
-    const words = only ? UNITS[only.kind].blurb : kinds.map((k) => `${counts.get(k)} ${UNITS[k].label}${counts.get(k)! > 1 ? "s" : ""}`).join(" · ");
-    return `<span class="mjq"><b>${escapeHtml(title)}</b><span class="q sel">${pics.join("")}</span><small>${escapeHtml(words)}</small></span>`;
+    // (The pictures say it: no words under them, but for one unit, what it does.)
+    return `<span class="mjq"><b>${escapeHtml(title)}</b><span class="q sel">${pics.join("")}</span>${only ? `<small>${escapeHtml(UNITS[only.kind].blurb)}</small>` : ""}</span>`;
   }
 
   function row(): { tiles: RowTile[] | null; status: string | null; html?: string } {

@@ -21,7 +21,7 @@ body.scoped #mj-map { display: none; }
 /* What a building is making: its name, a line of the units queued (the first with a bar that fills), and how long is left. */
 .mjq { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
 .mjq .q { display: flex; gap: 5px; }
-.mjq .q i { position: relative; display: block; width: 34px; height: 34px; border-radius: 8px; background: rgba(255, 248, 234, 0.14); }
+.mjq .q i { position: relative; display: block; font-style: normal; width: 34px; height: 34px; border-radius: 8px; background: rgba(255, 248, 234, 0.14); }
 .mjq .q i.now { background: rgba(255, 248, 234, 0.92); box-shadow: 0 0 0 2px #ffb347; }
 .mjq .q svg { width: 28px; height: 28px; margin: 3px; fill: none; stroke: #fff8ea; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
 .mjq .q i.now svg { stroke: #1f2a37; margin-top: 0; }

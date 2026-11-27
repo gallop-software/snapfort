@@ -242,10 +242,10 @@ await until(a, () => { const f = window.snapfort.feature; return [...f.army.unit
 await sf(a, () => window.snapfort.feature.run("desel"));
 await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");
-const pics = await until(a, () => { const q = document.querySelector("#world-panel .mjq"); const tiles = q ? [...q.querySelectorAll(".q.sel i.sel")] : []; return tiles.length >= 2 ? { title: q.querySelector("b").textContent, tiles: tiles.map((t) => ({ n: t.querySelector(":scope > b")?.textContent ?? "1", icon: !!t.querySelector("svg path, svg circle, svg rect"), hp: parseFloat(t.querySelector("u.hp")?.style.width ?? "0") })), words: q.querySelector("small").textContent } : null; });
+const pics = await until(a, () => { const q = document.querySelector("#world-panel .mjq"); const tiles = q ? [...q.querySelectorAll(".q.sel i.sel")] : []; return tiles.length >= 2 ? { title: q.querySelector("b").textContent, tiles: tiles.map((t) => ({ n: t.querySelector(":scope > b")?.textContent ?? "1", icon: !!t.querySelector("svg path, svg circle, svg rect"), hp: parseFloat(t.querySelector("u.hp")?.style.width ?? "0") })), words: q.querySelector("small")?.textContent ?? "", italic: getComputedStyle(tiles[0].querySelector(":scope > b")).fontStyle } : null; });
 const selCount = await sf(a, () => window.snapfort.feature.selected.size);
 await a.screenshot({ path: "qa/shots/mojave-selected.png" });
-check("4e. what is selected is shown as pictures: a tile for each kind with its count and a health bar, the counts adding up", !!pics && /\d+ selected/.test(pics.title) && pics.tiles.every((t) => t.icon && t.hp > 0) && pics.tiles.reduce((n, t) => n + Number(t.n), 0) === selCount && /3 Tanks/.test(pics.words), JSON.stringify(pics));
+check("4e. what is selected is shown as pictures: a tile for each kind with its count (upright) and a health bar, the counts adding up, no words under them", !!pics && /\d+ selected/.test(pics.title) && pics.tiles.every((t) => t.icon && t.hp > 0) && pics.tiles.reduce((n, t) => n + Number(t.n), 0) === selCount && pics.tiles.some((t) => t.n === "3") && pics.words === "" && pics.italic === "normal", JSON.stringify(pics));
 await sf(a, () => window.snapfort.feature.run("desel"));
 await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");

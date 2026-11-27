@@ -167,15 +167,15 @@ describe("who is a general", () => {
     r.run(3);
     const banks = ["p0", "p7"].map((id) => (r.to(id).filter((m) => m.m === "res").pop() as Extract<ToPage, { m: "res" }>).l);
     expect(banks[0]).toBe(banks[1]);
-    const mine = r.sim().units.filter((u) => u.owner === 3).map((u) => u.id);
+    const trooper = r.sim().addUnit("trooper", 3, STARTS[r.sim().generals[3]!.start]!.spawn[0], STARTS[r.sim().generals[3]!.start]!.spawn[1]);
     // Either may order the army's units; what one spends is spent for both.
-    r.say("p7", { m: "order", ids: mine, k: "stop" });
-    expect(r.sim().unitById.get(mine[0]!)!.order.k).toBe("stop");
+    r.say("p7", { m: "order", ids: [trooper.id], k: "hold" });
+    expect(trooper.order.k).toBe("hold");
     r.say("p0", { m: "dev", do: "rich" });
     r.run(1);
     const rich = (r.to("p7").filter((m) => m.m === "res").pop() as Extract<ToPage, { m: "res" }>).l;
     expect(rich).toBeGreaterThan(10_000);
-    expect([...r.knows("p7").values()].filter((o) => o === 3).length).toBe(4);
+    expect([...r.knows("p7").values()].filter((o) => o === 3).length).toBe(5);
     const gens = r.to("p2").filter((m) => m.m === "gens").pop() as Extract<ToPage, { m: "gens" }>;
     expect(gens.g.find((x) => x.slot === 3)!.pids).toHaveLength(11);
   });
@@ -259,13 +259,18 @@ describe("orders from pages", () => {
   it("move a general's own army's units, and nobody else's; nonsense is ignored", () => {
     const r = fakeRoom({ test: true });
     const a = r.join("a", 0)!, b = r.join("b", 1)!;
-    const mine = r.sim().units.filter((u) => u.owner === a.slot).map((u) => u.id);
-    const theirs = r.sim().units.filter((u) => u.owner === b.slot);
+    const spawn = STARTS[a.start]!.spawn;
+    const mine = [r.sim().addUnit("trooper", a.slot, spawn[0], spawn[1]).id];
+    const theirs = [r.sim().addUnit("trooper", b.slot, STARTS[b.start]!.spawn[0], STARTS[b.start]!.spawn[1])];
     const before = theirs.map((u) => u.order.k);
-    r.say("a", { m: "order", ids: theirs.map((u) => u.id), k: "stop" });
+    r.say("a", { m: "order", ids: theirs.map((u) => u.id), k: "hold" });
     expect(theirs.map((u) => u.order.k)).toEqual(before);
     r.say("a", { m: "order", ids: mine, k: "move", at: [100, 0, 100] });
     expect(r.sim().unitById.get(mine[0]!)!.order.k).toBe("move");
+    // Its own Haulers take no orders at all: they are at work, and stay at work.
+    const haulers = r.sim().units.filter((u) => u.owner === a.slot && u.kind === "hauler");
+    r.say("a", { m: "order", ids: haulers.map((u) => u.id), k: "move", at: [100, 0, 100] });
+    expect(haulers.every((u) => u.order.k === "gather")).toBe(true);
     for (const bad of [null, 7, "x", {}, { m: "order" }, { m: "order", ids: "all", k: "stop" }, { m: "order", ids: [1.5], k: "stop" }, { m: "order", ids: mine, k: "move", at: [NaN, 0, 0] }, { m: "build", kind: "palace", x: 1, z: 1 }, { m: "make", id: "x", kind: "tank" }]) {
       expect(() => r.say("a", bad)).not.toThrow();
     }

@@ -15,6 +15,7 @@ import {
   GUARD_RADIUS,
   HIGH_GROUND,
   LOAD,
+  MAKES,
   MAX_GENERALS,
   MAX_SUPPLY,
   MAX_UNITS,
@@ -67,6 +68,8 @@ const BUCKET = 16;
 const BUCKETS = Math.ceil((HALF_CELLS * 2 * CELL) / BUCKET);
 /** How far a general can be from where they put a building, m. */
 export const BUILD_REACH = 45;
+/** A Hauler choosing crystals counts each other Hauler already at a patch as this much further to go, m (one digs at a time: about the walk it waits). */
+const HAULER_CROWD = 25;
 /** How much room a general takes: units step round this, m. */
 const GENERAL_RADIUS = 0.6;
 /** Shells fly this fast, m/s (never there in under a second: time to see it coming). */
@@ -683,6 +686,18 @@ export class Sim {
     // (A vent stays a vent under a Tap that has gone.)
     if (b.kind !== "tap") this.nav.fill(b.cx, b.cz, def.size, false);
     this.happened.gone.push({ unit: false, id: b.id, at: this.centreOf(b), kind: b.kind, owner: b.owner, left });
+    // Its army's Haulers on their way to crystals for it choose again: those near another Core now.
+    if (b.kind === "core") {
+      for (const u of this.units) {
+        if (u.dead || u.owner !== b.owner || u.kind !== "hauler" || u.order.k !== "gather" || u.phase !== 1) continue;
+        const f = this.choosePatch(u);
+        if (f && f.id !== u.field) {
+          u.field = f.id;
+          u.goal = null;
+          u.arrived = false;
+        }
+      }
+    }
     const g = this.generals[b.owner];
     // (Taken down by its own general too: a place is never left with no Core and no way to another.)
     if (g && b.kind === "core" && !this.hasAnyCore(b.owner)) {
@@ -762,7 +777,8 @@ export class Sim {
     const field = this.fieldAt.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`);
     for (const id of ids) {
       const b = this.buildings.get(id);
-      if (!b || b.dead || b.owner !== slot) continue;
+      // (Not a Core's: its Haulers go to work by themselves.)
+      if (!b || b.dead || b.owner !== slot || !MAKES[b.kind].some((k) => k !== "hauler")) continue;
       b.rally = { x: clampEdge(x), z: clampEdge(z), l: Math.max(0, Math.round(y / LEVEL)), field: field?.kind === "crystal" ? field.id : 0 };
       b.rev++;
     }
@@ -861,7 +877,8 @@ export class Sim {
   command(slot: number, ids: readonly number[], order: Order, queue = false): string {
     const units = ids.flatMap((id) => {
       const u = this.unitById.get(id);
-      return u && !u.dead && u.owner === slot && !u.inside ? [u] : [];
+      // (Haulers take no orders: they work by themselves, always.)
+      return u && !u.dead && u.owner === slot && !u.inside && u.kind !== "hauler" ? [u] : [];
     });
     if (units.length === 0) return "Nothing to order";
     const group = this.nextGroup++;
@@ -1178,29 +1195,63 @@ export class Sim {
     return n;
   }
 
-  /** A new unit sets off: to the rally point, or (a Hauler with none) to the nearest crystals. */
+  /** A new unit sets off: to the rally point, or (a Hauler) straight to work. */
   private sendOut(u: Unit, b: Building): void {
     const r = b.rally;
-    if (u.kind === "hauler") {
-      if (r?.field) return this.begin(u, { k: "gather", field: r.field }, 0, 1);
-      if (!r) return this.autoGather(u);
-    }
+    if (u.kind === "hauler") return this.autoGather(u);
     if (r) this.begin(u, { k: "move", x: r.x, z: r.z, l: r.l }, this.nextGroup++, 2);
   }
 
-  /** Sends a Hauler to the nearest crystals that have any left. */
+  /** Sets a Hauler to work: to the best crystals for it (see choosePatch). With none (no Core, or nothing left to mine), it waits, and is tried again (see housekeeping). */
   private autoGather(u: Unit): void {
-    let best: Field | null = null, bestD = Infinity;
+    const f = this.choosePatch(u);
+    if (!f) return;
+    this.begin(u, { k: "gather", field: f.id }, 0, 1);
+  }
+
+  /**
+   * The crystal patch a Hauler should mine next: the one whose round trip to
+   * the nearest finished Core of its army is shortest, with a little for the
+   * walk there from where it is now (so it does not wander between Cores),
+   * and more for every other Hauler already going to it or digging there
+   * (one digs at a time). None while the army has no finished Core.
+   */
+  private choosePatch(u: Unit): Field | null {
+    const cores: Vec[] = [];
+    for (const b of this.buildings.values()) if (b.owner === u.owner && b.kind === "core" && !b.dead && b.doneAt === 0) cores.push(this.centreOf(b));
+    if (cores.length === 0) return null;
+    const crowd = this.patchCrowd();
+    let best: Field | null = null, bestS = Infinity;
     for (const f of this.fields) {
       if (f.kind !== "crystal" || f.amount <= 0) continue;
-      const d = dist2(u.x, u.z, mid(f.cx), mid(f.cz)) + (this.digger.has(f.id) ? 400 : 0);
-      if (d < bestD) {
-        bestD = d;
+      const x = mid(f.cx), z = mid(f.cz);
+      let home = Infinity;
+      for (const c of cores) home = Math.min(home, Math.hypot(c[0] - x, c[2] - z));
+      const others = (crowd.get(f.id) ?? 0) - (u.field === f.id && (u.phase === 1 || u.phase === 2) && u.order.k === "gather" ? 1 : 0);
+      const s = home * 2 + Math.hypot(u.x - x, u.z - z) * 0.5 + others * HAULER_CROWD;
+      if (s < bestS) {
+        bestS = s;
         best = f;
       }
     }
-    if (best && bestD < 150 * 150) this.begin(u, { k: "gather", field: best.id }, 0, 1);
+    return best;
   }
+
+  /** How many Haulers are going to (or digging at) each crystal patch, this step. */
+  private patchCrowd(): Map<number, number> {
+    if (this.crowdAt === this.step) return this.crowd;
+    this.crowdAt = this.step;
+    this.crowd.clear();
+    for (const u of this.units) {
+      if (u.dead || u.kind !== "hauler" || u.order.k !== "gather" || (u.phase !== 1 && u.phase !== 2)) continue;
+      this.crowd.set(u.field, (this.crowd.get(u.field) ?? 0) + 1);
+    }
+    return this.crowd;
+  }
+  private readonly crowd = new Map<number, number>();
+  private crowdAt = -1;
+  /** Which Core each Hauler on its way back is taking its load to: when that one is gone, it turns for the next nearest. */
+  private readonly haulTo = new Map<number, number>();
 
   /** Rebuilds who is near whom. */
   private index(): void {
@@ -1934,6 +1985,11 @@ export class Sim {
           u.goal = null;
           return;
         }
+        // Its Core gone (or a nearer one put down): to the nearest now.
+        if (this.haulTo.get(u.id) !== core.id) {
+          this.haulTo.set(u.id, core.id);
+          u.goal = null;
+        }
         if (!u.goal) {
           const c = this.centreOf(core);
           this.route(u, c[0], c[2], this.nav.around(core.cx, core.cz, 3), 0.5, false);
@@ -1945,8 +2001,12 @@ export class Sim {
           u.carry = 0;
           u.goal = null;
           u.arrived = false;
+          this.haulTo.delete(u.id);
           if (u.order.k === "return") return this.done(u);
+          // Then the best crystals for it now (from this Core, or another nearer them).
           u.phase = 1;
+          const next = this.choosePatch(u);
+          if (next) u.field = next.id;
         }
         return;
       }
@@ -1954,7 +2014,8 @@ export class Sim {
     // Phase 1: to the crystals.
     let f = this.fieldById.get(u.field);
     if (!f || f.kind !== "crystal" || f.amount <= 0) {
-      const other = this.otherPatch(u, f);
+      // (Mined out: the best of the rest, wherever that is; none, it waits and is tried again.)
+      const other = this.choosePatch(u);
       if (!other) return this.done(u);
       f = other;
       u.field = f.id;
@@ -2483,7 +2544,7 @@ export class Sim {
 
   private housekeeping(): void {
     if (this.step % 600 === 0) this.forgetIds();
-    // Units whose floor has gone come down to what is under them; idle Haulers by crystals go back to work.
+    // Units whose floor has gone come down to what is under them.
     for (const u of this.units) {
       if (u.dead || u.inside || UNITS[u.kind].air) continue;
       if (!this.nav.standable(u.level, u.cx, u.cz)) {
@@ -2494,6 +2555,10 @@ export class Sim {
         } else this.putOnGround(u, u.x, u.z);
         if (u.goal) u.goal.set = false;
       }
+    }
+    // No Hauler stands idle: one waiting (no Core, nothing to mine) is set to work again as soon as there is work.
+    if (this.step % 20 === 0) {
+      for (const u of this.units) if (!u.dead && !u.inside && u.kind === "hauler" && u.order.k !== "gather" && u.owner !== NEUTRAL) this.autoGather(u);
     }
     // Sentries come back to a field nobody holds.
     if (this.step % 600 === 0) this.postSentries(false);
@@ -2635,6 +2700,7 @@ export class Sim {
       g.pids = g.pids.filter((pid) => g.here.includes(pid) || used.has(pid));
     }
     for (const id of this.pieceOwner.keys()) if (!this.build.get(id)) this.pieceOwner.delete(id);
+    for (const id of this.haulTo.keys()) if (!this.unitById.has(id)) this.haulTo.delete(id);
   }
 
   /** How much there is of everything, for checks and the load test. */

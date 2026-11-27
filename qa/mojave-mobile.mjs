@@ -89,9 +89,12 @@ for (const name of screens) {
   states.push(["the build menu", await layoutProblems(p)]);
   const most = await p.evaluate(() => document.querySelectorAll("#hotbar .slot").length);
   check(`${name}: the build menu's eight tiles fit across the top`, most === 8 && await p.evaluate(() => { const b = document.getElementById("hotbar").getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth; }), `${most} tiles`);
-  await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); for (const u of f.army.units.values()) f.selected.add(u.id); f.run("o:move"); f.run("desel"); for (const u of f.army.units.values()) f.selected.add(u.id); });
+  // (Troopers: Haulers are never selected.)
+  await p.evaluate(() => { const s = window.snapfort, f = s.feature, at = s.player.position; s.net.sendWorld({ m: "dev", do: "spawn", kind: "trooper", n: 3, slot: f.slot, at: [at.x + 6, 0, at.z + 6] }); });
+  await until(p, () => { const f = window.snapfort.feature; return [...f.army.units.values()].some((u) => u.kind === "trooper" && u.owner === f.slot) ? true : null; });
+  await p.evaluate(() => { const f = window.snapfort.feature; const mine = () => [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind !== "hauler"); f.run("desel"); for (const u of mine()) f.selected.add(u.id); f.run("o:move"); f.run("desel"); for (const u of mine()) f.selected.add(u.id); });
   await wait(700);
-  states.push(["Haulers selected", await layoutProblems(p)]);
+  states.push(["Troopers selected", await layoutProblems(p)]);
   await p.evaluate(() => { const f = window.snapfort.feature; f.run("desel"); f.selectedBuildings.add([...f.army.buildings.keys()][0]); });
   await wait(700);
   states.push(["the Core selected", await layoutProblems(p)]);

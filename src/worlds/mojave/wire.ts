@@ -100,12 +100,11 @@ export type WireSpot = [number, number, number];
 export type WireTarget = [1 | 2 | 3, number] | [4, string];
 
 export type ToServer =
-  | { m: "order"; ids: number[]; k: "stop" | "hold" | "return"; q?: boolean }
+  | { m: "order"; ids: number[]; k: "stop" | "hold"; q?: boolean }
   | { m: "order"; ids: number[]; k: "move" | "amove" | "unload" | "emp"; at: WireSpot; q?: boolean }
   /** Back and forth: to `at` first, then to `back` (with no `back`, where the first of them stands now), and so on. */
   | { m: "order"; ids: number[]; k: "patrol"; at: WireSpot; back?: WireSpot; q?: boolean }
   | { m: "order"; ids: number[]; k: "attack"; on: WireTarget; q?: boolean }
-  | { m: "order"; ids: number[]; k: "gather"; field: number; q?: boolean }
   | { m: "order"; ids: number[]; k: "load"; into: number; q?: boolean }
   | { m: "build"; kind: BuildingKind; x: number; z: number }
   | { m: "make"; id: number; kind: UnitKind; n?: number }

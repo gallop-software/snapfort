@@ -67,6 +67,40 @@ describe("a general arrives", () => {
     expect(g.lithium).toBeGreaterThan(START_LITHIUM + 100);
   });
 
+  it("Haulers are always at work: they take no orders, mine for the nearest Core, go to the next when it falls, and start again by themselves", () => {
+    const { sim, general, run, mine } = setup();
+    const g = general("p1", 0);
+    const raze = (b: object) => (sim as unknown as { raze(b: object, left: boolean): void }).raze(b, false);
+    const home = [...sim.buildings.values()].find((b) => b.owner === g.slot && b.kind === "core")!;
+    // A second Core at the next start along, with crystals of its own by it.
+    const far = STARTS[1]!;
+    const other = sim.addBuilding("core", g.slot, far.cx - 1, far.cz - 1, true);
+    const haulers = mine(g.slot, "hauler");
+    const near = (b: typeof home) => haulers.filter((u) => Math.hypot(u.x - sim.centreOf(b)[0], u.z - sim.centreOf(b)[2]) < 80).length;
+    // No orders: not even a move.
+    expect(sim.command(g.slot, haulers.map((u) => u.id), { k: "move", x: 0, z: 0, l: 0 })).toBe("Nothing to order");
+    run(30);
+    expect(haulers.every((u) => u.order.k === "gather")).toBe(true);
+    expect(near(home)).toBe(haulers.length);
+    // Their Core falls: they go to work for the other one, and bring its lithium in there.
+    raze(home);
+    run(150);
+    expect(near(other)).toBe(haulers.length);
+    const before = g.lithium;
+    run(30);
+    expect(g.lithium).toBeGreaterThan(before + 40);
+    // No Core at all: they wait; a new one, and they are at work again with nobody telling them.
+    raze(other);
+    run(10);
+    const waiting = g.lithium;
+    run(10);
+    expect(g.lithium).toBe(waiting);
+    sim.addBuilding("core", g.slot, home.cx, home.cz, true);
+    run(90);
+    expect(haulers.every((u) => u.order.k === "gather")).toBe(true);
+    expect(g.lithium).toBeGreaterThan(waiting + 40);
+  });
+
   it("an army is begun only for someone who takes up its colour, at a start of its own; any number of generals serve one, and each may change sides at any moment", () => {
     const { sim } = setup();
     // Nobody here: no army at all (no computer plays one).
@@ -278,7 +312,7 @@ describe("nothing passes through anything", () => {
     const { sim, general, mine } = setup();
     const g = general("p1", 0);
     const core = [...sim.buildings.values()].find((b) => b.owner === g.slot && b.kind === "core")!;
-    // A busy base: twelve Haulers on the round.
+    // A busy base: twelve Haulers on the round (the eight more set to work by themselves: no Hauler stands idle).
     for (let i = 0; i < 8; i++) (sim as unknown as { spawnBeside(b: typeof core, kind: "hauler"): Unit | null }).spawnBeside(core, "hauler");
     const haulers = mine(g.slot, "hauler");
     const before = g.lithium;
@@ -295,11 +329,13 @@ describe("nothing passes through anything", () => {
         worstCore = Math.max(worstCore, deepIn(u, x0, z0, x1, z1));
       }
     }
-    expect(worstEach).toBeLessThan(0.1);
+    // (Twelve coming and going between a few patches brush past each other a moment, never more than a little.)
+    expect(worstEach).toBeLessThan(0.4);
     expect(worstCrystal).toBeLessThan(0.1);
     expect(worstCore).toBeLessThan(0.1);
-    // Out of each other's way, they bring in as much as when they drove through each other (about 500 in this time).
-    expect(g.lithium - before).toBeGreaterThan(450);
+    expect(haulers.every((u) => u.order.k === "gather")).toBe(true);
+    // All twelve at work: well over a thousand in this time (four alone bring in about 700).
+    expect(g.lithium - before).toBeGreaterThan(1000);
   });
 
   it("a crowd marching past a building and the end of a wall keeps every body out of both", () => {
@@ -511,7 +547,7 @@ describe("each soldier thinks for itself", () => {
     run(0.5);
     const stood = guards.map((u) => [u.x, u.z]), held = holders.map((u) => [u.x, u.z]);
     // An enemy 40 m off: out of a rifle's 28, inside its 45 of sight.
-    const enemy = sim.addUnit("hauler", b.slot, OPEN[0], OPEN[1] + 40);
+    const enemy = sim.addUnit("hauler", NEUTRAL, OPEN[0], OPEN[1] + 40);
     sim.command(b.slot, [enemy.id], { k: "hold" });
     const { shooters } = watchShots(sim, run)(12);
     expect(enemy.dead).toBe(true);
@@ -622,11 +658,11 @@ describe("fighting", () => {
   });
 
   it("a plain move ignores the enemy; an attack-move stops to fight", () => {
-    const { sim, a, b, run } = twoSides();
+    const { sim, a, run } = twoSides();
     const mover = sim.addUnit("tank", a.slot, OPEN[0], OPEN[1]);
     const fighter = sim.addUnit("tank", a.slot, OPEN[0] + 60, OPEN[1]);
-    const t1 = sim.addUnit("hauler", b.slot, OPEN[0], OPEN[1] + 30);
-    const t2 = sim.addUnit("hauler", b.slot, OPEN[0] + 60, OPEN[1] + 30);
+    const t1 = sim.addUnit("hauler", NEUTRAL, OPEN[0], OPEN[1] + 30);
+    const t2 = sim.addUnit("hauler", NEUTRAL, OPEN[0] + 60, OPEN[1] + 30);
     sim.command(a.slot, [mover.id], { k: "move", x: OPEN[0], z: OPEN[1] + 90, l: 0 });
     sim.command(a.slot, [fighter.id], { k: "amove", x: OPEN[0] + 60, z: OPEN[1] + 90, l: 0 });
     run(14);
@@ -653,7 +689,7 @@ describe("fighting", () => {
   });
 
   it("no shot gets through another army's wall, shells and drones included: the wall is shot down first, and shelters from blasts", () => {
-    const { sim, a, b, run, piece, host, build } = twoSides();
+    const { sim, a, run, piece, host, build } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
     // A closed square of walls, 3 cells a side, round a Hauler.
     const walls: Piece[] = [];
@@ -661,7 +697,7 @@ describe("fighting", () => {
       walls.push(piece("pb", "wall", cx + i, 0, cz, 0), piece("pb", "wall", cx + i, 0, cz + 3, 0));
       walls.push(piece("pb", "wall", cx, 0, cz + i, 1), piece("pb", "wall", cx + 3, 0, cz + i, 1));
     }
-    const inside = sim.addUnit("hauler", b.slot, (cx + 1.5) * CELL, (cz + 1.5) * CELL);
+    const inside = sim.addUnit("hauler", NEUTRAL, (cx + 1.5) * CELL, (cz + 1.5) * CELL);
     const full = inside.hp;
     const shotAtWall = () => host.worn.length > 0 && host.worn.every(([id]) => id.startsWith("pb-")) && inside.hp === full;
     // A Trooper holding outside, in range: it shoots the wall, never the Hauler.
@@ -691,7 +727,7 @@ describe("fighting", () => {
     expect(host.worn).toHaveLength(0);
     expect(inside.hp).toBe(full);
     // A Tank's shell bursting on the wall does not reach a Hauler just behind it.
-    const close = sim.addUnit("hauler", b.slot, (cx + 1.5) * CELL, cz * CELL + 1.2);
+    const close = sim.addUnit("hauler", NEUTRAL, (cx + 1.5) * CELL, cz * CELL + 1.2);
     const tank = sim.addUnit("tank", a.slot, (cx + 1.5) * CELL, (cz - 5) * CELL);
     sim.command(a.slot, [tank.id], { k: "attack", tk: T_UNIT, id: close.id });
     run(6);
@@ -707,12 +743,12 @@ describe("fighting", () => {
   });
 
   it("an army shoots out over its own walls", () => {
-    const { sim, a, b, run, piece } = twoSides();
+    const { sim, b, run, piece } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
     for (let i = -2; i <= 2; i++) piece("pb", "wall", cx + i, 0, cz, 0);
     const keeper = sim.addUnit("trooper", b.slot, (cx + 0.5) * CELL, (cz + 1.5) * CELL);
     sim.command(b.slot, [keeper.id], { k: "hold" });
-    const comer = sim.addUnit("hauler", a.slot, (cx + 0.5) * CELL, (cz - 3) * CELL);
+    const comer = sim.addUnit("hauler", NEUTRAL, (cx + 0.5) * CELL, (cz - 3) * CELL);
     run(15);
     expect(comer.dead).toBe(true);
     expect(keeper.hp).toBe(UNITS.trooper.hp);
@@ -721,7 +757,7 @@ describe("fighting", () => {
   it("a laser shoots a shell out of the sky; an EMP stops what it hits", () => {
     const { sim, a, b, run } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
-    const target = sim.addUnit("hauler", b.slot, (cx + 0.5) * CELL, (cz + 0.5) * CELL);
+    const target = sim.addUnit("hauler", NEUTRAL, (cx + 0.5) * CELL, (cz + 0.5) * CELL);
     sim.addBuilding("laser", b.slot, cx + 2, cz, true);
     const gun = sim.addUnit("artillery", a.slot, (cx + 0.5) * CELL, (cz - 12) * CELL);
     sim.command(a.slot, [gun.id], { k: "attack", tk: T_UNIT, id: target.id });

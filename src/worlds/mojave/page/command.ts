@@ -47,7 +47,7 @@ import { Sight } from "./sight";
  * it was last seen, fading with age, until that ground is looked at again.
  */
 
-type Pending = "move" | "amove" | "patrol" | "gather" | "unload" | "emp" | "rally";
+type Pending = "move" | "amove" | "patrol" | "unload" | "emp" | "rally";
 /** A menu on the row: the general's own (what the Command tile opens), the eight armies to serve, or the buildings (basic, advanced). */
 type Menu = "cmd" | "army" | 0 | 1;
 /** (`from`: a patrol's first end, once it has been clicked.) */
@@ -61,7 +61,6 @@ const PENDING_TEXT: Record<Pending, string> = {
   move: "Move: click where",
   amove: "Attack: click where, or on what",
   patrol: "Patrol: click one end",
-  gather: "Gather: click on crystals",
   unload: "Unload: click where",
   emp: "EMP: click where",
   rally: "Rally point: click where",
@@ -77,14 +76,12 @@ const pendingText = (m: { what: Pending; from?: WireSpot }) => (m.what === "patr
 const PIECE_KEYS: Record<string, "wall"> = { KeyZ: "wall", F1: "wall" };
 /** A report is as faint as it gets after this long, ms (it is never dropped for its age: only when the spot is seen again). */
 const REPORT_FADES_MS = 5 * 60_000;
-const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string][] = [
+const ORDER_KEYS: [string, string, Pending | "stop" | "hold", string][] = [
   ["KeyM", "M", "move", "Move"],
   ["KeyF", "F", "amove", "Attack"],
   ["KeyX", "X", "stop", "Stop"],
   ["KeyH", "H", "hold", "Hold"],
   ["KeyP", "P", "patrol", "Patrol"],
-  ["KeyG", "G", "gather", "Gather"],
-  ["KeyC", "C", "return", "Return"],
   ["KeyU", "U", "unload", "Unload"],
   ["KeyE", "E", "emp", "EMP"],
 ];
@@ -119,7 +116,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   let tookLeft = false, tookRight = false;
   let lastClick = { id: 0, at: 0 };
   let lastDigit = { n: -1, at: 0 };
-  let idleAt = 0;
   const pings: { x: number; z: number; at: number; color: string }[] = [];
   let cardDirty = true;
   let lookAt = 0, mapAt = 0, cardAt = 0, shotAt = 0, boomAt = 0;
@@ -169,6 +165,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     const reach = spot ? Math.hypot(spot[0] - from[0], spot[1] - from[1], spot[2] - from[2]) + 1.5 : 600;
     let best: Picked = null, bestAlong = reach;
     for (const u of army.units.values()) {
+      // (A Hauler of this army's is never picked: it works by itself, and is not to be selected or ordered.)
+      if (u.kind === "hauler" && mine(u.owner)) continue;
       const def = UNITS[u.kind];
       const cx = u.x - from[0], cy = u.y + def.height * 0.5 - from[1], cz = u.z - from[2];
       const along = cx * dir[0] + cy * dir[1] + cz * dir[2];
@@ -205,7 +203,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   function selectUnits(ids: Iterable<number>, add: boolean): void {
     if (!add) selected.clear();
     selectedBuildings.clear();
-    for (const id of ids) selected.add(id);
+    // (Never a Hauler: they work by themselves.)
+    for (const id of ids) if (army.units.get(id)?.kind !== "hauler") selected.add(id);
     cardDirty = true;
   }
 
@@ -214,15 +213,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (ids.length === 0) return game.toast("You have no army yet");
     selectUnits(ids, false);
     game.play("select");
-  }
-
-  /** The next Hauler standing idle: selected, and the view turned to it. */
-  function idleHauler(): void {
-    const idle = [...army.units.values()].filter((u) => mine(u.owner) && u.kind === "hauler" && !(u.flags & 97));
-    if (idle.length === 0) return game.toast("No idle Haulers");
-    const u = idle[idleAt++ % idle.length]!;
-    selectUnits([u.id], false);
-    faceSpot(u.x, u.z);
   }
 
   function faceSpot(x: number, z: number): void {
@@ -307,18 +297,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     pings.push({ x: spot[0], z: spot[2], at: performance.now(), color: `rgb(${color.map((c) => Math.round(c * 255)).join(",")})` });
   }
 
-  function order(k: Pending | "stop" | "hold" | "return", spot: WireSpot | null, queue: boolean): void {
+  function order(k: Pending | "stop" | "hold", spot: WireSpot | null, queue: boolean): void {
     const ids = [...selected];
     if (ids.length === 0) return;
-    if (k === "stop" || k === "hold" || k === "return") return send({ m: "order", ids, k, q: queue });
+    if (k === "stop" || k === "hold") return send({ m: "order", ids, k, q: queue });
     if (!spot) return void game.toast("Aim at the ground");
     if (k === "rally") return;
-    if (k === "gather") {
-      const f = [...army.fields.values()].find((x) => !x.vent && Math.abs(spot[0] - (x.cx + 0.5) * CELL) < CELL && Math.abs(spot[2] - (x.cz + 0.5) * CELL) < CELL);
-      if (!f) return void game.toast("Aim at crystals to gather");
-      send({ m: "order", ids, k: "gather", field: f.id, q: queue });
-      return mark(spot, [0.5, 1, 0.95]);
-    }
     send({ m: "order", ids, k, at: spot, q: queue });
     mark(spot, k === "amove" ? [1, 0.4, 0.3] : k === "emp" ? [0.5, 0.9, 1] : [0.5, 1, 0.5]);
   }
@@ -356,13 +340,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (p?.k === "unit" && p.u.kind === "transport" && mine(p.u.owner) && !selected.has(p.u.id)) {
       send({ m: "order", ids, k: "load", into: p.u.id, q: queue });
       return mark([p.u.x, 0, p.u.z], [0.6, 0.8, 1]);
-    }
-    if (p?.k === "field" && !p.f.vent && ids.some((id) => army.units.get(id)?.kind === "hauler")) {
-      send({ m: "order", ids, k: "gather", field: p.f.id, q: queue });
-      return mark([(p.f.cx + 0.5) * CELL, 0, (p.f.cz + 0.5) * CELL], [0.5, 1, 0.95]);
-    }
-    if (p?.k === "building" && p.b.kind === "core" && mine(p.b.o) && ids.some((id) => (army.units.get(id)?.extra ?? 0) > 0 && army.units.get(id)?.kind === "hauler")) {
-      return send({ m: "order", ids, k: "return", q: queue });
     }
     // An enemy's wall or floor: shot down.
     if (spot && spot[1] > 0.3) {
@@ -481,8 +458,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     const [what, arg] = id.split(":") as [string, string | undefined];
     switch (what) {
       case "o": {
-        const k = arg as Pending | "stop" | "hold" | "return";
-        if (k === "stop" || k === "hold" || k === "return") return order(k, null, many);
+        const k = arg as Pending | "stop" | "hold";
+        if (k === "stop" || k === "hold") return order(k, null, many);
         return setMode({ k: "target", what: k });
       }
       case "menu": {
@@ -502,6 +479,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         for (const b of selectedBuildings) if (army.buildings.get(b)?.kind === "armory") return send({ m: "research", id: b, kind: arg as (typeof UPGRADES)[number] });
         return;
       case "rally":
+        // (Only for what makes fighting units: a Core's Haulers go to work by themselves.)
+        if (![...selectedBuildings].some((b) => MAKES[army.buildings.get(b)?.kind ?? "core"].some((u) => u !== "hauler"))) return;
         return setMode({ k: "target", what: "rally" });
       case "cancel":
         for (const b of selectedBuildings) send({ m: "cancel", id: b });
@@ -509,9 +488,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       case "army":
         if (mode?.k === "menu") setMode(null);
         return selectArmy();
-      case "idle":
-        if (mode?.k === "menu") setMode(null);
-        return idleHauler();
       case "desel":
         setMode(null);
         return deselect();
@@ -590,7 +566,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (mode?.k === "menu" && mode.page === "cmd") {
       const with_ = (general(slot)?.pids.length ?? 1) - 1;
       return {
-        tiles: [tile("menu:0", "N", "Build", "build"), tile("army", "`", "Whole army", "army"), tile("idle", "I", "Idle Hauler", "idle"), tile("map", "Tab", "Map", "map"), tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }), back()],
+        tiles: [tile("menu:0", "N", "Build", "build"), tile("army", "`", "Whole army", "army"), tile("map", "Tab", "Map", "map"), tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }), back()],
         status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. Click a unit or building of yours to select it; right click sends what is selected.`,
       };
     }
@@ -643,7 +619,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           });
         }
       }
-      if ([...kinds].some((k) => MAKES[k].length > 0)) tiles.push(tile("rally", kinds.has("armory") ? "Y" : "R", "Rally point", "rally"), tile("cancel", "Q", "Cancel last", "cancel"));
+      // (A rally point for what makes fighting units: Haulers made at a Core go to work by themselves.)
+      if ([...kinds].some((k) => MAKES[k].some((u) => u !== "hauler"))) tiles.push(tile("rally", kinds.has("armory") ? "Y" : "R", "Rally point", "rally"));
+      if ([...kinds].some((k) => MAKES[k].length > 0)) tiles.push(tile("cancel", "Q", "Cancel last", "cancel"));
       else if (first.r > 0) tiles.push(tile("cancel", "Q", "Cancel", "cancel"));
       tiles.push(back("Deselect"));
       const title = list.length > 1 ? `${list.length} ${def.label}s` : `${def.label} · ${first.h}%`;
@@ -683,7 +661,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   function orders(): typeof ORDER_KEYS {
     const kinds = new Set([...selected].flatMap((id) => army.units.get(id)?.kind ?? []));
     return ORDER_KEYS.filter(([, , k]) => {
-      if (k === "gather" || k === "return") return kinds.has("hauler");
       if (k === "unload") return kinds.has("transport");
       if (k === "emp") return kinds.has("emp");
       // (Phones have room for the orders that matter most.)
@@ -866,7 +843,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (event.ctrlKey || event.metaKey || event.altKey) return false;
     if (code === "Backquote") return act("army"), true;
     if (code === "Backspace") return act("back"), true;
-    if (code === "KeyI") return act("idle"), true;
     const piece = PIECE_KEYS[code];
     /** Lets go of every menu, order and selection, and picks the piece: building again, its preview showing. */
     const toPieces = (tool: "wall") => {
@@ -1052,7 +1028,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     // Holding the button and sweeping the crosshair: everything of mine it passes over.
     if (painting && game.playing()) {
       const p = pick();
-      if (p?.k === "unit" && mine(p.u.owner) && !selected.has(p.u.id)) {
+      if (p?.k === "unit" && mine(p.u.owner) && p.u.kind !== "hauler" && !selected.has(p.u.id)) {
         selected.add(p.u.id);
         cardDirty = true;
       }

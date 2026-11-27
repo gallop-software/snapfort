@@ -111,6 +111,13 @@ check("the Haulers mine by themselves: lithium comes in", wa.l > before, `${befo
 check("a Hauler is drawn carrying or digging", wa.units.some((u) => u.flags & 96));
 check("a Hauler bringing a load back shows it: crystals in its bed", await until(a, () => { const f = window.snapfort.feature; const loaded = [...f.army.units.values()].filter((u) => u.kind === "hauler" && (u.flags & 32)).length; const drawn = window.snapfort.scene.getMeshByName("mojave-load").thinInstanceCount; return loaded > 0 && drawn === loaded ? true : null; }, null, 20000) === true);
 await a.screenshot({ path: "qa/shots/mojave-load-bed.png" });
+// Haulers work by themselves: one of the army's own is never picked or selected (one digging stands still to be aimed at).
+const digger = await until(a, () => { const f = window.snapfort.feature; const u = [...f.army.units.values()].find((u) => u.kind === "hauler" && u.owner === f.slot && (u.flags & 64)); return u ? [u.x, u.y, u.z, u.id] : null; }, null, 20000);
+await aim(a, [digger[0], digger[1] + 0.9, digger[2]], [digger[0] - 6, digger[2] - 6]);
+const onIt = await sf(a, () => { const p = window.snapfort.feature.pick(); return p ? p.k + (p.u ? `:${p.u.kind}` : "") : null; });
+await click(a);
+wa = await war(a);
+check("a click on one of its own Haulers selects nothing: Haulers are not selected, ordered, or ever idle", onIt !== "unit:hauler" && wa.sel.length === 0 && wa.selB.length === 0, `picked ${onIt}, ${wa.sel.length} selected`);
 await a.screenshot({ path: "qa/shots/mojave-base.png" });
 
 // ── No dark ──────────────────────────────────────────────────────────────
@@ -125,7 +132,7 @@ wa = await war(a);
 check("a click on the Core selects it", wa.selB.length === 1 && wa.selB[0] === core.id);
 await rowHas(a, ["Hauler"]);
 tiles = await row(a);
-check("the row shows what it makes, with its key and its price, in the same boxes", tiles.every((t) => t.menu) && keysOf(tiles).Hauler === "H" && tiles.find((t) => t.label === "Hauler").sub === "50" && !!keysOf(tiles)["Rally point"], tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("the row shows what it makes, with its key and its price, in the same boxes (a Core has no rally point: its Haulers go to work)", tiles.every((t) => t.menu) && keysOf(tiles).Hauler === "H" && tiles.find((t) => t.label === "Hauler").sub === "50" && !keysOf(tiles)["Rally point"], tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 check("what is selected is said over the row", await sf(a, () => /Command Core/.test(document.getElementById("world-panel").textContent)));
 await until(a, () => window.snapfort.feature.bank.l >= 50, null, 20000);
 await a.keyboard.press("h");
@@ -142,7 +149,7 @@ const site = [coreX + inX * 32, coreZ + inZ * 32];
 await a.keyboard.press("b");
 await rowHas(a, ["Whole army"]);
 tiles = await row(a);
-check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Whole army,Idle Hauler,Map,Change army,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Whole army,Map,Change army,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("n");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);

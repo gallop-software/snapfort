@@ -7,7 +7,6 @@ export const ICONS: Readonly<Record<string, string>> = {
   command: '<path d="M20 5 33 11v9c0 8-6 13-13 15C13 33 7 28 7 20v-9Z"/><path d="M20 12l2.4 5h5.4l-4.3 3.4 1.6 5.4-5.1-3.2-5.1 3.2 1.6-5.4-4.3-3.4h5.4Z"/>',
   build: '<path d="M6 33h28M9 33V18l11-8 11 8v15"/><path d="M16 33v-9h8v9"/>',
   army: '<circle cx="12" cy="13" r="3.5"/><circle cx="28" cy="13" r="3.5"/><circle cx="20" cy="10" r="3.5"/><path d="M6 31v-6c0-3 3-5 6-5M34 31v-6c0-3-3-5-6-5M13 33v-8c0-4 3-6 7-6s7 2 7 6v8"/>',
-  idle: '<rect x="6" y="17" width="20" height="11" rx="2"/><path d="M26 20h6l3 4v4h-9"/><circle cx="12" cy="30" r="3"/><circle cx="29" cy="30" r="3"/><path d="M24 6h8l-8 7h8"/>',
   map: '<path d="M5 9l10-3 10 3 10-3v25l-10 3-10-3-10 3Z"/><path d="M15 6v25M25 9v25"/>',
   back: '<path d="M17 10 7 20l10 10M7 20h20c4 0 6 3 6 7"/>',
   cancel: '<circle cx="20" cy="20" r="13"/><path d="M14 14l12 12M26 14 14 26"/>',

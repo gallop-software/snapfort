@@ -569,8 +569,6 @@ function readOrder(sim: Sim, msg: Record<string, unknown>): Order | null {
       return { k: "stop" };
     case "hold":
       return { k: "hold" };
-    case "return":
-      return { k: "return" };
     case "move":
     case "amove":
       return at ? { k: msg.k, x: at[0], z: at[2], l: level(at[1]) } : null;
@@ -584,8 +582,6 @@ function readOrder(sim: Sim, msg: Record<string, unknown>): Order | null {
     case "unload":
     case "emp":
       return at ? { k: msg.k, x: at[0], z: at[2] } : null;
-    case "gather":
-      return isInt(msg.field) ? { k: "gather", field: msg.field } : null;
     case "load":
       return isInt(msg.into) ? { k: "load", into: msg.into } : null;
     case "attack": {

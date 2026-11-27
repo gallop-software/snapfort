@@ -530,10 +530,10 @@ export class Sim {
   /** Whether this builder may put this piece in (see WorldServer.mayPlace): a general, with the lithium, and not into a building or a field. */
   mayPlace(pid: string, piece: Piece): boolean {
     const g = this.generalOf(pid);
-    // (Walls only: nobody builds a siege engine here, nor floors, ramps or canopies.)
-    if (!g || piece.type !== "wall" || !piece.id.startsWith(`${pid}-`) || this.blocks(piece)) return false;
-    // (As a turret: by a Core of its own army, and never by another army's.)
-    if (this.guardWhy(g.slot, (piece.x + (piece.rot % 2 === 1 ? 0 : 0.5)) * CELL, (piece.z + (piece.rot % 2 === 0 ? 0 : 0.5)) * CELL, "wall")) return false;
+    // (Walls, floors and ramps: nobody builds a siege engine here, nor canopies.)
+    if (!g || (piece.type !== "wall" && piece.type !== "floor" && piece.type !== "ramp") || !piece.id.startsWith(`${pid}-`) || this.blocks(piece)) return false;
+    // (A wall as a turret: by a Core of its own army, and never by another army's. Floors and ramps go anywhere.)
+    if (piece.type === "wall" && this.guardWhy(g.slot, (piece.x + (piece.rot % 2 === 1 ? 0 : 0.5)) * CELL, (piece.z + (piece.rot % 2 === 0 ? 0 : 0.5)) * CELL, "wall")) return false;
     const price = this.priceOf(piece);
     if (g.lithium - g.pending < price) return false;
     g.pending += price;

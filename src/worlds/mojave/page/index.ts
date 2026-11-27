@@ -20,29 +20,30 @@ export const page: WorldPage = {
   emptyHanded: true,
   // No siege engine here (armies do the breaking) and one material: in the engine's place on the row is Command,
   // which opens the general's own menu in the same boxes.
-  // Walls only: no floors, ramps or canopies (a wall is all that shelters from fire here).
-  row: { siege: false, material: "brick", pieces: ["wall"] },
+  // Walls, floors and ramps (a platform to command from); no canopies. A wall is all that shelters from fire here.
+  row: { siege: false, material: "brick", pieces: ["wall", "floor", "ramp"] },
   tools: [{ id: "command", label: "Command", key: "B", icon: ICONS.command!, press: true }],
   // (And is told how a general plays by Mojave's own first notes, not to try placing walls.)
   ownTips: true,
   controls: {
     keys: [
-      ["Click a unit", "Select (twice: all of that kind; hold and sweep: all you pass)"],
+      ["Click a unit", "Select (twice: all of that kind within 100 m; hold and sweep: all you pass)"],
+      ["Hold on the ground", "Look away and let go: every unit of yours in the ring is selected (Shift adds)"],
       ["Right click", "Send the selected: move, attack, rally"],
       ["M / F / X", "Move (never stops, shoots as it goes) · Attack (fights all it sees on the way, until there) · Stop"],
       ["H / P", "Hold position · Patrol"],
-      ["B", "Command: your own menu, on the row (Build, Whole army, Map, Change army), whatever is selected or open"],
+      ["B", "Command: your own menu, on the row (Build, Whole army, each kind of unit near you, Map, Change army), whatever is selected or open"],
       ["1–8", "Choosing an army: the one to serve (with nothing else open they recall groups)"],
       ["N", "Build menu, whatever is selected (V for the advanced buildings)"],
       ["Ctrl + 1–9", "Save a group (Alt or Shift work too)"],
       ["1–9", "Recall a group (twice: face it)"],
-      ["`", "Select the whole army"],
+      ["`", "Select the whole army within 100 m"],
       ["Shift", "Add to the selection · queue orders"],
       ["Tab", "The map: right click sends the selected there"],
       ["Backspace", "Up one level: placing → its buildings → (advanced → basic) → Command → what is selected → nothing"],
     ],
     touch: ["Select and Order act on what the crosshair is on", "Army picks every fighting unit · Build opens the build menu", "Tap the tiles along the top to give orders"],
-    note: "Mojave has eight colours. You choose one: a colour nobody serves begins a new army of your own, and one with generals you command with them. An army nobody serves for a minute disappears, everything of it: come back later and you begin again. Haulers mine lithium by themselves, always, for the nearest Command Core (and the next nearest when it falls): they are never selected or ordered, and never idle. Build an army, and command it. Buildings stand the moment they are paid for; units take a little time, shown over the row. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which. Walls are the only pieces: no shot gets through another army's wall (shells and drones included), so an enemy has to break it down first. A general is never hit. Walls and the sentry, flak and point-defence turrets go up only within 75 m of a Command Core of your own army, and never within 75 m of another army's: guard your base, not someone else's. Z, when it means nothing else, lets go and picks the Wall; a click with it in hand builds where its preview is green.",
+    note: "Mojave has eight colours. You choose one: a colour nobody serves begins a new army of your own, and one with generals you command with them. An army nobody serves for a minute disappears, everything of it: come back later and you begin again. Haulers mine lithium by themselves, always, for the nearest Command Core (and the next nearest when it falls): they are never selected or ordered, and never idle. Build an army, and command it. Buildings stand the moment they are paid for; units take a little time, shown over the row. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which. Walls, floors and ramps are the pieces: build a platform anywhere to command from above. No shot gets through another army's wall (shells and drones included), so an enemy has to break it down first. A general is never hit. Walls and the sentry, flak and point-defence turrets go up only within 75 m of a Command Core of your own army, and never within 75 m of another army's: guard your base, not someone else's. Z, when it means nothing else, lets go and picks the Wall (F2 the floor, F3 the ramp); a click with it in hand builds where its preview is green. With units selected, a ring on the ground shows where an order would send them.",
   },
   // The war: armies, the dark, the map, and commanding from the ground.
   start(game) {

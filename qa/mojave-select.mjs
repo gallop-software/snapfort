@@ -123,7 +123,7 @@ say("then Z", v);
 check("0. …and Z lets go of it and has the Wall back in hand, its preview showing (not put away)", v.selB === 0 && v.pieceGhost && /Z:Wall\*/.test(v.row), v.row);
 
 // ── 1. Core selected, the piece keys ──
-for (const [k, name] of [["z", "Wall"], ["F1", "Wall"]]) {
+for (const [k, name] of [["z", "Wall"], ["F1", "Wall"], ["F2", "Floor"], ["F3", "Ramp"]]) {
   const before = await selectCore(`1: Core selected, then ${name}'s key (${k})`);
   await aim(a, ground);
   await a.keyboard.press(k);
@@ -134,13 +134,13 @@ for (const [k, name] of [["z", "Wall"], ["F1", "Wall"]]) {
   if (v.q !== before.q) check(`1. …and ${k} does not touch the Core's queue`, false, `${before.q} → ${v.q}`);
 }
 
-// Walls only: F, X and C (the other pieces' keys elsewhere) pick nothing, and the Core stays selected.
+// With the Core selected F, X and C (the floor's, the ramp's and the canopy's letters elsewhere) pick nothing: the Core stays selected.
 for (const k of ["f", "x", "c"]) {
-  await selectCore(`1: Core selected, then ${k} (no such piece here)`);
+  await selectCore(`1: Core selected, then ${k} (not a piece while something is selected)`);
   await a.keyboard.press(k);
   await frames(a, 4);
   const v = await look(a);
-  check(`1. Core selected, ${k}: no piece of that kind here, the Core stays selected`, v.selB === 1 && !v.pieceGhost, JSON.stringify(v));
+  check(`1. Core selected, ${k}: no piece picked, the Core stays selected`, v.selB === 1 && !v.pieceGhost, JSON.stringify(v));
 }
 await sf(a, () => window.snapfort.feature.run("desel"));
 await frames(a, 4);
@@ -148,7 +148,7 @@ await frames(a, 4);
 if (!/Z:Wall\*/.test((await look(a)).row)) await a.keyboard.press("z");
 await frames(a, 4);
 v = await look(a);
-check("1. the row has the Wall and no other piece", /Z:Wall\*/.test(v.row) && !/Floor|Ramp|Canopy/.test(v.row), v.row);
+check("1. the row has the Wall, the Floor and the Ramp, and no canopy", /Z:Wall\*/.test(v.row) && /F:Floor/.test(v.row) && /X:Ramp/.test(v.row) && !/Canopy/.test(v.row), v.row);
 
 // ── 2. Core selected, the wheel ──
 const held2 = await sf(a, () => document.querySelector("#hotbar .slot:not(.menu).selected .label")?.firstChild?.textContent ?? null);
@@ -384,6 +384,62 @@ const atB = await near(endB);
 check("11. …then to the other", atB === true, JSON.stringify(await middle()));
 const backA = await near(endA);
 check("11. …and back again", backA === true, JSON.stringify(await middle()));
+await sf(a, () => window.snapfort.feature.run("desel"));
+
+// ── 12. The aim ring, a ring to select in, a tile per kind, and "all" only within 100 m ──
+console.log("\n── 12: rings, kinds, all within 100 m");
+await sf(a, () => window.snapfort.feature.run("desel"));
+const me12 = await sf(a, () => { const p = window.snapfort.player.position; return [p.x, p.z]; });
+await dev(a, { do: "spawn", kind: "trooper", n: 3, at: [me12[0] + 10, 0, me12[1] + 10] });
+await dev(a, { do: "spawn", kind: "tank", n: 2, at: [me12[0] + 160, 0, me12[1]] });
+await until(a, () => { const f = window.snapfort.feature; return [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind === "tank").length >= 2 ? true : null; });
+await wait(600);
+const within = () => sf(a, () => { const s = window.snapfort, f = s.feature, p = s.player.position; const mine = [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind !== "hauler"); const near = mine.filter((u) => Math.hypot(u.x - p.x, u.z - p.z) <= 100); return { near: near.map((u) => u.id).sort(), troopers: near.filter((u) => u.kind === "trooper").map((u) => u.id).sort(), far: mine.filter((u) => Math.hypot(u.x - p.x, u.z - p.z) > 100).map((u) => u.id), sel: [...f.selected].sort() }; });
+await a.keyboard.press("Backquote");
+await frames(a, 3);
+let w12 = await within();
+check("12. ` selects the whole army within 100 m of the general, and nothing further off", w12.far.length >= 2 && JSON.stringify(w12.sel) === JSON.stringify(w12.near), JSON.stringify(w12));
+await sf(a, () => window.snapfort.feature.run("desel"));
+await a.keyboard.press("b");
+await frames(a, 3);
+const cmdRow = (await look(a)).row;
+check("12. Command shows a tile for each kind of unit near the general, with how many (the far Tanks have none)", /T:Troopers/.test(cmdRow) && !/Tanks/.test(cmdRow), cmdRow);
+await a.keyboard.press("t");
+await frames(a, 3);
+w12 = await within();
+check("12. …and its key selects every Trooper within 100 m", w12.sel.length > 0 && JSON.stringify(w12.sel) === JSON.stringify(w12.troopers), JSON.stringify(w12));
+// The aim ring: with units selected, more rings are drawn than with none, aimed at the same ground.
+const ground12 = [me12[0] + 25, 0, me12[1] - 20];
+await aim(a, ground12);
+const rings = () => sf(a, () => window.snapfort.scene.getMeshByName("mojave-ring").thinInstanceCount);
+const withSel = await rings();
+const nSel = await sf(a, () => window.snapfort.feature.selected.size);
+await sf(a, () => window.snapfort.feature.run("desel"));
+await frames(a, 3);
+const without = await rings();
+// (Each selected unit has a ring of its own under it: the aim ring is more than those.)
+check("12. with units selected, a ring on the ground shows where an order would send them", withSel >= without + nSel + 1, `${without} → ${withSel} with ${nSel} selected`);
+// A ring to select in: pressed on the ground by the new Troopers, widened by looking away, let go.
+if (/\*/.test((await look(a)).row)) { const k = (await look(a)).row.match(/(\w+):\w+\*/)[1]; await a.keyboard.press(k.toLowerCase()); await frames(a, 3); }
+const centre = await sf(a, ([x, z]) => { const f = window.snapfort.feature; const t = [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind === "trooper" && Math.hypot(u.x - x, u.z - z) < 15); return t.length ? [t.reduce((s, u) => s + u.x, 0) / t.length, 0, t.reduce((s, u) => s + u.z, 0) / t.length, t.map((u) => u.id).sort()] : null; }, [me12[0] + 10, me12[1] + 10]);
+// (Pressed a little way off them, where the crosshair is on bare ground: on a unit, a press selects that one.)
+let from12 = null;
+for (const [dx, dz] of [[-7, -7], [7, -7], [-7, 7], [7, 7], [0, -9], [-9, 0], [9, 0], [0, 9]]) {
+  const at = [centre[0] + dx, 0, centre[2] + dz];
+  await aim(a, at);
+  if (await sf(a, () => { const p = window.snapfort.feature.pick(); return !p || p.k === "field"; })) { from12 = at; break; }
+}
+await a.mouse.down();
+await frames(a, 3);
+await aim(a, [from12[0] + 16, 0, from12[2]]);
+const drawn = await rings();
+await a.mouse.up();
+await frames(a, 3);
+w12 = await within();
+// (Inside: within the ring, give or take a body's width at its edge.)
+const ringed = (r) => sf(a, ([x, z, r]) => { const f = window.snapfort.feature; return [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind !== "hauler" && Math.hypot(u.x - x, u.z - z) <= r).map((u) => u.id); }, [from12[0], from12[2], r]);
+const surely = await ringed(15.5), maybe = await ringed(17.5);
+check("12. holding the button on the ground and looking away draws a ring; let go, every unit of yours in it is selected", drawn > 10 && surely.length >= 3 && surely.every((id) => w12.sel.includes(id)) && w12.sel.every((id) => maybe.includes(id)), `${drawn} dots; ${JSON.stringify(w12.sel)}: surely ${JSON.stringify(surely)}, at most ${JSON.stringify(maybe)}`);
 await sf(a, () => window.snapfort.feature.run("desel"));
 
 await a.screenshot({ path: "qa/shots/mojave-select.png" });

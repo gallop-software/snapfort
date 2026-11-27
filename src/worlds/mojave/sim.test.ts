@@ -879,8 +879,9 @@ describe("pieces", () => {
     expect(sim.priceOf(wall)).toBe(sim.priceOf({ ...wall, material: "wood" }));
     g.lithium = 10_000;
     expect(sim.mayPlace("p1", { ...wall, id: "p1-t", type: "trebuchet" })).toBe(false);
-    // Walls only: no floors, ramps or canopies.
-    for (const type of ["floor", "ramp", "roof"] as const) expect(sim.mayPlace("p1", { ...wall, id: `p1-${type}`, type })).toBe(false);
+    // Walls, floors and ramps; no canopies. A floor or a ramp goes anywhere (a wall only by its Core: below).
+    expect(sim.mayPlace("p1", { ...wall, id: "p1-roof", type: "roof" })).toBe(false);
+    for (const type of ["floor", "ramp"] as const) expect(sim.mayPlace("p1", { ...wall, id: `p1-${type}`, type, x: s.cx + inX * 40, z: s.cz + inZ * 40 })).toBe(true);
     g.pending = 0;
     g.lithium = PIECE_COST * 2 - 1;
     expect(sim.mayPlace("p1", wall)).toBe(true);

@@ -72,8 +72,13 @@ const pendingText = (m: { what: Pending; from?: WireSpot }) => (m.what === "patr
  * menu open, one that means nothing there lets go of it and picks that piece,
  * so the way back to building is the key the builder already knows.
  */
-/** The pieces' keys: walls only here (F, X and C, the other pieces' keys elsewhere, are orders or nothing). */
-const PIECE_KEYS: Record<string, "wall"> = { KeyZ: "wall", F1: "wall" };
+/** The pieces' keys that pick one from a menu or a selection: walls, floors and ramps (F and X, the floor's and the ramp's letters, are orders there; with nothing selected they pick those pieces as everywhere). */
+type PieceTool = "wall" | "floor" | "ramp";
+const PIECE_KEYS: Record<string, PieceTool> = { KeyZ: "wall", F1: "wall", F2: "floor", F3: "ramp" };
+/** How near the general units are, to be selected all at once (the whole army, all of a kind), m. */
+const SELECT_NEAR = 100;
+/** The keys of the Command menu's tiles that select every unit of a kind near the general (their own letters, where those are free). */
+const SELECT_KEYS: Partial<Record<UnitKind, string>> = { trooper: "T", scout: "C", tank: "K", artillery: "R", missile: "M", gunship: "G", transport: "U", emp: "E", titan: "I" };
 /** A report is as faint as it gets after this long, ms (it is never dropped for its age: only when the spot is seen again). */
 const REPORT_FADES_MS = 5 * 60_000;
 const ORDER_KEYS: [string, string, Pending | "stop" | "hold", string][] = [
@@ -113,6 +118,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   let mapOn = false;
   const cursor = { x: 0, z: 0 };
   let painting = false;
+  /** A ring being drawn on the ground to select in: where it was begun (on a phone, by a tap: finished by the next). */
+  let ring: { x: number; y: number; z: number; tap: boolean } | null = null;
   let tookLeft = false, tookRight = false;
   let lastClick = { id: 0, at: 0 };
   let lastDigit = { n: -1, at: 0 };
@@ -208,10 +215,97 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     cardDirty = true;
   }
 
+  /** How wide the ring being drawn is now: from where it was begun to where the crosshair is (0 off the ground). */
+  function ringRadius(): number {
+    const at = aimSpot();
+    return ring && at ? Math.hypot(at[0] - ring.x, at[2] - ring.z) : 0;
+  }
+
+  /** The ring is let go of: every unit inside it selected (one too small to be a ring: a click, letting go of the selection). */
+  function finishRing(): void {
+    const r = ringRadius(), was = ring;
+    ring = null;
+    if (!was) return;
+    if (r < 2) {
+      if (!shift()) deselect();
+      return;
+    }
+    selectInRing(was.x, was.z, r);
+  }
+
+  /** A ring of dots on the ground for this frame (one torus that wide would be drawn thick). */
+  function dotted(x: number, y: number, z: number, r: number, color: readonly [number, number, number]): void {
+    if (r < 3.5) return army.mark(x, y, z, r, color);
+    const n = Math.max(18, Math.min(96, Math.round(r * 2.2)));
+    for (let i = 0; i < n; i++) army.mark(x + Math.sin((i / n) * Math.PI * 2) * r, y, z + Math.cos((i / n) * Math.PI * 2) * r, 0.32, color);
+  }
+
+  /** How much room the selected units take round the spot they are sent to, m (as the server works it out: Sim.command). */
+  function spreadOf(): number {
+    let area = 0;
+    for (const id of selected) {
+      const u = army.units.get(id);
+      if (u) area += (UNITS[u.kind].radius * 2 + 0.8) ** 2;
+    }
+    return 1 + Math.sqrt(area / Math.PI);
+  }
+
+  /** What an order would be given at, under the crosshair, ringed this frame: the enemy aimed at, or the ground and how wide they spread there. */
+  function aimRing(): void {
+    const what = mode?.k === "target" ? mode.what : null;
+    if (what === "rally") return;
+    const color: Record<string, readonly [number, number, number]> = { move: [0.5, 1, 0.5], amove: [1, 0.4, 0.3], patrol: [0.45, 0.75, 1], unload: [0.6, 0.8, 1], emp: [0.5, 0.9, 1] };
+    // On an enemy (a right click, or Attack): that one, ringed.
+    if (what === null || what === "amove") {
+      const p = pick();
+      if (p?.k === "unit" && !mine(p.u.owner)) return army.mark(p.u.x, p.u.y, p.u.z, UNITS[p.u.kind].radius + 0.9, [1, 0.3, 0.25]);
+      if (p?.k === "building" && !mine(p.b.o)) {
+        const half = (BUILDINGS[p.b.kind].size * CELL) / 2;
+        return dotted(p.b.x * CELL + half, 0, p.b.z * CELL + half, half + 1.5, [1, 0.3, 0.25]);
+      }
+    }
+    const spot = aimSpot();
+    if (!spot) return;
+    dotted(spot[0], spot[1], spot[2], what === "emp" ? EMP.radius : spreadOf(), color[what ?? "move"]!);
+  }
+
+  /** This army's units near the general (not its Haulers), of a kind or all. */
+  function nearMe(kind?: UnitKind): SeenUnit[] {
+    const p = game.player.position;
+    return [...army.units.values()].filter((u) => mine(u.owner) && u.kind !== "hauler" && (!kind || u.kind === kind) && Math.hypot(u.x - p.x, u.z - p.z) <= SELECT_NEAR);
+  }
+
+  /** Every unit of the army within SELECT_NEAR of the general. */
   function selectArmy(): void {
-    const ids = [...army.units.values()].filter((u) => mine(u.owner) && u.kind !== "hauler").map((u) => u.id);
-    if (ids.length === 0) return game.toast("You have no army yet");
+    const ids = nearMe().map((u) => u.id);
+    if (ids.length === 0) return game.toast(`None of your army is within ${SELECT_NEAR} m`);
     selectUnits(ids, false);
+    game.play("select");
+  }
+
+  /** The kinds of unit near the general, with how many of each, in the order the units are listed. */
+  function kindsNear(): [UnitKind, number][] {
+    const n = new Map<UnitKind, number>();
+    for (const u of nearMe()) n.set(u.kind, (n.get(u.kind) ?? 0) + 1);
+    return (Object.keys(UNITS) as UnitKind[]).filter((k) => n.has(k)).map((k) => [k, n.get(k)!]);
+  }
+
+  /** Every unit of a kind within SELECT_NEAR of the general (Shift: added to what is selected). */
+  function selectKind(kind: UnitKind): void {
+    const ids = nearMe(kind).map((u) => u.id);
+    if (ids.length === 0) return game.toast(`No ${UNITS[kind].label}s within ${SELECT_NEAR} m`);
+    selectUnits(ids, shift());
+    game.play("select");
+  }
+
+  /** Every unit of this army's in a ring on the ground (not its Haulers). */
+  function selectInRing(cx: number, cz: number, r: number): void {
+    const ids = [...army.units.values()].filter((u) => mine(u.owner) && u.kind !== "hauler" && Math.hypot(u.x - cx, u.z - cz) <= r + UNITS[u.kind].radius).map((u) => u.id);
+    if (ids.length === 0 && !shift()) {
+      deselect();
+      return;
+    }
+    selectUnits(ids, shift());
     game.play("select");
   }
 
@@ -266,7 +360,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const twice = lastClick.id === p.u.id && now - lastClick.at < 380;
       lastClick = { id: p.u.id, at: now };
       if (twice) {
-        const near = [...army.units.values()].filter((u) => mine(u.owner) && u.kind === p.u.kind && Math.hypot(u.x - p.u.x, u.z - p.u.z) < 90);
+        const near = [...army.units.values()].filter((u) => mine(u.owner) && u.kind === p.u.kind && Math.hypot(u.x - p.u.x, u.z - p.u.z) <= SELECT_NEAR);
         selectUnits(near.map((u) => u.id), shift());
       } else if (shift() && selected.has(p.u.id)) {
         selected.delete(p.u.id);
@@ -450,8 +544,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if ([...army.buildings.values()].some((b) => !mine(b.o) && b.kind === "core" && Math.hypot((b.x + BUILDINGS.core.size / 2) * CELL - x, (b.z + BUILDINGS.core.size / 2) * CELL - z) <= GUARD_RADIUS)) return `No ${what} within ${GUARD_RADIUS} m of another army's Command Core`;
     return "";
   }
-  /** Why a wall may not go there: its middle, by the Cores. */
-  const wallWhy = (spec: PieceSpec) => guardWhy((spec.x + (spec.rot % 2 === 1 ? 0 : 0.5)) * CELL, (spec.z + (spec.rot % 2 === 0 ? 0 : 0.5)) * CELL, "wall");
+  /** Why a wall may not go there: its middle, by the Cores (floors and ramps go anywhere). */
+  const wallWhy = (spec: PieceSpec) => spec.type !== "wall" ? "" : guardWhy((spec.x + (spec.rot % 2 === 1 ? 0 : 0.5)) * CELL, (spec.z + (spec.rot % 2 === 0 ? 0 : 0.5)) * CELL, "wall");
 
   function placeBuilding(kind: BuildingKind): void {
     const at = placing(kind);
@@ -501,6 +595,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       case "army":
         if (mode?.k === "menu") setMode(null);
         return selectArmy();
+      case "sel":
+        if (mode?.k === "menu") setMode(null);
+        return selectKind(arg as UnitKind);
       case "desel":
         setMode(null);
         return deselect();
@@ -521,6 +618,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         if (mapOn) return toggleMap();
         // (Someone who serves no army yet has only the armies to choose from: there is nothing to go back to.)
         if (slot < 0) return;
+        // (A ring being drawn is let go of first.)
+        if (ring) return void (ring = null);
         if (mode?.k === "place") return setMode({ k: "menu", page: BUILDINGS[mode.kind].advanced ? 1 : 0 });
         if (mode?.k === "menu" && mode.page === 1) return setMode({ k: "menu", page: 0 });
         if (mode?.k === "menu" && mode.page !== "cmd") return setMode({ k: "menu", page: "cmd" });
@@ -579,8 +678,16 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (mode?.k === "menu" && mode.page === "cmd") {
       const with_ = (general(slot)?.pids.length ?? 1) - 1;
       return {
-        tiles: [tile("menu:0", "N", "Build", "build"), tile("army", "`", "Whole army", "army"), tile("map", "Tab", "Map", "map"), tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }), back()],
-        status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. Click a unit or building of yours to select it; right click sends what is selected.`,
+        tiles: [
+          tile("menu:0", "N", "Build", "build"),
+          tile("army", "`", "Whole army", "army", { sub: `${nearMe().length} near` }),
+          // Every kind of unit near the general, each a tile: all of that kind selected.
+          ...kindsNear().map(([kind, n]) => tile(`sel:${kind}`, SELECT_KEYS[kind] ?? "", `${UNITS[kind].label}s`, kind === "emp" ? "emp_unit" : kind, { sub: `${n}` })),
+          tile("map", "Tab", "Map", "map"),
+          tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }),
+          back(),
+        ],
+        status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. Whole army and each kind select those within ${SELECT_NEAR} m; hold the left button on the ground and look away for a ring of them.`,
       };
     }
     if (mode?.k === "menu" && mode.page === "army") return { tiles: [...armies(), back()], status: "Change army: press the number of the one to serve. One nobody serves begins afresh. An army you leave with nobody in it is gone in a minute, all of it." };
@@ -858,7 +965,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (code === "Backspace") return act("back"), true;
     const piece = PIECE_KEYS[code];
     /** Lets go of every menu, order and selection, and picks the piece: building again, its preview showing. */
-    const toPieces = (tool: "wall") => {
+    const toPieces = (tool: PieceTool) => {
       setMode(null);
       deselect();
       game.hold(tool);
@@ -866,8 +973,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     };
     if (mode?.k === "menu" && mode.page === "cmd") {
       // The general's own menu: its tiles' keys; a piece's key builds; anything else (B again too) closes it.
+      const kind = kindsNear().find(([k]) => `Key${SELECT_KEYS[k]}` === code)?.[0];
       if (code === "KeyN") act("menu:0");
       else if (code === "KeyJ") act("menu:army");
+      else if (kind) act(`sel:${kind}`);
       else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
@@ -923,6 +1032,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (!down) {
       if (button === 0) {
         painting = false;
+        if (ring && !ring.tap) finishRing();
         const took = tookLeft;
         tookLeft = false;
         return took;
@@ -948,6 +1058,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return take();
     }
     if (slot < 0) return why === "choose" ? take() : false;
+    // (A ring begun by a tap is finished by the next.)
+    if (ring && button === 0) {
+      finishRing();
+      return take();
+    }
     if (mode?.k === "place") {
       if (button === 0) placeBuilding(mode.kind);
       else setMode(null);
@@ -972,7 +1087,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           const p = pick();
           if (p?.k === "unit" && !mine(p.u.owner)) send({ m: "order", ids: [...selected], k: "attack", on: [1, p.u.id], q: shift() });
           else if (p?.k === "building" && !mine(p.b.o)) send({ m: "order", ids: [...selected], k: "attack", on: [2, p.b.i], q: shift() });
-          else if (p?.k === "general" && !mine(p.slot)) send({ m: "order", ids: [...selected], k: "attack", on: [3, p.slot], q: shift() });
           else order("amove", spot, shift());
         } else order(what, spot, shift());
         if (!shift()) setMode(null);
@@ -988,6 +1102,15 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       // built there. With Remove in hand a click takes down, never selects. (A phone's Select button selects.)
       if (!tapped && selected.size === 0 && selectedBuildings.size === 0 && game.hands() === "remove") return false;
       if (clickOn(pick())) return take();
+      // On the ground with nothing in hand (or something selected): a ring is begun there, to select in. Look away to
+      // widen it; let go and every unit of this army's inside it is selected. A click with no ring lets go of the selection.
+      if (game.hands() === null || selected.size > 0 || selectedBuildings.size > 0) {
+        const at = aimSpot();
+        if (at) {
+          ring = { x: at[0], y: at[1], z: at[2], tap: tapped };
+          return take();
+        }
+      }
       if (selected.size > 0 || selectedBuildings.size > 0) {
         deselect();
         return take();
@@ -1038,6 +1161,11 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     for (const id of selected) if (!army.units.has(id) || !mine(army.units.get(id)!.owner)) selected.delete(id) && (cardDirty = true);
     for (const id of selectedBuildings) if (!army.buildings.has(id)) selectedBuildings.delete(id) && (cardDirty = true);
 
+    // The ring being drawn to select in, and (units selected) where an order would go, ringed.
+    if (slot >= 0 && game.playing() && !mapOn) {
+      if (ring) dotted(ring.x, ring.y, ring.z, Math.max(0.8, ringRadius()), [1, 1, 1]);
+      else if (selected.size > 0) aimRing();
+    }
     // Holding the button and sweeping the crosshair: everything of mine it passes over.
     if (painting && game.playing()) {
       const p = pick();

@@ -618,6 +618,7 @@ export class ArmyView {
     this.lastDraw = now;
     for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
+    this.drawMarks();
     this.troopers.begin();
     for (const u of this.units.values()) this.drawUnit(u, now, time, Math.min(1, 0.15 + (0.85 * (now - u.seenAt)) / APPEAR_MS));
     for (let i = this.leaving.length - 1; i >= 0; i--) {
@@ -822,11 +823,26 @@ export class ArmyView {
     this.rings.colors!.set([k > 0.5 ? (1 - k) * 2 * 0.9 + 0.1 : 1, k > 0.5 ? 1 : k * 2 * 0.85 + 0.1, 0.25, 1], i * 4);
   }
 
-  /** A mark on the ground (where a building would go, where an order was sent): a ring of this colour for this frame. */
+  /**
+   * A mark on the ground (where a building would go, where an order would be
+   * sent): a ring of this colour for the next frame drawn. Kept until `update`,
+   * which starts the rings afresh each frame (a ring added straight away, before
+   * that, would be wiped).
+   */
   mark(x: number, y: number, z: number, radius: number, color: readonly [number, number, number]): void {
-    const i = this.rings.add();
-    place(this.rings.matrices, i, x, y + 0.14, z, 0, 0, 0, radius, 1, radius);
-    this.rings.colors!.set([color[0], color[1], color[2], 1], i * 4);
+    this.marks.push(x, y, z, radius, color[0], color[1], color[2]);
+  }
+  /** The marks asked for since the last frame: x, y, z, radius, r, g, b each. */
+  private marks: number[] = [];
+
+  private drawMarks(): void {
+    const m = this.marks;
+    for (let k = 0; k < m.length; k += 7) {
+      const i = this.rings.add();
+      place(this.rings.matrices, i, m[k]!, m[k + 1]! + 0.14, m[k + 2]!, 0, 0, 0, m[k + 3]!, 1, m[k + 3]!);
+      this.rings.colors!.set([m[k + 4]!, m[k + 5]!, m[k + 6]!, 1], i * 4);
+    }
+    m.length = 0;
   }
 
   /** Marks that last a moment (an order given): drawn by `effects`. */

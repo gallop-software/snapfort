@@ -478,6 +478,14 @@ export class Sim {
     return Math.min(MAX_SUPPLY, n);
   }
 
+  /** Why a turret or a wall may not go at a spot (m), or "": it goes within GUARD_RADIUS of a finished Core of the army's own, and never that near another army's. */
+  guardWhy(slot: number, x: number, z: number, what: "turret" | "wall"): string {
+    const name = what === "turret" ? "A turret" : "A wall";
+    if (!this.nearCore(slot, x, z)) return `${name} goes within ${GUARD_RADIUS} m of your Command Core`;
+    if (this.nearOtherCore(slot, x, z)) return `No ${what} within ${GUARD_RADIUS} m of another army's Command Core`;
+    return "";
+  }
+
   /** Whether a spot is within GUARD_RADIUS of a finished Core of an army's own (where its turrets may go, unless another army's Core is as near: see nearOtherCore). */
   nearCore(slot: number, x: number, z: number): boolean {
     for (const b of this.buildings.values()) {
@@ -524,6 +532,8 @@ export class Sim {
     const g = this.generalOf(pid);
     // (Walls only: nobody builds a siege engine here, nor floors, ramps or canopies.)
     if (!g || piece.type !== "wall" || !piece.id.startsWith(`${pid}-`) || this.blocks(piece)) return false;
+    // (As a turret: by a Core of its own army, and never by another army's.)
+    if (this.guardWhy(g.slot, (piece.x + (piece.rot % 2 === 1 ? 0 : 0.5)) * CELL, (piece.z + (piece.rot % 2 === 0 ? 0 : 0.5)) * CELL, "wall")) return false;
     const price = this.priceOf(piece);
     if (g.lithium - g.pending < price) return false;
     g.pending += price;
@@ -575,9 +585,8 @@ export class Sim {
     }
     if (!Number.isInteger(cx) || !Number.isInteger(cz) || Math.abs(cx) > HALF_CELLS - def.size - 1 || Math.abs(cz) > HALF_CELLS - def.size - 1) return "Outside the building area";
     if (def.nearCore) {
-      const x = (cx + def.size / 2) * CELL, z = (cz + def.size / 2) * CELL;
-      if (!this.nearCore(slot, x, z)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
-      if (this.nearOtherCore(slot, x, z)) return `No turret within ${GUARD_RADIUS} m of another army's Command Core`;
+      const why = this.guardWhy(slot, (cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL, "turret");
+      if (why) return why;
     }
     if (kind === "tap") {
       const f = this.fieldAt.get(`${cx},${cz}`);

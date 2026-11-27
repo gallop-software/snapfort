@@ -388,10 +388,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (Math.hypot(p.x - (cx + def.size / 2) * CELL, p.z - (cz + def.size / 2) * CELL) > BUILD_REACH + (def.size * CELL) / 2) return "Too far away: go closer";
     if (Math.abs(cx) > HALF_CELLS - def.size - 1 || Math.abs(cz) > HALF_CELLS - def.size - 1) return "Outside the building area";
     if (def.nearCore) {
-      const x = (cx + def.size / 2) * CELL, z = (cz + def.size / 2) * CELL;
-      if (!coreNear(x, z)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
-      // (Of the others' Cores, those this page has seen: the server knows them all.)
-      if ([...army.buildings.values()].some((b) => !mine(b.o) && b.kind === "core" && Math.hypot((b.x + BUILDINGS.core.size / 2) * CELL - x, (b.z + BUILDINGS.core.size / 2) * CELL - z) <= GUARD_RADIUS)) return `No turret within ${GUARD_RADIUS} m of another army's Command Core`;
+      const why = guardWhy((cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL, "turret");
+      if (why) return why;
     }
     if (kind === "tap") {
       const vent = [...army.fields.values()].find((f) => f.vent && f.cx === cx && f.cz === cz);
@@ -439,6 +437,21 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   function coreNear(x: number, z: number): boolean {
     return myCores().some(([cx, cz]) => Math.hypot(cx - x, cz - z) <= GUARD_RADIUS);
   }
+
+  /** How far from each of this army's Cores a turret or a wall may go: dotted round on the ground, this frame. */
+  function guardRings(): void {
+    for (const [kx, kz] of myCores()) for (let i = 0; i < 72; i++) army.mark(kx + Math.sin((i / 72) * Math.PI * 2) * GUARD_RADIUS, 0, kz + Math.cos((i / 72) * Math.PI * 2) * GUARD_RADIUS, 0.7, [0.45, 0.8, 1]);
+  }
+
+  /** Why a turret or a wall may not go at a spot (m), or "" (as Sim.guardWhy judges it). */
+  function guardWhy(x: number, z: number, what: "turret" | "wall"): string {
+    if (!coreNear(x, z)) return `${what === "turret" ? "A turret" : "A wall"} goes within ${GUARD_RADIUS} m of your Command Core`;
+    // (Of the others' Cores, those this page has seen: the server knows them all.)
+    if ([...army.buildings.values()].some((b) => !mine(b.o) && b.kind === "core" && Math.hypot((b.x + BUILDINGS.core.size / 2) * CELL - x, (b.z + BUILDINGS.core.size / 2) * CELL - z) <= GUARD_RADIUS)) return `No ${what} within ${GUARD_RADIUS} m of another army's Command Core`;
+    return "";
+  }
+  /** Why a wall may not go there: its middle, by the Cores. */
+  const wallWhy = (spec: PieceSpec) => guardWhy((spec.x + (spec.rot % 2 === 1 ? 0 : 0.5)) * CELL, (spec.z + (spec.rot % 2 === 0 ? 0 : 0.5)) * CELL, "wall");
 
   function placeBuilding(kind: BuildingKind): void {
     const at = placing(kind);
@@ -1087,11 +1100,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         army.ghost(mode.kind, x, z, !at.why);
         for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) army.mark(at.cx * CELL + dx * size, 0, at.cz * CELL + dz * size, 0.6, c);
         // A turret: how far from each Core it may go, dotted round on the ground.
-        if (BUILDINGS[mode.kind].nearCore) {
-          for (const [kx, kz] of myCores()) for (let i = 0; i < 72; i++) army.mark(kx + Math.sin((i / 72) * Math.PI * 2) * GUARD_RADIUS, 0, kz + Math.cos((i / 72) * Math.PI * 2) * GUARD_RADIUS, 0.7, [0.45, 0.8, 1]);
-        }
+        if (BUILDINGS[mode.kind].nearCore) guardRings();
         hint = at.why ? `<span class="bad">${at.why}</span>` : `<span class="ok">${BUILDINGS[mode.kind].label}: ${game.touch ? "tap Place" : "click"} to put it here</span>`;
       } else hint = `<span class="bad">Aim at the ground</span>`;
+    } else if (!mode && game.playing() && slot >= 0 && game.hands() === "wall") {
+      // The Wall in hand: the same rings (a wall goes where a turret may).
+      guardRings();
     } else if (mode?.k === "target") {
       hint = `<b>${pendingText(mode)}</b>`;
       // A patrol's first end, until the other is clicked.
@@ -1207,10 +1221,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       // The Command tile: the general's own menu, on the row.
       if (id === "command") act("menu:cmd");
     },
-    blocks: (spec) => slot < 0 || cutsIn(spec) || bank.l < PIECE_COST,
+    blocks: (spec) => slot < 0 || cutsIn(spec) || bank.l < PIECE_COST || !!wallWhy(spec),
     whyBlocked(spec) {
       if (slot < 0) return "Choose an army first";
       if (cutsIn(spec)) return "A building or a field is in the way";
+      const far = wallWhy(spec);
+      if (far) return far;
       return `Not enough lithium: a piece costs ${PIECE_COST}`;
     },
     keeps(piece) {

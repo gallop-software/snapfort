@@ -872,7 +872,9 @@ describe("pieces", () => {
     const { sim, general, build } = setup();
     const g = general("p1", 0), other = general("p2", 4);
     const s = STARTS[g.start]!;
-    const wall: Piece = { id: "p1-a", type: "wall", x: 10, y: 0, z: 10, rot: 0, material: "metal", edit: 0 };
+    const inX = -Math.sign(s.cx) || 1, inZ = -Math.sign(s.cz) || 1;
+    // By the Core (a wall goes up only near a Core of its own army, as a turret does).
+    const wall: Piece = { id: "p1-a", type: "wall", x: s.cx + inX * 5, y: 0, z: s.cz + inZ * 5, rot: 0, material: "metal", edit: 0 };
     // One price, whatever slot a piece is saved under; and nobody builds a siege engine.
     expect(sim.priceOf(wall)).toBe(sim.priceOf({ ...wall, material: "wood" }));
     g.lithium = 10_000;
@@ -883,9 +885,18 @@ describe("pieces", () => {
     g.lithium = PIECE_COST * 2 - 1;
     expect(sim.mayPlace("p1", wall)).toBe(true);
     // A second in the same action: the first is already promised.
-    expect(sim.mayPlace("p1", { ...wall, id: "p1-b", x: 11 })).toBe(false);
+    expect(sim.mayPlace("p1", { ...wall, id: "p1-b", x: wall.x + 1 })).toBe(false);
     sim.placed("p1", [wall]);
     expect(g.lithium).toBe(PIECE_COST - 1);
+    // Out in the open, far from its Core, or by another army's Core: no.
+    g.lithium = 1000;
+    g.pending = 0;
+    expect(sim.mayPlace("p1", { ...wall, id: "p1-far", x: s.cx + inX * 20, z: s.cz + inZ * 20 })).toBe(false);
+    const theirs = STARTS[other.start]!;
+    expect(sim.mayPlace("p1", { ...wall, id: "p1-theirs", x: theirs.cx + 4, z: theirs.cz + 4 })).toBe(false);
+    expect(sim.guardWhy(g.slot, (s.cx + inX * 20) * CELL, (s.cz + inZ * 20) * CELL, "wall")).toMatch(/A wall goes within 75 m of your Command Core/);
+    expect(sim.guardWhy(g.slot, (theirs.cx + 4) * CELL, (theirs.cz + 4) * CELL, "wall")).toMatch(/A wall goes within 75 m/);
+    g.lithium = PIECE_COST - 1;
     // Someone else's id, or someone who is not a general.
     expect(sim.mayPlace("p1", { ...wall, id: "p2-a" })).toBe(false);
     expect(sim.mayPlace("nobody", { ...wall, id: "nobody-a" })).toBe(false);

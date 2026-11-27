@@ -339,7 +339,10 @@ describe("pieces", () => {
   it("cost lithium, and are the army's they were built for: whoever serves it may change them", () => {
     const r = fakeRoom();
     const g = r.join("a", 0)!;
-    const wall: Piece = { id: "a-1", type: "wall", x: 60, y: 0, z: 60, rot: 0, material: "wood", edit: 0 };
+    const s = STARTS[g.start]!;
+    // By its Core (nowhere else: a wall goes where a turret may).
+    const wall: Piece = { id: "a-1", type: "wall", x: s.cx + (-Math.sign(s.cx) || 1) * 5, y: 0, z: s.cz + (-Math.sign(s.cz) || 1) * 5, rot: 0, material: "wood", edit: 0 };
+    expect(server.mayPlace!(r.room, "a", { ...wall, id: "a-0", x: 60, z: 60 })).toBe(false);
     expect(server.mayPlace!(r.room, "a", wall)).toBe(true);
     r.build.apply({ kind: "place", piece: wall });
     server.placed!(r.room, "a", [wall]);

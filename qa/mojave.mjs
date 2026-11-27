@@ -535,6 +535,14 @@ await frames(a, 5);
 await sf(a, (id) => window.snapfort.removePiece(id), placedId);
 await wait(600);
 check("another general cannot take it down by hand", await sf(a, (id) => !!window.snapfort.state.get(id), placedId) && await sf(b, (id) => !!window.snapfort.state.get(id), placedId));
+// With units selected, aiming at the enemy's wall outlines that section of it, to be shot down (on the ground beside it: the plain ring).
+await sf(a, () => { const f = window.snapfort.feature; f.run("desel"); const u = [...f.army.units.values()].find((x) => x.owner === f.slot && x.kind !== "hauler"); if (u) f.selected.add(u.id); });
+const ringsAt = async (spot) => { await aim(a, spot); await frames(a, 4); return sf(a, () => window.snapfort.scene.getMeshByName("mojave-ring").thinInstanceCount); };
+const onGround = await ringsAt([wallAt[0] * 5 + 2.5, 0, wallAt[1] * 5 - 2]);
+const onWall = await ringsAt([wallAt[0] * 5 + 2.5, 1.8, wallAt[1] * 5]);
+await a.screenshot({ path: "qa/shots/mojave-wall-target.png" });
+check("with units selected, aiming at the enemy's wall outlines that section of it, to be shot down", onWall >= onGround + 20, `${onGround} rings on the ground, ${onWall} on the wall`);
+await sf(a, () => window.snapfort.feature.run("desel"));
 const engine = await sf(b, ([x, z]) => { const s = window.snapfort; const id = s.nextId(); s.history.do({ kind: "place", piece: { type: "trebuchet", x: x + 3, y: 0, z: z + 3, rot: 0, id, material: "brick", edit: 0 } }); return id; }, wallAt);
 await wait(900);
 check("nobody builds a siege engine: the world refuses one", await sf(a, (id) => !window.snapfort.state.get(id), engine) && await sf(b, (id) => !window.snapfort.state.get(id), engine));

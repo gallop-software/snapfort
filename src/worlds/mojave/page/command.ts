@@ -263,6 +263,9 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         const half = (BUILDINGS[p.b.kind].size * CELL) / 2;
         return dotted(p.b.x * CELL + half, 0, p.b.z * CELL + half, half + 1.5, [1, 0.3, 0.25]);
       }
+      // On another army's wall (or floor): that piece, outlined, to be shot down.
+      const piece = enemyPiece(aimSpot());
+      if (piece) return outline(piece, [1, 0.3, 0.25]);
     }
     const spot = aimSpot();
     if (!spot) return;
@@ -436,11 +439,31 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return mark([p.u.x, 0, p.u.z], [0.6, 0.8, 1]);
     }
     // An enemy's wall or floor: shot down.
-    if (spot && spot[1] > 0.3) {
-      const piece = pieceAt(spot);
-      if (piece && !myPids.has(ownerPid(piece.id))) return attack([4, piece.id], spot);
-    }
+    const piece = enemyPiece(spot);
+    if (piece) return attack([4, piece.id], spot);
     order("move", spot, queue);
+  }
+
+  /** A piece of another army's that a spot is on (a wall or floor to shoot down), or null. */
+  function enemyPiece(spot: WireSpot | null): Piece | null {
+    if (!spot || spot[1] <= 0.3) return null;
+    const piece = pieceAt(spot);
+    return piece && !myPids.has(ownerPid(piece.id)) && ownerPid(piece.id) !== game.myId() ? piece : null;
+  }
+
+  /** A piece outlined in dots for this frame (the wall or floor an order would shoot down). */
+  function outline(piece: Piece, color: readonly [number, number, number]): void {
+    const [x0, y0, z0, x1, y1, z1] = gridBox(piece);
+    const ax = x0 * CELL, az = z0 * CELL, bx = x1 * CELL, bz = z1 * CELL, low = y0 * LEVEL, high = Math.max(y1, y0 + 0.1) * LEVEL;
+    const run = (fx: number, fy: number, fz: number, tx: number, ty: number, tz: number) => {
+      const n = Math.max(2, Math.round(Math.hypot(tx - fx, ty - fy, tz - fz) / 0.6));
+      for (let i = 0; i <= n; i++) army.mark(fx + ((tx - fx) * i) / n, fy + ((ty - fy) * i) / n - 0.14, fz + ((tz - fz) * i) / n, 0.22, color);
+    };
+    // Its long edges, top and bottom, and its ends: along whichever way it runs.
+    const long = bx - ax >= bz - az;
+    const [p0, p1] = long ? [[ax, (az + bz) / 2], [bx, (az + bz) / 2]] : [[(ax + bx) / 2, az], [(ax + bx) / 2, bz]];
+    for (const y of [low + 0.05, high]) run(p0[0]!, y, p0[1]!, p1[0]!, y, p1[1]!);
+    for (const p of [p0, p1]) run(p[0]!, low, p[1]!, p[0]!, high, p[1]!);
   }
 
   /** The built piece a spot is on, if any. */
@@ -1087,7 +1110,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
           const p = pick();
           if (p?.k === "unit" && !mine(p.u.owner)) send({ m: "order", ids: [...selected], k: "attack", on: [1, p.u.id], q: shift() });
           else if (p?.k === "building" && !mine(p.b.o)) send({ m: "order", ids: [...selected], k: "attack", on: [2, p.b.i], q: shift() });
-          else order("amove", spot, shift());
+          else if (enemyPiece(spot)) {
+            send({ m: "order", ids: [...selected], k: "attack", on: [4, enemyPiece(spot)!.id], q: shift() });
+            mark(spot!, [1, 0.3, 0.25]);
+          } else order("amove", spot, shift());
         } else order(what, spot, shift());
         if (!shift()) setMode(null);
       } else setMode(null);

@@ -17,10 +17,10 @@ import { CELL } from "../../../game/constants";
 import { Solids } from "../../../game/solids";
 import type { PageGame } from "../../pageDoors";
 import { buildingBox, BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
-import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
+import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
 import { Many, place, rgbOf, turn } from "./many";
 import { buildingModel, crystalModel, headModel, MUZZLES, UNIT_HEADS, UNIT_MUZZLES, unitHeadModel, unitModel, ventModel } from "./models";
-import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, runFrame, TROOPER_MIDDLE, Troopers } from "./troopers";
+import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, strideFrame, strideOn, TROOPER_MIDDLE, Troopers } from "./troopers";
 
 /**
  * Draws Mojave's war: every unit and building the server has told this page
@@ -73,8 +73,12 @@ export interface SeenUnit {
   tumble: { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; spin: number; axis: number; hop: number } | null;
   /** When it was last hit (for its flash), and whether a blast did it (a Trooper flinches at a bullet, flies from a blast). */
   hitAt: number;
-  /** Whether the last word of it put it somewhere new: it is really on the move (a unit told to go somewhere may be standing to fire on the way). */
-  going: boolean;
+  /** How it is moving as drawn: where it was drawn last frame and when, how fast it has been going (m/s, smoothed), and how far through its stride (or its wheels' turn) that has taken it. */
+  px: number;
+  pz: number;
+  drawnAt: number;
+  speed: number;
+  stride: number;
   /** When it came into view (ms): it grows in from then. */
   seenAt: number;
   /** When it went out of view (ms), or 0: it shrinks away from then, and is forgotten. */
@@ -313,14 +317,11 @@ export class ArmyView {
       const a = gun > 0 ? ((gun - 1) / 255) * Math.PI * 2 : h;
       let unit = this.units.get(id);
       if (!unit) {
-        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, going: false, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0 };
+        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0, px: x, pz: z, drawnAt: now, speed: 0, stride: (id * 0.37) % 1 };
         this.units.set(id, unit);
       } else {
         unit.fa = unit.a;
         unit.ta = a;
-        // Drawn running only when it is covering ground (3 m/s or more): the nudges a soldier standing to fire gets from those round it,
-        // or from a wall it is kept off, are not running on the spot.
-        unit.going = Math.hypot(x - unit.tx, z - unit.tz) > 0.3;
         unit.fx = unit.x;
         unit.fy = unit.y;
         unit.fz = unit.z;
@@ -714,8 +715,19 @@ export class ArmyView {
         else roll = 1.2;
       }
     }
-    // On the move: told to be, and really covering ground (word of a moving unit comes five times a second).
-    const moving = (u.flags & F_MOVING) !== 0 && u.going && now - u.at < 450;
+    // How it is really moving, as drawn: its speed (smoothed over a few frames) and the ground covered, for its stride.
+    const dt = Math.min(0.1, Math.max(0, (now - u.drawnAt) / 1000));
+    u.drawnAt = now;
+    const moved = Math.hypot(u.x - u.px, u.z - u.pz);
+    u.px = u.x;
+    u.pz = u.z;
+    // (Thrown, or put somewhere far off at once: not walked.)
+    if (dt > 0 && moved < 6 && !u.tumble) {
+      u.speed += (moved / dt - u.speed) * Math.min(1, dt * 8);
+      u.stride += strideOn(moved, u.speed);
+    } else if (u.tumble) u.speed = 0;
+    // On the move: really covering ground (not nudged on the spot by those round it).
+    const moving = u.speed > 0.8;
     const c = rgbOf(this.colorOf(u.owner));
     // A flash of white when hit; cold and dim when stopped by an EMP.
     const flash = Math.max(0, 1 - (now - u.hitAt) / 160);
@@ -731,7 +743,7 @@ export class ArmyView {
         const back = 0.3 * Math.sin((Math.PI * (now - u.hitAt)) / 220);
         x -= Math.sin(u.h) * back;
         z -= Math.cos(u.h) * back;
-      } else if (moving) pose = runFrame(time, u.id);
+      } else if (moving) pose = strideFrame(u.stride, u.speed);
       else if (u.flags & F_FIRING) pose = POSE_AIM;
       this.troopers.add(pose, x, y, z, u.h, pitch, roll, r, g, b, grown);
     } else {

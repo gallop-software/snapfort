@@ -296,6 +296,9 @@ await aim(a, [dest[0], 0, dest[1]]);
 await click(a, "right");
 await wait(1500);
 poses = await drawn(a);
+// Their feet keep to the ground: a stride cycle for every 4.3 m or so a Trooper is drawn covering, at a Trooper's own speed.
+const gait = await sf(a, () => new Promise((res) => { const f = window.snapfort.feature; const t = [...f.army.units.values()].filter((u) => u.kind === "trooper" && u.speed > 4); const s0 = new Map(t.map((u) => [u.id, [u.stride, u.x, u.z]])); setTimeout(() => { let cycles = 0, metres = 0, speed = 0, n = 0; for (const u of t) { const b = s0.get(u.id); if (!b || u.speed < 4) continue; cycles += u.stride - b[0]; metres += Math.hypot(u.x - b[1], u.z - b[2]); speed += u.speed; n++; } res({ n, perCycle: cycles > 0 ? metres / cycles : 0, speed: n ? speed / n : 0 }); }, 800); }));
+check("their feet keep to the ground they cover: a stride cycle every 4 m or so, at their own speed (7 m/s), not on a clock", gait.n >= 3 && gait.perCycle > 3.6 && gait.perCycle < 5 && gait.speed > 5 && gait.speed < 9, JSON.stringify(gait));
 check("on the move they run, arms and legs swinging: spread over the frames of a stride", poses.run >= 10 && poses.stand <= 2 && await sf(a, () => window.snapfort.scene.meshes.filter((m) => /^mojave-trooper-run-\d+$/.test(m.name) && m.isEnabled() && m.thinInstanceCount > 0).length >= 3), JSON.stringify(poses));
 await a.screenshot({ path: "qa/shots/mojave-run.png" });
 await wait(7500);

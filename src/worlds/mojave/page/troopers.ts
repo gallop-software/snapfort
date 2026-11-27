@@ -10,6 +10,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { Avatar } from "../../../render/avatar";
 import type { Outfit, OutfitRig } from "../../pageDoors";
+import { UNITS } from "../kit";
 import { Many, place } from "./many";
 
 /**
@@ -25,20 +26,33 @@ import { Many, place } from "./many";
  * (render/standIns.ts). The uniform's marks take each army's colour.
  */
 
-/** Frames in the run cycle, and in the flail of a throw. */
-const RUN_FRAMES = 12;
+/** Frames in the run cycle, the walk cycle, and the flail of a throw. */
+const RUN_FRAMES = 16;
+const WALK_FRAMES = 12;
 const FLAIL_FRAMES = 6;
-/** The speed the run was posed at, m/s, and how long one stride cycle takes at it. */
-const RUN_SPEED = 11;
-const RUN_CYCLE = (Math.PI * 2) / (7 + (RUN_SPEED / 26) * 11);
+/** The speeds the run and the walk were posed at, m/s: a Trooper's own, and half of it. */
+const RUN_SPEED = UNITS.trooper.speed;
+const WALK_SPEED = RUN_SPEED / 2;
+/** How long one stride cycle takes at a speed (as a general's stride goes: render/avatar.ts), s. */
+const cycleAt = (speed: number) => (Math.PI * 2) / (7 + Math.min(1, speed / 26) * 11);
+/** How far one stride cycle carries a Trooper running, and walking, m: the feet keep to the ground they cover. */
+const RUN_STRIDE = RUN_SPEED * cycleAt(RUN_SPEED);
+const WALK_STRIDE = WALK_SPEED * cycleAt(WALK_SPEED);
+/** Faster than this, a Trooper runs; slower, walks, m/s. */
+const RUN_FROM = (RUN_SPEED + WALK_SPEED) / 2;
 /** Where the body's middle is above the feet: a thrown Trooper turns over about it. */
 export const TROOPER_MIDDLE = 0.95;
 
-export const POSE_STAND = 0, POSE_AIM = 1, POSE_FLINCH = 2, POSE_DOWN = 3, POSE_RUN = 4, POSE_FLAIL = POSE_RUN + RUN_FRAMES;
+export const POSE_STAND = 0, POSE_AIM = 1, POSE_FLINCH = 2, POSE_DOWN = 3, POSE_RUN = 4, POSE_WALK = POSE_RUN + RUN_FRAMES, POSE_FLAIL = POSE_WALK + WALK_FRAMES;
 const POSES = POSE_FLAIL + FLAIL_FRAMES;
 
-/** Which frame of the run a Trooper is in now (each a little out of step with the next). */
-export const runFrame = (seconds: number, id: number) => POSE_RUN + (Math.floor(((seconds / RUN_CYCLE) * 1.15 + id * 0.37) * RUN_FRAMES) % RUN_FRAMES);
+/** How far through a stride cycle (0..1, on and on) moving `metres` further takes a Trooper going at `speed`. */
+export const strideOn = (metres: number, speed: number) => metres / (speed >= RUN_FROM ? RUN_STRIDE : WALK_STRIDE);
+/** The frame of the run or the walk a Trooper `stride` cycles on is in: the one its feet are in for the ground it has covered. */
+export const strideFrame = (stride: number, speed: number) => {
+  const p = stride - Math.floor(stride);
+  return speed >= RUN_FROM ? POSE_RUN + (Math.floor(p * RUN_FRAMES) % RUN_FRAMES) : POSE_WALK + (Math.floor(p * WALK_FRAMES) % WALK_FRAMES);
+};
 /** Which frame of the flail, `seconds` into a throw. */
 export const flailFrame = (seconds: number, id: number) => POSE_FLAIL + ((Math.floor(seconds / 0.09) + id) % FLAIL_FRAMES);
 
@@ -159,15 +173,18 @@ export class Troopers {
     model.animate(0.016, 0, 0, 0, true, false, 1);
     model.root.position.set(0, 0, 0);
     bake("down");
-    // Running: the stride a builder has, a frame at a time (a few strides first, so it has settled).
+    // Running, then walking: the stride a builder has at a Trooper's speed, a frame at a time through one whole cycle (a
+    // few strides first, each time, so it has settled into it).
     model.animate(0.016, 0, 0, 0, true);
     origin();
-    const dt = RUN_CYCLE / RUN_FRAMES;
-    for (let i = 0; i < RUN_FRAMES * 5; i++) model.animate(dt, 0, 0, RUN_SPEED, true);
-    for (let i = 0; i < RUN_FRAMES; i++) {
-      model.animate(dt, 0, 0, RUN_SPEED, true);
-      origin();
-      bake(`run-${i}`);
+    for (const [name, speed, frames] of [["run", RUN_SPEED, RUN_FRAMES], ["walk", WALK_SPEED, WALK_FRAMES]] as const) {
+      const dt = cycleAt(speed) / frames;
+      for (let i = 0; i < frames * 5; i++) model.animate(dt, 0, 0, speed, true);
+      for (let i = 0; i < frames; i++) {
+        model.animate(dt, 0, 0, speed, true);
+        origin();
+        bake(`${name}-${i}`);
+      }
     }
     // Thrown: arms and legs flailing, about the middle of the body (the turning over is done as each is drawn).
     for (let i = 0; i < FLAIL_FRAMES; i++) {

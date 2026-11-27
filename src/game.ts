@@ -247,7 +247,9 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   /** The hotbar: the shared tools, then the world's own. A world's tool is not a piece: its feature does the aiming and placing. */
   const ownTools = page.tools ?? [];
   // (A world may do without the siege engine: its tile is then not on the row at all.)
-  const sharedTools = page.row?.siege === false ? SHARED_TOOLS.filter((t) => t !== "trebuchet") : SHARED_TOOLS;
+  // (And may build only some of the pieces: the others' tiles are not on the row either.)
+  const onlyPieces = page.row?.pieces;
+  const sharedTools = SHARED_TOOLS.filter((t) => !(t === "trebuchet" && page.row?.siege === false) && !(onlyPieces && t !== "remove" && t !== "trebuchet" && !onlyPieces.includes(t)));
   const TOOLS: readonly string[] = [...sharedTools, ...ownTools.map((t) => t.id)];
   const ownTool = (index: number) => ownTools[index - sharedTools.length];
   const keyOf = (tool: string) => TOOL_KEYS[tool as Tool] ?? ownTools.find((t) => t.id === tool)?.key ?? "";
@@ -909,7 +911,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
     // On a trebuchet the hands are busy: no building until getting off.
     if (crewOn || feature?.busy?.()) return;
     const fnTool = FUNCTION_KEYS[code];
-    if (fnTool) return toggleTool(TOOLS.indexOf(fnTool));
+    if (fnTool) return TOOLS.includes(fnTool) ? toggleTool(TOOLS.indexOf(fnTool)) : undefined;
     if (code.startsWith("Digit")) {
       const n = Number(code.slice(5));
       if (n >= 1 && n <= TOOLS.length) toggleTool(n - 1);

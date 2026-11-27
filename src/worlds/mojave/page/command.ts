@@ -72,7 +72,8 @@ const pendingText = (m: { what: Pending; from?: WireSpot }) => (m.what === "patr
  * menu open, one that means nothing there lets go of it and picks that piece,
  * so the way back to building is the key the builder already knows.
  */
-const PIECE_KEYS: Record<string, "wall" | "floor" | "ramp" | "roof"> = { KeyZ: "wall", KeyF: "floor", KeyX: "ramp", KeyC: "roof", F1: "wall", F2: "floor", F3: "ramp", F4: "roof" };
+/** The pieces' keys: walls only here (F, X and C, the other pieces' keys elsewhere, are orders or nothing). */
+const PIECE_KEYS: Record<string, "wall"> = { KeyZ: "wall", F1: "wall" };
 /** A report is as faint as it gets after this long, ms (it is never dropped for its age: only when the spot is seen again). */
 const REPORT_FADES_MS = 5 * 60_000;
 const ORDER_KEYS: [string, string, Pending | "stop" | "hold" | "return", string][] = [
@@ -851,7 +852,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (code === "KeyI") return act("idle"), true;
     const piece = PIECE_KEYS[code];
     /** Lets go of every menu, order and selection, and picks the piece: building again, its preview showing. */
-    const toPieces = (tool: "wall" | "floor" | "ramp" | "roof") => {
+    const toPieces = (tool: "wall") => {
       setMode(null);
       deselect();
       game.hold(tool);

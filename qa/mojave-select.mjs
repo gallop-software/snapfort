@@ -123,7 +123,7 @@ say("then Z", v);
 check("0. …and Z lets go of it and has the Wall back in hand, its preview showing (not put away)", v.selB === 0 && v.pieceGhost && /Z:Wall\*/.test(v.row), v.row);
 
 // ── 1. Core selected, the piece keys ──
-for (const [k, name] of [["z", "Wall"], ["f", "Floor"], ["x", "Ramp"], ["c", "Canopy"], ["F1", "Wall"], ["F3", "Ramp"]]) {
+for (const [k, name] of [["z", "Wall"], ["F1", "Wall"]]) {
   const before = await selectCore(`1: Core selected, then ${name}'s key (${k})`);
   await aim(a, ground);
   await a.keyboard.press(k);
@@ -133,6 +133,22 @@ for (const [k, name] of [["z", "Wall"], ["f", "Floor"], ["x", "Ramp"], ["c", "Ca
   check(`1. Core selected, ${k}: lets go of the Core and picks the ${name}, its preview showing`, v.pieceGhost && v.selB === 0 && new RegExp(`:${name}\\*`).test(v.row), `ghost ${v.pieceGhost}, sel ${v.selB}, row ${v.row}`);
   if (v.q !== before.q) check(`1. …and ${k} does not touch the Core's queue`, false, `${before.q} → ${v.q}`);
 }
+
+// Walls only: F, X and C (the other pieces' keys elsewhere) pick nothing, and the Core stays selected.
+for (const k of ["f", "x", "c"]) {
+  await selectCore(`1: Core selected, then ${k} (no such piece here)`);
+  await a.keyboard.press(k);
+  await frames(a, 4);
+  const v = await look(a);
+  check(`1. Core selected, ${k}: no piece of that kind here, the Core stays selected`, v.selB === 1 && !v.pieceGhost, JSON.stringify(v));
+}
+await sf(a, () => window.snapfort.feature.run("desel"));
+await frames(a, 4);
+// (With the Wall in hand, for what follows.)
+if (!/Z:Wall\*/.test((await look(a)).row)) await a.keyboard.press("z");
+await frames(a, 4);
+v = await look(a);
+check("1. the row has the Wall and no other piece", /Z:Wall\*/.test(v.row) && !/Floor|Ramp|Canopy/.test(v.row), v.row);
 
 // ── 2. Core selected, the wheel ──
 const held2 = await sf(a, () => document.querySelector("#hotbar .slot:not(.menu).selected .label")?.firstChild?.textContent ?? null);
@@ -218,7 +234,7 @@ await a.keyboard.press("c");
 await frames(a, 4);
 v = await look(a);
 say("C (no Haulers: not an order)", v);
-check("4c. with only Troopers selected, C (Return cargo, a Hauler's order) picks the Canopy", v.selU === 0 && v.pieceGhost && /C:Canopy\*/.test(v.row), v.row);
+check("4c. with only Troopers selected, C (Return cargo, a Hauler's order) does nothing: no Canopy here, the Troopers stay selected", v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
 await a.keyboard.press("Backquote");
 await a.keyboard.press("z");
 await frames(a, 4);
@@ -277,11 +293,11 @@ await frames(a, 3);
 v = await look(a);
 say("B while placing", v);
 check("8. B while placing a building opens Command, as B does everywhere, the Core still selected", v.mode === "menu:cmd" && v.selB === 1, JSON.stringify(v));
-await a.keyboard.press("x");
+await a.keyboard.press("z");
 await frames(a, 4);
 v = await look(a);
-say("then X", v);
-check("8. …and X from Command picks the Ramp, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /X:Ramp\*/.test(v.row), JSON.stringify(v));
+say("then Z", v);
+check("8. …and Z from Command picks the Wall, letting go of all of it", v.mode === null && v.selB === 0 && v.pieceGhost && /Z:Wall\*/.test(v.row), JSON.stringify(v));
 
 // ── 9. A building planned over a general: red, and the line says why ──
 console.log("\n── 9: a Foundry planned over a general");

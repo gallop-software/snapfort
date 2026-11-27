@@ -199,8 +199,10 @@ export const PIECE_COST = 8;
 export const FLIGHT_HEIGHT = 14;
 /** The EMP: how wide, how long it stops things, and how long until the drone can pulse again. */
 export const EMP = { radius: 12, stun: 6, cooldown: 30, range: 40 } as const;
-/** A general thrown by a hit cannot be thrown again for this long after getting up. */
-export const GENERAL_IMMUNE = 5;
+/** A general thrown by a hit cannot be thrown again for this long after getting up: long enough to get going, not to build. */
+export const GENERAL_IMMUNE = 2;
+/** How far a hit throws a general, m: away from whatever hit them, well out of the fight. */
+export const GENERAL_THROWN = 40;
 /** How far a general sees on foot; standing higher adds this much for every metre, up to three times as far. */
 export const GENERAL_SIGHT = 120;
 export const SIGHT_PER_METRE = 2.4;

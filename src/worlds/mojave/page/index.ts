@@ -20,7 +20,8 @@ export const page: WorldPage = {
   emptyHanded: true,
   // No siege engine here (armies do the breaking) and one material: in the engine's place on the row is Command,
   // which opens the general's own menu in the same boxes.
-  row: { siege: false, material: "brick" },
+  // Walls only: no floors, ramps or canopies (a wall is all that shelters from fire here).
+  row: { siege: false, material: "brick", pieces: ["wall"] },
   tools: [{ id: "command", label: "Command", key: "B", icon: ICONS.command!, press: true }],
   // (And is told how a general plays by Mojave's own first notes, not to try placing walls.)
   ownTips: true,
@@ -43,7 +44,7 @@ export const page: WorldPage = {
       ["Backspace", "Up one level: placing → its buildings → (advanced → basic) → Command → what is selected → nothing"],
     ],
     touch: ["Select and Order act on what the crosshair is on", "Army picks every fighting unit · Build opens the build menu", "Tap the tiles along the top to give orders"],
-    note: "Mojave has eight colours. You choose one: a colour nobody serves begins a new army of your own, and one with generals you command with them. An army nobody serves for a minute disappears, everything of it: come back later and you begin again. Mine lithium with Haulers, build an army, and command it. Buildings stand the moment they are paid for; units take a little time, shown over the row. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which. A piece's key (Z, F, X, C) that means nothing there lets go and builds that piece, and a click with a piece in hand builds where its preview is green.",
+    note: "Mojave has eight colours. You choose one: a colour nobody serves begins a new army of your own, and one with generals you command with them. An army nobody serves for a minute disappears, everything of it: come back later and you begin again. Mine lithium with Haulers, build an army, and command it. Buildings stand the moment they are paid for; units take a little time, shown over the row. With nothing selected the keys build, as everywhere; with units selected they are orders; with a building selected they are what it makes. The row shows which. Walls are the only pieces: no shot gets through another army's wall (shells and drones included), so an enemy has to break it down first, and nobody jumps over one. Every gun goes for an enemy general first, and a hit throws you some 40 m away from it: command from the back. Z, when it means nothing else, lets go and picks the Wall; a click with it in hand builds where its preview is green.",
   },
   // The war: armies, the dark, the map, and commanding from the ground.
   start(game) {

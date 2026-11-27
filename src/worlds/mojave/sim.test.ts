@@ -14,11 +14,13 @@ function fakeHost() {
   const host = {
     at,
     thrown: [] as string[],
+    /** Where each throw came from (a gun, or a blast's middle). */
+    from: [] as Vec[],
     worn: [] as [string, number][],
     removed: [] as string[],
     positionOf: (pid: string) => at.get(pid) ?? null,
     isDown: () => false,
-    throwBuilder: (pid: string) => void host.thrown.push(pid),
+    throwBuilder: (pid: string, from: Vec) => void (host.thrown.push(pid), host.from.push(from)),
     wear: (_p: Vec, hits: [string, number][]) => void host.worn.push(...hits),
     removePieces: (ids: string[]) => void host.removed.push(...ids),
   };
@@ -637,33 +639,70 @@ describe("fighting", () => {
     expect(tank.id).toBeGreaterThan(0);
   });
 
-  it("a wall shelters from a straight shot; an attack-move breaks through it; artillery lobs over it", () => {
-    const { sim, a, b, run, piece, host } = twoSides();
+  it("no shot gets through another army's wall, shells and drones included: the wall is shot down first, and shelters from blasts", () => {
+    const { sim, a, b, run, piece, host, build } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
     // A closed square of walls, 3 cells a side, round a Hauler.
+    const walls: Piece[] = [];
     for (let i = 0; i < 3; i++) {
-      piece("pb", "wall", cx + i, 0, cz, 0);
-      piece("pb", "wall", cx + i, 0, cz + 3, 0);
-      piece("pb", "wall", cx, 0, cz + i, 1);
-      piece("pb", "wall", cx + 3, 0, cz + i, 1);
+      walls.push(piece("pb", "wall", cx + i, 0, cz, 0), piece("pb", "wall", cx + i, 0, cz + 3, 0));
+      walls.push(piece("pb", "wall", cx, 0, cz + i, 1), piece("pb", "wall", cx + 3, 0, cz + i, 1));
     }
     const inside = sim.addUnit("hauler", b.slot, (cx + 1.5) * CELL, (cz + 1.5) * CELL);
+    const full = inside.hp;
+    const shotAtWall = () => host.worn.length > 0 && host.worn.every(([id]) => id.startsWith("pb-")) && inside.hp === full;
+    // A Trooper holding outside, in range: it shoots the wall, never the Hauler.
     const trooper = sim.addUnit("trooper", a.slot, (cx + 1.5) * CELL, (cz - 3) * CELL);
     sim.command(a.slot, [trooper.id], { k: "hold" });
     run(5);
-    expect(inside.dead).toBe(false);
-    expect(host.worn).toHaveLength(0);
-    // Told to attack what is inside, it shoots its way in: the wall is worn.
-    sim.command(a.slot, [trooper.id], { k: "amove", x: (cx + 1.5) * CELL, z: (cz + 1.5) * CELL, l: 0 });
-    run(6);
-    expect(host.worn.length).toBeGreaterThan(0);
-    expect(host.worn.every(([id]) => id.startsWith("pb-"))).toBe(true);
-    // Artillery, set up out of sight behind the wall, lands a shell inside.
+    expect(shotAtWall()).toBe(true);
     sim.kill(trooper, false);
+    // Artillery lands its shells on the wall, not inside.
+    host.worn.length = 0;
     const gun = sim.addUnit("artillery", a.slot, (cx + 1.5) * CELL, (cz - 9) * CELL);
     sim.command(a.slot, [gun.id], { k: "attack", tk: T_UNIT, id: inside.id });
-    run(12);
+    run(14);
+    expect(shotAtWall()).toBe(true);
+    sim.kill(gun, false);
+    // A gunship, overhead, shoots the wall too.
+    host.worn.length = 0;
+    const drone = sim.addUnit("gunship", a.slot, (cx + 1.5) * CELL, (cz - 4) * CELL);
+    sim.command(a.slot, [drone.id], { k: "attack", tk: T_UNIT, id: inside.id });
+    run(4);
+    expect(shotAtWall()).toBe(true);
+    sim.kill(drone, false);
+    // A sentry turret cannot wear a wall: it does not shoot at all.
+    host.worn.length = 0;
+    sim.addBuilding("sentry", a.slot, cx + 1, cz - 4, true);
+    run(4);
+    expect(host.worn).toHaveLength(0);
+    expect(inside.hp).toBe(full);
+    // A Tank's shell bursting on the wall does not reach a Hauler just behind it.
+    const close = sim.addUnit("hauler", b.slot, (cx + 1.5) * CELL, cz * CELL + 1.2);
+    const tank = sim.addUnit("tank", a.slot, (cx + 1.5) * CELL, (cz - 5) * CELL);
+    sim.command(a.slot, [tank.id], { k: "attack", tk: T_UNIT, id: close.id });
+    run(6);
+    expect(close.hp).toBe(UNITS.hauler.hp);
+    expect(host.worn.some(([id]) => walls.some((w) => w.id === id))).toBe(true);
+    sim.kill(tank, false);
+    // The walls gone, artillery finds the Hauler.
+    for (const w of walls) build.apply({ kind: "remove", id: w.id });
+    const gun2 = sim.addUnit("artillery", a.slot, (cx + 1.5) * CELL, (cz - 9) * CELL);
+    sim.command(a.slot, [gun2.id], { k: "attack", tk: T_UNIT, id: inside.id });
+    run(14);
     expect(inside.dead).toBe(true);
+  });
+
+  it("an army shoots out over its own walls", () => {
+    const { sim, a, b, run, piece } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    for (let i = -2; i <= 2; i++) piece("pb", "wall", cx + i, 0, cz, 0);
+    const keeper = sim.addUnit("trooper", b.slot, (cx + 0.5) * CELL, (cz + 1.5) * CELL);
+    sim.command(b.slot, [keeper.id], { k: "hold" });
+    const comer = sim.addUnit("hauler", a.slot, (cx + 0.5) * CELL, (cz - 3) * CELL);
+    run(15);
+    expect(comer.dead).toBe(true);
+    expect(keeper.hp).toBe(UNITS.trooper.hp);
   });
 
   it("a laser shoots a shell out of the sky; an EMP stops what it hits", () => {
@@ -698,15 +737,51 @@ describe("fighting", () => {
     expect(sim.cannotBuild(b.slot, "core", 40, 40)).toBe("");
   });
 
-  it("generals are thrown by blasts, never anything worse, and not twice in a row", () => {
+  it("every gun goes for an enemy general first: thrown away from it, never anything worse, and not again until a moment after getting up", () => {
     const { sim, a, b, run, host } = twoSides();
     host.at.set("pb", [OPEN[0], 0.9, OPEN[1] + 30]);
     const tank = sim.addUnit("tank", a.slot, OPEN[0], OPEN[1]);
-    sim.addUnit("hauler", b.slot, OPEN[0] + 1, OPEN[1] + 30);
+    // A Hauler nearer the Tank than the general is: the general is still the one shot at.
+    const hauler = sim.addUnit("hauler", b.slot, OPEN[0] + 1, OPEN[1] + 12);
     sim.command(a.slot, [tank.id], { k: "hold" });
-    run(8);
+    run(1);
     expect(host.thrown).toEqual(["pb"]);
+    expect(hauler.hp).toBe(UNITS.hauler.hp);
+    // Thrown from the Tank's side: away from it.
+    expect(Math.hypot(host.from[0]![0] - tank.x, host.from[0]![2] - tank.z)).toBeLessThan(3);
     expect(sim.generals[b.slot]).not.toBeNull();
+    // In the air and just up (six seconds in all), not thrown again: the Tank shoots the Hauler meanwhile.
+    run(3);
+    expect(host.thrown).toEqual(["pb"]);
+    expect(hauler.hp).toBeLessThan(UNITS.hauler.hp);
+    run(4);
+    expect(host.thrown).toEqual(["pb", "pb"]);
+  });
+
+  it("a turret drops what it is shooting at for a general; nobody's sentries let generals be", () => {
+    const { sim, a, b, run, host } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    const turret = sim.addBuilding("sentry", a.slot, cx, cz, true);
+    const c = sim.centreOf(turret);
+    const trooper = sim.addUnit("trooper", b.slot, c[0] + 20, c[2]);
+    sim.command(b.slot, [trooper.id], { k: "hold" });
+    host.at.set("pb", [c[0] - 300, 0.9, c[2]]);
+    run(1);
+    expect(trooper.hp).toBeLessThan(UNITS.trooper.hp);
+    // The general walks up: the turret turns on them.
+    host.at.set("pb", [c[0], 0.9, c[2] - 25]);
+    run(1.5);
+    expect(host.thrown).toEqual(["pb"]);
+    // A sentry post of nobody's: never at a general.
+    host.thrown.length = 0;
+    const post = sim.addBuilding("sentry", NEUTRAL, cx + 60, cz, true);
+    const pc = sim.centreOf(post);
+    host.at.set("pb", [pc[0] + 15, 0.9, pc[2]]);
+    host.at.set("pa", [pc[0] - 15, 0.9, pc[2]]);
+    sim.kill(trooper, false);
+    (sim as unknown as { raze(b: typeof turret, left: boolean): void }).raze(turret, false);
+    run(10);
+    expect(host.thrown).toEqual([]);
   });
 });
 
@@ -720,6 +795,8 @@ describe("pieces", () => {
     expect(sim.priceOf(wall)).toBe(sim.priceOf({ ...wall, material: "wood" }));
     g.lithium = 10_000;
     expect(sim.mayPlace("p1", { ...wall, id: "p1-t", type: "trebuchet" })).toBe(false);
+    // Walls only: no floors, ramps or canopies.
+    for (const type of ["floor", "ramp", "roof"] as const) expect(sim.mayPlace("p1", { ...wall, id: `p1-${type}`, type })).toBe(false);
     g.pending = 0;
     g.lithium = PIECE_COST * 2 - 1;
     expect(sim.mayPlace("p1", wall)).toBe(true);

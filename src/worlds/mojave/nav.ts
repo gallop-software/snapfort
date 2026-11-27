@@ -97,6 +97,8 @@ export class Nav {
   wallL = 0;
   wallRot: 0 | 1 = 0;
   wallOwner = NO_OWNER;
+  /** After a `clearLine` that a wall stopped: that wall (cell, storey, rotation, as the build knows it); null when it was something else, or nothing. */
+  lineWall: { x: number; z: number; l: number; rot: 0 | 1; owner: number } | null = null;
   /** After `next`: the cell to go to. */
   nextX = 0;
   nextZ = 0;
@@ -264,8 +266,15 @@ export class Nav {
     return OPEN_WAY;
   }
 
-  /** True when nothing stands on any edge a straight line from one spot to another crosses, on that storey (a line of fire). */
-  clearLine(x0: number, z0: number, x1: number, z1: number, l: number, slack = 0): boolean {
+  /**
+   * True when nothing stands on any edge a straight line from one spot to
+   * another crosses, on that storey (a line of fire). The walls of `pass` (an
+   * army's slot) are let through: an army shoots out over its own walls. With
+   * `wallsOnly`, buildings and roofs do not stop it (a shell in an arc, a
+   * drone): only walls do. A wall that stops it is noted in `lineWall`.
+   */
+  clearLine(x0: number, z0: number, x1: number, z1: number, l: number, slack = 0, pass = -1, wallsOnly = false): boolean {
+    this.lineWall = null;
     const s = l === 0 ? this.ground : this.storeys.get(l);
     if (!s) return true;
     let cx = Math.floor(x0 / CELL), cz = Math.floor(z0 / CELL);
@@ -280,16 +289,25 @@ export class Nav {
       if (tx < tz) {
         // Crossing an x line: the wall on the low-x edge of whichever cell is further along x.
         const wx = sx > 0 ? cx + 1 : cx;
-        if (inside(wx, cz) && s.wz[idx(wx, cz)]) return false;
+        const v = inside(wx, cz) ? s.wz[idx(wx, cz)]! : 0;
+        if (v && v >> 2 !== pass) {
+          this.lineWall = { x: wx, z: cz, l, rot: 1, owner: v >> 2 };
+          return false;
+        }
         cx += sx;
         tx += tdx;
       } else {
         const wz = sz > 0 ? cz + 1 : cz;
-        if (inside(cx, wz) && s.wx[idx(cx, wz)]) return false;
+        const v = inside(cx, wz) ? s.wx[idx(cx, wz)]! : 0;
+        if (v && v >> 2 !== pass) {
+          this.lineWall = { x: cx, z: wz, l, rot: 0, owner: v >> 2 };
+          return false;
+        }
         cz += sz;
         tz += tdz;
       }
       if (!inside(cx, cz)) return true;
+      if (wallsOnly) continue;
       if (s.flags[idx(cx, cz)]! & SOLID) return false;
       // A building in the way (on the ground: they stand there) stops it, unless it is the one aimed at: within `slack` of the end.
       if (l === 0 && s.flags[idx(cx, cz)]! & TALL && Math.hypot((cx + 0.5) * CELL - x1, (cz + 0.5) * CELL - z1) > slack + CELL * 0.71) return false;

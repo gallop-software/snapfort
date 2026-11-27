@@ -38,7 +38,8 @@ export const world: Environment = {
   halfCells: HALF_CELLS,
 
   gravity: 26,
-  jumpHeight: 4.2,
+  // A hop, well short of a wall (a storey, 3.75 m): nobody jumps over one here, or onto it.
+  jumpHeight: 1.2,
   stoneGravity: 9.81,
   flightTime: 1,
   range: 1,
@@ -47,10 +48,11 @@ export const world: Environment = {
   rubbleGravity: 9.81,
 
   materials: {
-    // One material, in all three slots: built to any height, four hits.
-    wood: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 4 },
-    brick: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 4 },
-    metal: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 4 },
+    // One material, in all three slots: built to any height. Sixteen hits: a wall is all that stops fire here, and it
+    // stands a long while (a Tank alone takes over two minutes, an Artillery piece most of a minute and a half).
+    wood: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 16 },
+    brick: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 16 },
+    metal: { label: "Printcrete", color: [0.82, 0.78, 0.7], maxLevel: Infinity, hits: 16 },
   },
 
   // (Never built here: see above.)

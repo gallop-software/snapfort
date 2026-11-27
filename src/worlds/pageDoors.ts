@@ -40,9 +40,10 @@ export interface WorldPage {
    * What of the shared row this world does without. `siege: false`: no siege
    * engine tile (nobody builds one here). `material`: the one material every
    * piece here is made of (no badge, no key to change it; the badge's place
-   * is free for `PageGame.badge`).
+   * is free for `PageGame.badge`). `pieces`: the only pieces built here (the
+   * others have no tile and no key).
    */
-  row?: { siege?: false; material?: MaterialId };
+  row?: { siege?: false; material?: MaterialId; pieces?: readonly ("wall" | "floor" | "ramp" | "roof")[] };
   /** True when this world tells a new player how it is played itself: the first-game tips every world shares (place a wall, try another piece) are not shown here. */
   ownTips?: boolean;
   /** True when a builder here starts with no piece picked (a click builds nothing until they pick one). */

@@ -1,9 +1,8 @@
 import { CELL, LEVEL } from "../../game/constants";
 import { planFall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
-import { throwVelocity, type Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
-import { BUILDING_KINDS, BUILDINGS, LEAVE_GRACE, MAX_UNITS, ROUTED_WAIT, UNIT_KINDS, UNITS, UPGRADES, type BuildingKind, type UnitKind } from "./kit";
+import { BUILDING_KINDS, BUILDINGS, GENERAL_THROWN, LEAVE_GRACE, MAX_UNITS, ROUTED_WAIT, UNIT_KINDS, UNITS, UPGRADES, type BuildingKind, type UnitKind } from "./kit";
 import { mid, STARTS } from "./map";
 import { ARMY_COLOR_NAMES, ARMY_COLORS, DT, NEUTRAL, emptyHappened, Sim, T_BUILDING, T_GENERAL, T_PIECE, T_UNIT, type Building, type General, type Order, type TargetKind, type Unit } from "./sim";
 import { F_DEPLOYED, F_DIGGING, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, LOOKS, type ToPage, type ToServer, type WireBuilding } from "./wire";
@@ -88,10 +87,20 @@ export function openWar(room: Room): War {
     throwBuilder: (pid, from) => {
       const at = room.positionOf(pid);
       if (!at) return;
-      // Thrown as by a stone landing there; from further off than a stone throws, a smaller toss the same way.
-      const flat = Math.hypot(at[0] - from[0], at[2] - from[2]) || 1;
-      const v: Vec = throwVelocity(from, at, room.env) ?? [((at[0] - from[0]) / flat) * 9, 16, ((at[2] - from[2]) / flat) * 9];
-      room.fly(pid, planFall(room.build, at, v, room.env));
+      // Thrown away from whatever hit them (a gun, or a blast), GENERAL_THROWN metres and high: out of the fight, so
+      // nobody builds guns in the middle of someone's base. (Right on top of it: any way at all.)
+      let dx = at[0] - from[0], dz = at[2] - from[2];
+      const flat = Math.hypot(dx, dz);
+      if (flat < 0.3) {
+        const a = Math.random() * Math.PI * 2;
+        dx = Math.sin(a);
+        dz = Math.cos(a);
+      } else {
+        dx /= flat;
+        dz /= flat;
+      }
+      const up = 22, out = GENERAL_THROWN / ((2 * up) / room.env.gravity);
+      room.fly(pid, planFall(room.build, at, [dx * out, up, dz * out], room.env));
     },
     wear: (point, hits, by) => room.wear?.(point, hits, by),
     removePieces: (ids, by) => room.remove?.(ids, by),

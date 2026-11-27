@@ -101,7 +101,7 @@ const [coreX, coreZ] = centreOf(core, 3);
 check("they stand by their Core, at one of the eight starts", Math.hypot(wa.pos[0] - coreX, wa.pos[2] - coreZ) < 40 && Math.hypot(coreX, coreZ) > 300, wa.pos.map(Math.round).join(","));
 check("nothing is picked to build with at first (pieces cost lithium here)", await sf(a, () => !document.querySelector("#hotbar .selected")));
 tiles = await row(a);
-check("the row: the four pieces, Remove, and Command where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Floor,Ramp,Canopy,Remove,Command" && keysOf(tiles).Command === "B", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("the row: the Wall (the only piece here), Remove, and Command where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Remove,Command" && keysOf(tiles).Command === "B", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 check("the bank is beside the row, where the material is elsewhere; there is no material to choose", await sf(a, () => { const m = document.getElementById("material"); const r = m.getBoundingClientRect(), h = document.getElementById("hotbar").getBoundingClientRect(); return /Lithium/.test(m.textContent) && /Supply/.test(m.textContent) && !m.querySelector(".swatch") && r.left >= h.right && r.width > 0 && Math.abs(r.bottom - h.bottom) < 30; }));
 check("there is no command card, and the map is on screen", await sf(a, () => !document.getElementById("mj-card") && document.getElementById("mj-map").getBoundingClientRect().width > 100));
 const before = wa.l;
@@ -491,6 +491,18 @@ await until(b, (l) => window.snapfort.feature.bank.l <= l - 8 ? true : null, ban
 check("a wall costs its builder 8 lithium", !!placedId && (await war(b)).l <= bankB - 8, `${bankB} → ${(await war(b)).l}`);
 check("T changes no material: there is one", await (async () => { await b.keyboard.press("t"); await frames(b, 3); return sf(b, () => !document.querySelector("#material .swatch") && /Lithium/.test(document.getElementById("material").textContent)); })());
 await until(a, (id) => !!window.snapfort.state.get(id), placedId);
+await sf(a, ([x, z]) => window.snapfort.player.teleport(x * 5 + 2.5, 0.95, z * 5 - 4), wallAt);
+await frames(a, 5);
+// Walking into it and jumping, again and again: nobody gets over a wall here.
+await sf(a, () => { window.snapfort.rig.yaw = 0; window.snapfort.rig.pitch = 0; });
+await a.keyboard.down("w");
+for (let i = 0; i < 8; i++) { await a.keyboard.press("Space"); await wait(300); }
+await a.keyboard.up("w");
+const overZ = await sf(a, () => window.snapfort.player.position.z);
+check("walking into a wall and jumping, a general stays on their side of it", overZ < wallAt[1] * 5, `${overZ.toFixed(2)} vs the wall at ${wallAt[1] * 5}`);
+const floorId = await sf(b, ([x, z]) => { const s = window.snapfort; const id = s.nextId(); s.history.do({ kind: "place", piece: { type: "floor", x: x + 2, y: 0, z: z + 2, rot: 0, id, material: "brick", edit: 0 } }); return id; }, wallAt);
+await wait(900);
+check("walls only: the world refuses a floor", await sf(a, (id) => !window.snapfort.state.get(id), floorId) && await sf(b, (id) => !window.snapfort.state.get(id), floorId));
 await sf(a, ([x, z]) => window.snapfort.player.teleport(x * 5 + 2.5, 0.95, z * 5 - 4), wallAt);
 await frames(a, 5);
 await sf(a, (id) => window.snapfort.removePiece(id), placedId);

@@ -41,6 +41,7 @@
     "qa:keepout": "node qa/keepout.mjs",
     "qa:seats": "node qa/seats-page.mjs",
     "qa:smoke": "node qa/smoke.mjs",
+    "qa:firefox": "node qa/firefox.mjs",
     "qa:solid": "node qa/solid.mjs"
   },
   "dependencies": {

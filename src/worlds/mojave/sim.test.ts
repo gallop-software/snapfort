@@ -529,14 +529,64 @@ describe("each soldier thinks for itself", () => {
     expect(hits.size).toBeGreaterThan(12);
   });
 
-  it("a plain move goes past enemies without a shot", () => {
+  it("a plain move shoots on the move at what it passes, and never stops or turns aside for it", () => {
     const { sim, a, b, run } = twoSides();
     const red = squad(sim, a.slot, 6, OPEN[0], OPEN[1]);
-    squad(sim, b.slot, 4, OPEN[0] + 30, OPEN[1] + 20);
+    squad(sim, b.slot, 4, OPEN[0] + 18, OPEN[1] + 20);
     for (const u of [...sim.units]) if (u.owner === b.slot) sim.command(b.slot, [u.id], { k: "hold" });
     sim.command(a.slot, red.map((u) => u.id), { k: "move", x: OPEN[0], z: OPEN[1] + 45, l: 0 });
-    const { shooters } = watchShots(sim, run)(5);
-    expect(red.some((u) => shooters.has(u.id))).toBe(false);
+    // Shots fired while still on the move (not once there and standing).
+    const firedMoving = new Set<number>();
+    watchShots(sim, (s) => {
+      const moving = new Set(red.filter((u) => u.order.k === "move").map((u) => u.id));
+      run(s);
+      for (const shot of sim.happened.shots) if (shot.by && moving.has(shot.by)) firedMoving.add(shot.by);
+    })(9);
+    expect(firedMoving.size).toBeGreaterThanOrEqual(3);
+    // All the way there, every one still alive, nobody gone off after the enemy.
+    for (const u of red.filter((u) => !u.dead)) expect(Math.hypot(u.x - OPEN[0], u.z - OPEN[1] - 45)).toBeLessThan(14);
+  });
+
+  it("an attack-move on a sprawling base: nobody stands by, everything it sees is fought (and what shoots at it unseen is found), then on to the spot", () => {
+    const { sim, a, b, run } = twoSides();
+    const X = OPEN[0], Z = OPEN[1], DZ = 120;
+    const red: Unit[] = [];
+    for (let i = 0; i < 16; i++) red.push(sim.addUnit("trooper", a.slot, X + (i % 8) * 2.2, Z + Math.floor(i / 8) * 2.2));
+    for (let i = 0; i < 6; i++) red.push(sim.addUnit("tank", a.slot, X + i * 5, Z - 8));
+    for (let i = 0; i < 2; i++) red.push(sim.addUnit("artillery", a.slot, X + i * 6, Z - 16));
+    // Its buildings from 30 to 100 m past the spot the attack is sent to, Troopers at 70 m, artillery at the back.
+    const cx = Math.floor(X / CELL), cz = Math.floor((Z + DZ) / CELL);
+    const base = [sim.addBuilding("foundry", b.slot, cx + 1, cz + 8, true), sim.addBuilding("armory", b.slot, cx - 8, cz + 14, true), sim.addBuilding("relay", b.slot, cx + 8, cz + 18, true), sim.addBuilding("foundry", b.slot, cx - 2, cz + 20, true)];
+    const blue = Array.from({ length: 6 }, (_, i) => sim.addUnit("trooper", b.slot, X - 20 + i * 8, Z + DZ + 70));
+    const art = sim.addUnit("artillery", b.slot, X, Z + DZ + 95);
+    sim.command(b.slot, [art.id], { k: "hold" });
+    sim.command(a.slot, red.map((u) => u.id), { k: "amove", x: X + 5, z: Z + DZ, l: 0 });
+    let idleWhileFighting = 0;
+    const { shooters } = watchShots(sim, (s) => {
+      run(s);
+      // (While any of it is left, an attacker standing about with nothing to do is one too many: allow a straggler or two.)
+      if (base.some((x) => !x.dead) || blue.some((u) => !u.dead) || !art.dead) idleWhileFighting = Math.max(idleWhileFighting, red.filter((u) => !u.dead && u.order.k === "stop" && !u.tk).length);
+    })(70);
+    expect(base.every((x) => x.dead)).toBe(true);
+    expect(blue.every((u) => u.dead)).toBe(true);
+    expect(art.dead).toBe(true);
+    expect(red.filter((u) => shooters.has(u.id)).length).toBeGreaterThanOrEqual(20);
+    expect(idleWhileFighting).toBeLessThanOrEqual(3);
+    expect(red.filter((u) => !u.dead).length).toBeGreaterThanOrEqual(18);
+    run(30);
+    // The spot reached in the end.
+    for (const u of red.filter((u) => !u.dead)) expect(Math.hypot(u.x - X - 5, u.z - Z - DZ)).toBeLessThan(30);
+  });
+
+  it("one with nothing to shoot joins in what its neighbour is fighting", () => {
+    const { sim, a, b, run } = twoSides();
+    // Two Troopers standing side by side, an enemy turret in sight of one only: both fight it.
+    const near = sim.addUnit("trooper", a.slot, OPEN[0], OPEN[1]);
+    const other = sim.addUnit("trooper", a.slot, OPEN[0] - 22, OPEN[1] - 10);
+    const post = sim.addBuilding("relay", b.slot, Math.floor(OPEN[0] / CELL), Math.floor((OPEN[1] + 30) / CELL), true);
+    const { shooters } = watchShots(sim, run)(12);
+    expect(shooters.has(near.id) && shooters.has(other.id)).toBe(true);
+    expect(post.hp).toBeLessThan(BUILDINGS.relay.hp);
   });
 
   it("standing soldiers go after an enemy they see, fight, and come back to where they stood; held ones never move", () => {
@@ -657,7 +707,7 @@ describe("fighting", () => {
     expect(sim.happened.gone.filter((g) => g.unit && !g.left).length).toBeGreaterThanOrEqual(3);
   });
 
-  it("a plain move ignores the enemy; an attack-move stops to fight", () => {
+  it("a plain move goes on past the enemy, shooting as it goes; an attack-move stops to fight", () => {
     const { sim, a, run } = twoSides();
     const mover = sim.addUnit("tank", a.slot, OPEN[0], OPEN[1]);
     const fighter = sim.addUnit("tank", a.slot, OPEN[0] + 60, OPEN[1]);
@@ -666,7 +716,7 @@ describe("fighting", () => {
     sim.command(a.slot, [mover.id], { k: "move", x: OPEN[0], z: OPEN[1] + 90, l: 0 });
     sim.command(a.slot, [fighter.id], { k: "amove", x: OPEN[0] + 60, z: OPEN[1] + 90, l: 0 });
     run(14);
-    expect(t1.dead).toBe(false);
+    expect(t1.hp).toBeLessThan(UNITS.hauler.hp);
     expect(t2.dead).toBe(true);
     expect(mover.z).toBeGreaterThan(OPEN[1] + 80);
   });

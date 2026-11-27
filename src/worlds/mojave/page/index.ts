@@ -29,7 +29,7 @@ export const page: WorldPage = {
     keys: [
       ["Click a unit", "Select (twice: all of that kind; hold and sweep: all you pass)"],
       ["Right click", "Send the selected: move, attack, rally"],
-      ["M / F / X", "Move · Attack (then click) · Stop"],
+      ["M / F / X", "Move (never stops, shoots as it goes) · Attack (fights all it sees on the way, until there) · Stop"],
       ["H / P", "Hold position · Patrol"],
       ["B", "Command: your own menu, on the row (Build, Whole army, Map, Change army), whatever is selected or open"],
       ["1–8", "Choosing an army: the one to serve (with nothing else open they recall groups)"],

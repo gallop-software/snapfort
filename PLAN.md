@@ -462,7 +462,7 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 
 **Keys** (also in the Controls panel, from `page/index.ts`)
 - Click a unit or building: select (twice: all of that kind nearby; held and swept: all the crosshair passes; Shift adds). Right click: move, attack what is clicked, gather, load into a transport, or set a rally point.
-- M move, F attack (then click: on the ground it is attack-move), X stop, H hold, P patrol, G gather, C return cargo, U unload, E EMP; Shift queues.
+- M move, F attack (then click: on the ground it is attack-move), X stop, H hold, P patrol, U unload, E EMP; Shift queues. Haulers take no orders: they always mine, for the nearest Core.
 - N the build menu (B and V with something selected); letters pick the building, a click puts it down.
 - Ctrl (or Alt, or Shift: some browsers keep Ctrl + number) + 1–9 saves a group, the number recalls it, twice faces it. ` the whole army, I the next idle Hauler, Backspace deselects, Tab the map, J the generals.
 - Phones: six buttons by the right thumb (Army, Build, Map, Allies, Select, Order) and the command card's own buttons.
@@ -582,7 +582,7 @@ Where this differs from the second pass above, this holds.
 
 ## Mojave: soldiers that think, bodies that collide, fire that looks real (user, 2026-11-25: "each individual soldier needs to act intelligently and independently from the herd... they all need to be highly effective, and not standing in a line or half the group not shooting... if they are patrolling, they can't all just be in a giant mass of pile going in circles... fix players and generals intersecting... soldiers are aiming and hitting what they are aiming at. turrets on a tank move to accurately hit their target")
 
-**Decided with the user**: a plain Move ignores enemies, as in StarCraft; idle units go and fight what they see, then return (Hold keeps them rooted); nothing walks through anything, generals included.
+**Decided with the user**: a plain Move never stops or turns aside, but shoots on the move at whatever comes within range (it was StarCraft's, ignoring enemies, until units were seen just taking it); an attack-move or a patrol fights everything in its whole sight, goes to find what shoots at it unseen, and a unit with nothing to shoot joins what a neighbour within 30 m is fighting, so no one stands by; it carries on to its spot after, until there or dead; idle units go and fight what they see, then return (Hold keeps them rooted); nothing walks through anything, generals included.
 
 **What changed**
 - Each unit chooses its own target by score: near, suited to its weapon, nearly finished, shooting at it, not already covered by others' fire (damage aimed at each target is counted each step), with a little of its own so neighbours differ. It looks again about once a second.

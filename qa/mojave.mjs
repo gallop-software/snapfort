@@ -682,6 +682,10 @@ await c2.close();
   check("a Titan walks on its legs: each foot planted while it goes on over it (never sliding), then lifted and swung ahead", walk.went > 4 && walk.planted > 40 && walk.lifted > 20 && walk.slid < 0.12 && walk.legs.every((n) => n >= 2), JSON.stringify(walk));
 }
 
+// Whatever came into view faded in on a see-through twin with a shape of its own: never the solid one's (a shared shape
+// shares Babylon's thin-instance buffers, and the two drew each other's units: white Troopers, parts left about).
+const twins = await sf(a, () => { const s = window.snapfort.scene; return s.meshes.filter((m) => m.name.endsWith("-fading")).map((m) => { const solid = s.getMeshByName(m.name.slice(0, -7)); return { name: m.name, shared: !!solid && !!m.geometry && m.geometry === solid.geometry }; }); });
+check("each see-through twin has a shape of its own, not the solid mesh's", twins.length > 0 && twins.every((t) => !t.shared), `${twins.length} twins; shared: ${twins.filter((t) => t.shared).map((t) => t.name).join(", ")}`);
 check("no errors on any page", errors.length === 0, errors.slice(0, 4).join(" | "));
 await browser.close();
 const failed = results.filter((r) => !r.ok);

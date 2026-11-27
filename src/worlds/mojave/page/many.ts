@@ -1,6 +1,7 @@
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Material } from "@babylonjs/core/Materials/material";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 
 /**
@@ -107,11 +108,15 @@ export class Many {
     return this.count++;
   }
 
-  /** The same shape (shared, not copied), placed the same, in the see-through twin of its material, casting no shadow. */
+  /**
+   * The same shape, placed the same, in the see-through twin of its material, casting no shadow. The shape is a copy,
+   * never shared: Babylon keeps a mesh's thin-instance buffers (where each one is, its colour) on its geometry, so a
+   * twin sharing it took the other's (2026-11-27: solid Troopers drawn white and parts left all over while others faded in).
+   */
   private makeGhost(): Many {
     const src = this.mesh;
     const mesh = new Mesh(`${src.name}-fading`, src.getScene());
-    src.geometry?.applyToMesh(mesh);
+    VertexData.ExtractFromMesh(src, false, true).applyToMesh(mesh);
     mesh.parent = src.parent;
     mesh.position.copyFrom(src.position);
     mesh.rotation.copyFrom(src.rotation);

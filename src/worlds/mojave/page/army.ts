@@ -838,7 +838,11 @@ export class ArmyView {
           if ((spec.motion === "legsDown" && !(u.flags & F_DEPLOYED)) || (spec.motion === "legsUp" && u.flags & F_DEPLOYED)) continue;
           const spin = spec.motion === "wheel" ? u.dist / spec.radius : 0;
           const turned = spec.motion === "rotor" ? time * (u.flags & F_STUNNED ? 4 : 30) + u.id : spec.steer ? steer : 0;
-          for (const [lx, ly, lz] of spec.at) placeOn(m.matrices, m.add(), body.matrices, i, lx, ly, lz, spin, turned);
+          // (The index first: `matrices` is the list the last add went to, solid or fading.)
+          for (const [lx, ly, lz] of spec.at) {
+            const k = m.add();
+            placeOn(m.matrices, k, body.matrices, i, lx, ly, lz, spin, turned);
+          }
         }
       }
       // Its turret (launcher, upper body), turned to where it aims, kicking back as it fires. Thrown or lying on its side, it goes with the hull.
@@ -916,9 +920,11 @@ export class ArmyView {
       const sin = Math.sqrt(1 - cos * cos);
       const kz = hz + L.thigh * (cos * uz + sin * uy), ky = hy + L.thigh * (cos * uy - sin * uz);
       const az = hz + dz, ay = hy + dy;
-      placeOn(thighs.matrices, thighs.add(), on, at, hx, hy, hz, toward(hz, hy, kz, ky));
-      placeOn(shins.matrices, shins.add(), on, at, hx, ky, kz, toward(kz, ky, az, ay));
-      placeOn(feet.matrices, feet.add(), on, at, hx, ay, az);
+      // (The index first: `matrices` is the list the last add went to, solid or fading.)
+      const ti = thighs.add(), si = shins.add(), fi = feet.add();
+      placeOn(thighs.matrices, ti, on, at, hx, hy, hz, toward(hz, hy, kz, ky));
+      placeOn(shins.matrices, si, on, at, hx, ky, kz, toward(kz, ky, az, ay));
+      placeOn(feet.matrices, fi, on, at, hx, ay, az);
       // A foot coming down: dust where it lands.
       const bit = side > 0 ? 2 : 1, down = t < duty;
       if (down && !(u.feet & bit) && u.stepping > 0.5 && u.goneAt === 0) {

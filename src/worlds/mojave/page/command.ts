@@ -151,6 +151,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   const send = (msg: ToServer) => game.send(msg);
   const shift = () => game.held("ShiftLeft") || game.held("ShiftRight");
   const setMode = (next: Mode) => {
+    // Any menu, building or order of the army's puts away the piece (or Remove) in hand, so a click or key meant for
+    // the menu never builds or takes down (the user, 2026-11-27: V while placing a building picked Remove, and a click
+    // took a building down). A piece's key picks it up again.
+    if (next) game.putAway();
     mode = next;
     cardDirty = true;
   };
@@ -1014,6 +1018,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return true;
     }
     if (code === "KeyB") return act("menu:0"), true;
+    // V while placing a building: the other page of buildings, as in the menu (it used to fall through to Remove).
+    if (code === "KeyV" && mode?.k === "place") return act(`menu:${BUILDINGS[mode.kind].advanced ? 0 : 1}`), true;
     // Placing a building or an order waiting for its click: any other key lets go of it (a piece's key, for that piece).
     const letGo = mode?.k === "place" || mode?.k === "target";
     if (letGo) setMode(null);

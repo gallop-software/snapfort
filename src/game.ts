@@ -1895,6 +1895,15 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
         if (!builder) return lockedNote();
         if (i >= 0 && i !== toolIndex) selectTool(i);
       },
+      putAway: () => {
+        if (toolIndex < 0) return;
+        finishEdit(true);
+        toolIndex = -1;
+        placing = false;
+        hud.select(-1);
+        ghost.hide();
+        aimSpec = null;
+      },
     }) ?? null;
 
   // One material here: no badge and no button for changing it (the badge's place is the world's own).
@@ -1967,7 +1976,7 @@ export async function startGame(canvas: HTMLCanvasElement, engine: AbstractEngin
   if (import.meta.env.DEV) {
     // Handles for poking at the game from the browser console while developing.
     Object.assign(window, {
-      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, bodies, Solids, clearSpot: (x: number, y: number, z: number) => worldGame?.clearSpot(x, y, z) ?? null, planFall: (from: Vec, v: Vec) => planFall(state, from, v, env, () => feature?.solids?.() ?? []), history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; } },
+      snapfort: { scene, engine, chat, store, env, get feature() { return feature; }, get builder() { return builder; }, get waiting() { return waiting; }, get myId() { return myId; }, resolution, trebuchets, debris, get crewOn() { return crewOn; }, get target() { return target; }, damage, get graphics() { return graphics; }, state, synced, net, remotes, bodies, Solids, clearSpot: (x: number, y: number, z: number) => worldGame?.clearSpot(x, y, z) ?? null, planFall: (from: Vec, v: Vec) => planFall(state, from, v, env, () => feature?.solids?.() ?? []), history, player, rig, input, selectTool, placeable, nextId, siege, startMode, removePiece, audit: () => [...view.audit(state), ...trebuchets.audit()], get editing() { return editing; }, get hands() { return toolIndex < 0 ? null : TOOLS[toolIndex]!; } },
     });
   }
 }

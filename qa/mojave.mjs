@@ -161,6 +161,17 @@ const step1 = (await war(a)).mode === "menu" && (await rowHas(a, ["Foundry", "Ad
 await a.keyboard.press("Backspace");
 const step2 = (await war(a)).mode === null && (await rowHas(a, ["Wall", "Select"])) === true;
 check("Backspace goes back one step: from placing to the buildings, to the pieces", step1 && step2, `${step1} ${step2}`);
+// With Remove (or a piece) in hand, opening the buildings puts it away, and V while placing turns the page: never Remove.
+await a.keyboard.press("v");
+const heldRemove = await sf(a, () => window.snapfort.hands);
+await a.keyboard.press("b");
+const afterB = await sf(a, () => window.snapfort.hands);
+await a.keyboard.press("f");
+await a.keyboard.press("v");
+const afterV = { hands: await sf(a, () => window.snapfort.hands), mode: (await war(a)).mode, adv: await rowHas(a, ["Armory", "Basic"]) };
+check("opening the buildings puts Remove away, and V while placing turns to the advanced buildings, not Remove", heldRemove === "remove" && afterB === null && afterV.hands === null && afterV.mode === "menu" && afterV.adv === true, `${heldRemove} ${afterB} ${JSON.stringify(afterV)}`);
+await a.keyboard.press("Backspace");
+await a.keyboard.press("Backspace");
 await a.keyboard.press("b");
 await a.keyboard.press("f");
 await frames(a, 3);

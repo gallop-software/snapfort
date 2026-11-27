@@ -200,6 +200,8 @@ export interface PageGame {
   hands(): string | null;
   /** Picks a piece to build with (never puts it away, as pressing its key again does). */
   hold(tool: "wall" | "floor" | "ramp" | "roof"): void;
+  /** Puts away whatever piece (or Remove) is in hand, quietly: the world is building with its own menus now. */
+  putAway(): void;
 }
 
 /** What a world's own page code does each frame, and when asked. Every hook is optional. */

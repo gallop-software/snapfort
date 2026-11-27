@@ -101,7 +101,7 @@ const [coreX, coreZ] = centreOf(core, 3);
 check("they stand by their Core, at one of the eight starts", Math.hypot(wa.pos[0] - coreX, wa.pos[2] - coreZ) < 40 && Math.hypot(coreX, coreZ) > 300, wa.pos.map(Math.round).join(","));
 check("nothing is picked to build with at first (pieces cost lithium here)", await sf(a, () => !document.querySelector("#hotbar .selected")));
 tiles = await row(a);
-check("the row: the Wall, the Floor and the Ramp (no canopy), Remove, and Command where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Floor,Ramp,Remove,Command" && keysOf(tiles).Command === "B", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("the row: the Wall, the Floor and the Ramp (no canopy), Remove, and Command where the siege engine is elsewhere", tiles.map((t) => t.label).join(",") === "Wall,Floor,Ramp,Remove,Command" && keysOf(tiles).Command === "C", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 check("the bank is beside the row, where the material is elsewhere; there is no material to choose", await sf(a, () => { const m = document.getElementById("material"); const r = m.getBoundingClientRect(), h = document.getElementById("hotbar").getBoundingClientRect(); return /Lithium/.test(m.textContent) && /Supply/.test(m.textContent) && !m.querySelector(".swatch") && r.left >= h.right && r.width > 0 && Math.abs(r.bottom - h.bottom) < 30; }));
 check("there is no command card, and the map is on screen", await sf(a, () => !document.getElementById("mj-card") && document.getElementById("mj-map").getBoundingClientRect().width > 100));
 const before = wa.l;
@@ -149,11 +149,11 @@ await dev(a, { do: "rich" });
 await until(a, () => window.snapfort.feature.bank.l > 10000);
 const inX = -Math.sign(coreX), inZ = -Math.sign(coreZ);
 const site = [coreX + inX * 32, coreZ + inZ * 32];
-await a.keyboard.press("b");
+await a.keyboard.press("c");
 await rowHas(a, ["Select"]);
 tiles = await row(a);
-check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Select,Map,Change army,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
-await a.keyboard.press("n");
+check("C (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Select,Map,Change army,Back" && keysOf(tiles).Build === "B" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+await a.keyboard.press("b");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);
 check("N opens the buildings, each with its key and price; one that cannot be built yet is faded, and says what it needs", (await war(a)).mode === "menu" && keysOf(tiles).Foundry === "F" && tiles.find((t) => t.label === "Foundry").sub === "150" && keysOf(tiles).Advanced === "V" && tiles.find((t) => t.label === "Sentry turret").sub === "needs Foundry" && tiles.find((t) => t.label === "Sentry turret").off && !tiles.find((t) => t.label === "Foundry").off, tiles.map((t) => `${t.key}:${t.label}`).join(" "));
@@ -167,7 +167,7 @@ const step2 = (await rowHas(a, ["Select", "Build"])) === true;
 await a.keyboard.press("Backspace");
 const step3 = (await war(a)).mode === null && (await rowHas(a, ["Wall", "Command"])) === true;
 check("Backspace goes back one step: from placing to the buildings, to the general's own menu, to the pieces", step1 && step2 && step3, `${step1} ${step2} ${step3}`);
-await a.keyboard.press("n");
+await a.keyboard.press("b");
 await a.keyboard.press("f");
 await frames(a, 3);
 await aim(a, [site[0], 0, site[1]], [coreX + inX * 18, coreZ + inZ * 18]);
@@ -185,7 +185,7 @@ const foundry = await until(a, () => [...window.snapfort.feature.army.buildings.
 wa = await war(a);
 check("a click puts it down, and it stands there finished at once; the preview goes", !!foundry && !wa.buildings.find((b) => b.id === foundry).printing && wa.mode === null && await sf(a, () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(!window.snapfort.scene.getMeshByName("mojave-ghost-foundry").isEnabled()))))));
 check("a building is solid: the crosshair lands on it", await sf(a, () => { const p = window.snapfort.feature.pick(); return p?.k === "building" && p.b.kind === "foundry"; }));
-await a.keyboard.press("n");
+await a.keyboard.press("b");
 await a.keyboard.press("v");
 await rowHas(a, ["Armory", "Basic"]);
 tiles = await row(a);
@@ -276,23 +276,23 @@ check("` twice selects the whole army, wherever it is (not the Haulers)", wa.sel
 await rowHas(a, ["Attack"]);
 tiles = await row(a);
 check("the bank is still wholly on the screen beside the longer row", await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth - 4 && r.left >= document.getElementById("hotbar").getBoundingClientRect().right; }), await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return `${Math.round(r.left)}–${Math.round(r.right)} of ${innerWidth}`; }));
-check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "N" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
-// B is the general's own menu and N the buildings, with units selected as without; Backspace goes up one level
+check("the row lists the orders with StarCraft's keys, attack on F and stop on X", (() => { const k = keysOf(tiles); return k.Move === "M" && k.Attack === "F" && k.Stop === "X" && k.Hold === "H" && k.Patrol === "P" && k.Build === "B" && tiles.every((t) => t.menu); })(), tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+// C is the general's own menu and B the buildings, with units selected as without; Backspace goes up one level
 // however the row was reached (placing an advanced building → advanced → basic → Command → the selection).
-await a.keyboard.press("b");
+await a.keyboard.press("c");
 const bCmd = (await rowHas(a, ["Select", "Change army"])) === true && (await war(a)).sel.length >= 16;
-await a.keyboard.press("b");
-await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("k");
+await a.keyboard.press("c");
+await a.keyboard.press("b"); await a.keyboard.press("v"); await a.keyboard.press("k");
 const placing = (await war(a)).mode === "place";
-await a.keyboard.press("b");
+await a.keyboard.press("c");
 const bFromPlace = (await rowHas(a, ["Select", "Change army"])) === true;
-await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("k");
+await a.keyboard.press("b"); await a.keyboard.press("v"); await a.keyboard.press("k");
 const ups = [];
 for (const want of [["Skyport", "Basic"], ["Foundry", "Advanced"], ["Select", "Change army"], ["Move", "Deselect"]]) {
   await a.keyboard.press("Backspace");
   ups.push((await rowHas(a, want)) === true);
 }
-check("B opens Command and N the buildings with units selected too; B while placing a building is Command again; Backspace goes up a level each time", bCmd && placing && bFromPlace && ups.every(Boolean) && (await war(a)).sel.length >= 16, `${bCmd} ${placing} ${bFromPlace} ${ups}`);
+check("C opens Command (C again closes it) and B the buildings with units selected too; C while placing a building is Command again; Backspace goes up a level each time", bCmd && placing && bFromPlace && ups.every(Boolean) && (await war(a)).sel.length >= 16, `${bCmd} ${placing} ${bFromPlace} ${ups}`);
 check("with units selected the keys are orders; Z, which is none, lets go of them and picks a Wall", await (async () => { await a.keyboard.press("z"); return (await until(a, () => window.snapfort.feature.selected.size === 0 && /Wall/.test(document.querySelector("#hotbar .slot:not(.menu).selected")?.textContent ?? ""), null, 2000)) === true; })());
 // (The army again, with nothing in hand, for what follows.)
 await a.keyboard.press("z");
@@ -608,7 +608,7 @@ check("what one orders, the other sees done", await until(a, ([id, x]) => { cons
 check("they see each other, both in the army's colour", await until(a, () => { const s = window.snapfort, g = s.feature.generals[0]; const other = g.pids.find((id) => id !== s.myId); return other && s.remotes.worn.get(other) === g.color && !s.remotes.concealed.has(other) ? true : null; }) === true);
 
 // ── Changing sides ───────────────────────────────────────────────────────
-await c2.keyboard.press("b");
+await c2.keyboard.press("c");
 await rowHas(c2, ["Change army"]);
 await c2.keyboard.press("j");
 await rowHas(c2, ["Red", "Green", "Back"]);

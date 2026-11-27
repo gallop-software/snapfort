@@ -165,8 +165,8 @@ v = await look(a);
 say("after Deselect", v);
 check("2. …and letting go of the Core, the piece in hand is the one from before (the wheel did not change it out of sight)", new RegExp(`:${held2}\\*`).test(v.row), `${held2} then ${v.row}`);
 
-// ── 3. Core selected, a building from the menu (B, N: through Command; or N straight) ──
-for (const [path, keys] of [["B, N then F", ["b", "n", "f"]], ["N then F", ["n", "f"]], ["N then T (Tap)", ["n", "t"]], ["N then E (Sentry)", ["n", "e"]]]) {
+// ── 3. Core selected, a building from the menu (C, B: through Command; or B straight) ──
+for (const [path, keys] of [["C, B then F", ["c", "b", "f"]], ["B then F", ["b", "f"]], ["B then T (Tap)", ["b", "t"]], ["B then E (Sentry)", ["b", "e"]]]) {
   await selectCore(`3: Core selected, ${path}`);
   for (const k of keys) {
     await a.keyboard.press(k);
@@ -192,8 +192,8 @@ for (const [path, keys] of [["B, N then F", ["b", "n", "f"]], ["N then F", ["n",
 }
 
 // ── 4. Core selected, a building picked, then a piece key instead ──
-await selectCore("4: Core selected, N, F (placing a Foundry), then Z instead");
-await a.keyboard.press("n"); await a.keyboard.press("f");
+await selectCore("4: Core selected, B, F (placing a Foundry), then Z instead");
+await a.keyboard.press("b"); await a.keyboard.press("f");
 await aim(a, ground);
 say("placing", await look(a));
 const q4 = (await look(a)).q;
@@ -235,7 +235,7 @@ await a.keyboard.press("c");
 await frames(a, 4);
 v = await look(a);
 say("C (not an order)", v);
-check("4c. with Troopers selected, C does nothing: no Canopy here, the Troopers stay selected", v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
+check("4c. with Troopers selected, C (not an order) opens Command, the Troopers still selected", v.mode === "menu:cmd" && v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
 await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");
 await a.keyboard.press("z");
@@ -247,7 +247,7 @@ check("4c. with Troopers selected, Z lets go of them and picks the Wall", v.selU
 // ── 4d. Remove in hand: a click on your own building takes it down, never selects it ──
 await sf(a, () => window.snapfort.feature.run("desel"));
 const relayAt = nextSite();
-await a.keyboard.press("n"); await a.keyboard.press("r");
+await a.keyboard.press("b"); await a.keyboard.press("r");
 await aim(a, relayAt, [relayAt[0] - inX * 10, relayAt[2] - inZ * 10]);
 await click(a);
 const relay = await until(a, () => { const f = window.snapfort.feature; return [...f.army.buildings.values()].find((b) => b.o === f.slot && b.kind === "relay")?.i ?? null; });
@@ -279,22 +279,22 @@ await frames(a, 4);
 say("a moment later", await look(a));
 
 // ── 7. Placing a building, a right click ──
-await selectCore("7: Core selected, N, F, right click");
-await a.keyboard.press("n"); await a.keyboard.press("f");
+await selectCore("7: Core selected, B, F, right click");
+await a.keyboard.press("b"); await a.keyboard.press("f");
 await aim(a, ground);
 await click(a, "right");
 v = await look(a);
 say("right click", v);
 
-// ── 8. Placing a building, the Command tile (B) again ──
-await selectCore("8: Core selected, N, F, then B");
-await a.keyboard.press("n"); await a.keyboard.press("f");
+// ── 8. Placing a building, the Command tile (C) again ──
+await selectCore("8: Core selected, B, F, then C");
+await a.keyboard.press("b"); await a.keyboard.press("f");
 await aim(a, ground);
-await a.keyboard.press("b");
+await a.keyboard.press("c");
 await frames(a, 3);
 v = await look(a);
-say("B while placing", v);
-check("8. B while placing a building opens Command, as B does everywhere, the Core still selected", v.mode === "menu:cmd" && v.selB === 1, JSON.stringify(v));
+say("C while placing", v);
+check("8. C while placing a building opens Command, as C does wherever no tile on the row is C, the Core still selected", v.mode === "menu:cmd" && v.selB === 1, JSON.stringify(v));
 await a.keyboard.press("z");
 await frames(a, 4);
 v = await look(a);
@@ -305,7 +305,7 @@ check("8. …and Z from Command picks the Wall, letting go of all of it", v.mode
 console.log("\n── 9: a Foundry planned over a general");
 await sf(a, () => window.snapfort.feature.run("desel"));
 const spot9 = nextSite();
-await a.keyboard.press("n"); await a.keyboard.press("f");
+await a.keyboard.press("b"); await a.keyboard.press("f");
 await aim(a, spot9, [spot9[0] - inX * 14, spot9[2] - inZ * 14]);
 const ghost9 = () => sf(a, () => { const m = window.snapfort.scene.getMeshByName("mojave-ghost-foundry"); return { on: m?.isEnabled() ?? false, red: m?.material.name === "mojave-ghost-bad", line: document.getElementById("world-panel").textContent }; });
 let g9 = await ghost9();
@@ -347,7 +347,7 @@ await a.keyboard.press("Backspace"); await a.keyboard.press("Backspace"); await 
 console.log("\n── 10: an Armory working on weapons");
 await sf(a, () => window.snapfort.feature.run("desel"));
 const spot10 = nextSite();
-await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("m");
+await a.keyboard.press("b"); await a.keyboard.press("v"); await a.keyboard.press("m");
 await aim(a, spot10, [spot10[0] - inX * 16, spot10[2] - inZ * 16]);
 await click(a);
 const armory = await until(a, () => { const f = window.snapfort.feature; return [...f.army.buildings.values()].find((b) => b.o === f.slot && b.kind === "armory")?.i ?? null; });

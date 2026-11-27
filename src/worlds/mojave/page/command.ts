@@ -703,7 +703,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const with_ = (general(slot)?.pids.length ?? 1) - 1;
       return {
         tiles: [
-          tile("menu:0", "N", "Build", "build"),
+          tile("menu:0", "B", "Build", "build"),
           tile("menu:sel", "`", "Select", "army", { sub: `${myUnits().length}` }),
           tile("map", "Tab", "Map", "map"),
           tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }),
@@ -738,7 +738,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const only = selected.size === 1 ? army.units.get([...selected][0]!) : undefined;
       const status = only ? `${UNITS[only.kind].label} · ${only.hp}% · ${UNITS[only.kind].blurb}` : `${selected.size} selected: ${[...counts].map(([k, n]) => `${n} ${UNITS[k].label}`).join(", ")}`;
       const tiles = orders().map(([, key, k, label]) => tile(`o:${k}`, key, label, k));
-      tiles.push(tile("menu:0", "N", "Build", "build"), back("Deselect"));
+      tiles.push(tile("menu:0", "B", "Build", "build"), back("Deselect"));
       return { tiles, status };
     }
     if (selectedBuildings.size > 0) {
@@ -805,7 +805,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       return { tiles, status: `${title} · ${doing}${full}`, ...(html ? { html } : {}) };
     }
-    return { tiles: null, status: routed ? `${routed}${game.touch ? "Tap Build" : "Press N"} to put it down.` : null };
+    return { tiles: null, status: routed ? `${routed}${game.touch ? "Tap Build" : "Press B"} to put it down.` : null };
   }
   /** The orders the selected units can be given: those on the row, and the only ones their keys mean. */
   function orders(): typeof ORDER_KEYS {
@@ -832,7 +832,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     }
     const lines = game.touch
       ? ["Aim at your Core and tap Select, then tap Hauler for more of them.", "Build opens the build menu: a Foundry makes Troopers. Buildings stand at once; units take a little time.", "Army picks every fighting unit; aim at the ground and tap Order to send them."]
-      : ["Click your Core, then press H for more Haulers. Command (B) is your own menu: you can change army there.", "N opens the build menu: a Foundry makes Troopers. Buildings stand at once; units take a little time.", "Click a unit to select it (twice for all of its kind); right click sends them. Tab is the map."];
+      : ["Click your Core, then press H for more Haulers. Command (C) is your own menu: you can change army there.", "B opens the build menu: a Foundry makes Troopers. Buildings stand at once; units take a little time.", "Click a unit to select it (twice for all of its kind); right click sends them. Tab is the map."];
     lines.forEach((text, i) => setTimeout(() => panel.note(text, "info"), 1500 + i * 6500));
   }
 
@@ -1003,17 +1003,18 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return true;
     };
     if (mode?.k === "menu" && mode.page === "sel") {
-      // The select menu: a kind's key selects every one of that kind; B, Command; a piece's key builds; anything else closes it.
+      // The select menu: a kind's key selects every one of that kind (C is Scouts when there are any); then C, Command; B, Build; a piece's key builds; anything else closes it.
       const kind = kindsOf().find(([k]) => `Key${SELECT_KEYS[k]}` === code)?.[0];
       if (kind) act(`sel:${kind}`);
-      else if (code === "KeyB") act("menu:cmd");
+      else if (code === "KeyC") act("menu:cmd");
+      else if (code === "KeyB") act("menu:0");
       else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
     }
     if (mode?.k === "menu" && mode.page === "cmd") {
-      // The general's own menu: its tiles' keys; a piece's key builds; anything else (B again too) closes it.
-      if (code === "KeyN") act("menu:0");
+      // The general's own menu: its tiles' keys; a piece's key builds; anything else (C again too) closes it.
+      if (code === "KeyB") act("menu:0");
       else if (code === "KeyJ") act("menu:army");
       else if (piece) return toPieces(piece);
       else setMode(null);
@@ -1025,21 +1026,21 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const kind = BUILDING_KINDS.find((k) => !!BUILDINGS[k].advanced === (page === 1) && BUILDINGS[k].key === key);
       if (kind) act(`b:${kind}`);
       else if (code === "KeyV") act(`menu:${page === 1 ? 0 : 1}`);
-      // B is the general's own menu wherever it is pressed; N, the basic buildings (again: closed).
-      else if (code === "KeyB") act("menu:cmd");
-      else if (code === "KeyN") act("menu:0");
+      // A building's own letter comes first (C is the Command Core here); then C is the general's own menu, and B the basic buildings (again: closed).
+      else if (code === "KeyC") act("menu:cmd");
+      else if (code === "KeyB") act("menu:0");
       else if (piece) return toPieces(piece);
       else setMode(null);
       return true;
     }
-    if (code === "KeyN") return act("menu:0"), true;
+    if (code === "KeyB") return act("menu:0"), true;
     // Placing a building or an order waiting for its click: any other key lets go of it (a piece's key, for that piece).
     const letGo = mode?.k === "place" || mode?.k === "target";
     if (letGo) setMode(null);
     if (selected.size > 0) {
       const found = orders().find(([c]) => c === code);
       if (found) return act(`o:${found[2]}`, event.shiftKey), true;
-      if (code === "KeyB") return act("menu:cmd"), true;
+      if (code === "KeyC") return act("menu:cmd"), true;
       if (piece) return toPieces(piece);
       // The other building keys of every world (R turns, T, G, Q, E) would only confuse while commanding.
       return /^Key[A-Z]$/.test(code);
@@ -1057,7 +1058,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       }
       if (code === "KeyR" || code === "KeyY") return act("rally"), true;
       if (code === "KeyQ") return act("cancel"), true;
-      if (code === "KeyB") return act("menu:cmd"), true;
+      // (After what it makes: at a Foundry, C is the Scout buggy.)
+      if (code === "KeyC") return act("menu:cmd"), true;
       if (piece) return toPieces(piece);
       return /^Key[A-Z]$/.test(code);
     }

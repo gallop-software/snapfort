@@ -97,7 +97,7 @@ export const UNITS: Readonly<Record<UnitKind, UnitDef>> = {
     blurb: "Flies over walls",
   },
   transport: {
-    label: "Transport drone", key: "T", lithium: 100, plasma: 50, supply: 2, hp: 120, speed: 16, sight: 90, radius: 2.6, height: 2.4, air: true, cargo: 8, time: 24, madeAt: "skyport",
+    label: "Transport drone", key: "U", lithium: 100, plasma: 50, supply: 2, hp: 120, speed: 16, sight: 90, radius: 2.6, height: 2.4, air: true, cargo: 8, time: 24, madeAt: "skyport",
     blurb: "Carries ground units over walls and behind the lines",
   },
   emp: {
@@ -105,7 +105,7 @@ export const UNITS: Readonly<Record<UnitKind, UnitDef>> = {
     blurb: "Its pulse stops every enemy unit and turret near a spot for a few seconds",
   },
   titan: {
-    label: "Titan walker", key: "T", lithium: 400, plasma: 300, supply: 8, hp: 900, speed: 6, sight: 110, radius: 3.2, height: 7, time: 60, madeAt: "titanbay",
+    label: "Titan walker", key: "I", lithium: 400, plasma: 300, supply: 8, hp: 900, speed: 6, sight: 110, radius: 3.2, height: 7, time: 60, madeAt: "titanbay",
     weapon: { range: 42, damage: 70, cooldown: 2.5, splash: 4, air: true, ground: true, wear: 0.5, look: "shell" },
     blurb: "The late game: slow, enormous, and very hard to stop",
   },

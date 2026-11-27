@@ -463,7 +463,7 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 **Keys** (also in the Controls panel, from `page/index.ts`)
 - Click a unit or building: select (twice: all of that kind nearby; held and swept: all the crosshair passes; Shift adds). Right click: move, attack what is clicked, gather, load into a transport, or set a rally point.
 - M move, F attack (then click: on the ground it is attack-move), X stop, H hold, P patrol, U unload, E EMP; Shift queues. Haulers take no orders: they always mine, for the nearest Core.
-- N the build menu (B and V with something selected); letters pick the building, a click puts it down.
+- B the build menu, V its advanced buildings, C Command (the general's own menu), whatever is selected (2026-11-27, the user: B for build, C for command; a menu's own letter comes first, so C is the Core in Build, and Scouts in Select or at a Foundry); letters pick the building, a click puts it down. A unit has one letter wherever it is made or selected (Transport drone U, Titan walker I).
 - Ctrl (or Alt, or Shift: some browsers keep Ctrl + number) + 1–9 saves a group, the number recalls it, twice faces it. ` the whole army, I the next idle Hauler, Backspace deselects, Tab the map, J the generals.
 - Phones: six buttons by the right thumb (Army, Build, Map, Allies, Select, Order) and the command card's own buttons.
 

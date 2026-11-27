@@ -1,5 +1,6 @@
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import type { Material } from "@babylonjs/core/Materials/material";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 
 /**
@@ -7,57 +8,138 @@ import "@babylonjs/core/Meshes/thinInstanceMesh";
  * war there is a crowd of: units, buildings, Troopers' poses, shots, sparks.
  */
 
+/**
+ * How much of what is added next shows, 0 to 1: below 1 it is drawn see-through
+ * (a unit coming into view out of the haze, or going out of it). Set it round
+ * whatever is drawn faded, and back to 1 after.
+ */
+let fade = 1;
+export function fading(k: number): void {
+  fade = Math.max(0, Math.min(1, k));
+}
+
+/** The see-through twin of each material, made once. */
+const faded = new WeakMap<Material, Material>();
+function fadedOf(material: Material): Material {
+  let m = faded.get(material);
+  if (!m) {
+    m = material.clone(`${material.name}-fading`)!;
+    // Blended (each one's own alpha comes in its colour), but still hiding its own far side.
+    m.alpha = 0.999;
+    m.forceDepthWrite = true;
+    faded.set(material, m);
+  }
+  return m;
+}
+
 /** A mesh drawn many times: where each one is, and (for trim) its colour. */
 export class Many {
-  matrices: Float32Array;
-  colors: Float32Array | null;
+  private m: Float32Array;
+  private c: Float32Array | null;
   count = 0;
   private ready = false;
   private capacity: number;
+  /** The same mesh drawn see-through, for those added while fading (made when first wanted). */
+  private ghost: Many | null = null;
+  /** How much of each one shows (the ghost's own). */
+  private alphas: Float32Array | null = null;
+  /** Which of the two the last add went to: `matrices` and `colors` are its lists. */
+  private last: Many = this;
 
-  constructor(readonly mesh: Mesh, tinted: boolean, capacity = 64) {
+  constructor(readonly mesh: Mesh, private readonly tinted: boolean, capacity = 64) {
     this.capacity = capacity;
-    this.matrices = new Float32Array(capacity * 16);
-    this.colors = tinted ? new Float32Array(capacity * 4) : null;
+    this.m = new Float32Array(capacity * 16);
+    this.c = tinted ? new Float32Array(capacity * 4) : null;
     mesh.isPickable = false;
     mesh.alwaysSelectAsActiveMesh = true;
     mesh.setEnabled(false);
   }
 
-  begin(): void {
-    this.count = 0;
+  /** The placements of the list the last one added went to (write it at the index add gave). */
+  get matrices(): Float32Array {
+    return this.last.m;
   }
 
-  /** Room for one more: its place in the lists. */
+  /** Their colours, for trim. */
+  get colors(): Float32Array | null {
+    return this.last.c;
+  }
+
+  begin(): void {
+    this.count = 0;
+    this.last = this;
+    this.ghost?.begin();
+  }
+
+  /** Room for one more: its place in the lists (`matrices`, `colors`). */
   add(): number {
+    if (fade < 1) {
+      const ghost = (this.ghost ??= this.makeGhost());
+      const i = ghost.push();
+      ghost.alphas![i] = fade;
+      // Plain parts are white in the colour that carries the alpha; trim writes its own.
+      if (!this.tinted) ghost.c!.set([1, 1, 1, fade], i * 4);
+      this.last = ghost;
+      return i;
+    }
+    this.last = this;
+    return this.push();
+  }
+
+  private push(): number {
     if (this.count === this.capacity) {
       this.capacity *= 2;
       const m = new Float32Array(this.capacity * 16);
-      m.set(this.matrices);
-      this.matrices = m;
-      if (this.colors) {
+      m.set(this.m);
+      this.m = m;
+      if (this.c) {
         const c = new Float32Array(this.capacity * 4);
-        c.set(this.colors);
-        this.colors = c;
+        c.set(this.c);
+        this.c = c;
+      }
+      if (this.alphas) {
+        const a = new Float32Array(this.capacity);
+        a.set(this.alphas);
+        this.alphas = a;
       }
       this.ready = false;
     }
     return this.count++;
   }
 
+  /** The same shape (shared, not copied), placed the same, in the see-through twin of its material, casting no shadow. */
+  private makeGhost(): Many {
+    const src = this.mesh;
+    const mesh = new Mesh(`${src.name}-fading`, src.getScene());
+    src.geometry?.applyToMesh(mesh);
+    mesh.parent = src.parent;
+    mesh.position.copyFrom(src.position);
+    mesh.rotation.copyFrom(src.rotation);
+    if (src.rotationQuaternion) mesh.rotationQuaternion = src.rotationQuaternion.clone();
+    mesh.scaling.copyFrom(src.scaling);
+    mesh.receiveShadows = src.receiveShadows;
+    if (src.material) mesh.material = fadedOf(src.material);
+    const ghost = new Many(mesh, true, 16);
+    ghost.alphas = new Float32Array(16);
+    return ghost;
+  }
+
   end(): void {
     const n = this.count;
+    if (this.alphas) for (let i = 0; i < n; i++) this.c![i * 4 + 3] = this.alphas[i]!;
     if (n > 0 && !this.ready) {
       this.ready = true;
-      this.mesh.thinInstanceSetBuffer("matrix", this.matrices, 16, false);
-      if (this.colors) this.mesh.thinInstanceSetBuffer("color", this.colors, 4, false);
+      this.mesh.thinInstanceSetBuffer("matrix", this.m, 16, false);
+      if (this.c) this.mesh.thinInstanceSetBuffer("color", this.c, 4, false);
     }
+    this.ghost?.end();
+    this.last = this;
     if (!this.ready) return;
     // The count first: only that many are sent to the graphics chip.
     this.mesh.thinInstanceCount = n;
     if (n > 0) {
       this.mesh.thinInstanceBufferUpdated("matrix");
-      if (this.colors) this.mesh.thinInstanceBufferUpdated("color");
+      if (this.c) this.mesh.thinInstanceBufferUpdated("color");
     }
     this.mesh.setEnabled(n > 0);
   }

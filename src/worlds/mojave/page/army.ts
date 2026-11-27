@@ -18,7 +18,7 @@ import { Solids } from "../../../game/solids";
 import type { PageGame } from "../../pageDoors";
 import { buildingBox, BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
 import { F_DEPLOYED, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
-import { Many, place, placeOn, rgbOf, turn } from "./many";
+import { Many, fading, place, placeOn, rgbOf, turn } from "./many";
 import { buildingModel, crystalModel, headModel, MUZZLES, TITAN_LEG, titanLegModels, UNIT_HEADS, UNIT_MUZZLES, UNIT_PARTS, unitHeadModel, unitModel, unitPartModel, ventModel } from "./models";
 import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, strideFrame, strideOn, TROOPER_MIDDLE, Troopers } from "./troopers";
 
@@ -30,8 +30,9 @@ import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, strideFrame, 
  * are people, not machines: they are drawn by troopers.ts, in poses.
  *
  * The land always shows; an enemy shows only while this general sees it. So
- * units come into view and go out of it in the open: they grow in and shrink
- * away over a moment, never popping.
+ * units come into view and go out of it in the open: whole and where they
+ * are, they fade in out of the haze and back into it over a moment, never
+ * popping (and never growing out of the ground).
  *
  * Nothing is decided here. Units are drawn a fifth of a second behind what
  * the server last said, blended between its updates, and everything timed
@@ -87,9 +88,9 @@ export interface SeenUnit {
   /** A Titan: how much it is stepping (0 standing, 1 walking: eased in and out), and which feet are down (1 left, 2 right). */
   stepping: number;
   feet: number;
-  /** When it came into view (ms): it grows in from then. */
+  /** When it came into view (ms): it fades in from then. */
   seenAt: number;
-  /** When it went out of view (ms), or 0: it shrinks away from then, and is forgotten. */
+  /** When it went out of view (ms), or 0: it fades away from then, and is forgotten. */
   goneAt: number;
 }
 
@@ -122,7 +123,9 @@ export interface SeenField {
 /** How long a unit takes to reach where the server last put it, ms (a little more than the time between its words). */
 const BLEND_MS = 230;
 /** How long a unit takes to come into view or go out of it, ms. */
-const APPEAR_MS = 450;
+const APPEAR_MS = 600;
+/** How much of a unit shows, a fraction `k` of the way into view: slow at first and at the end, as through haze. */
+const easeView = (k: number) => (k >= 1 ? 1 : k <= 0 ? 0 : k * k * (3 - 2 * k));
 
 interface Tracer { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; until: number; color: [number, number, number]; wide: number }
 interface Shell { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; ms: number; arc: number }
@@ -196,7 +199,7 @@ export class ArmyView {
   private readonly solids: Solids;
   private readonly solid: PhysicsShapeBox[] = [];
   private readonly troopers: Troopers;
-  /** Units that have gone out of view, shrinking away. */
+  /** Units that have gone out of view, fading away. */
   private readonly leaving: SeenUnit[] = [];
   /** A building shown where it would go, before it is placed: asked for each frame it is wanted. */
   private readonly ghosts = new Map<BuildingKind, Mesh>();
@@ -636,13 +639,21 @@ export class ArmyView {
 
     this.drawMarks();
     this.troopers.begin();
-    for (const u of this.units.values()) this.drawUnit(u, now, time, Math.min(1, 0.15 + (0.85 * (now - u.seenAt)) / APPEAR_MS));
+    // Coming into view or going out of it: whole and where it is, only see-through for a moment (out of the haze, and back into it).
+    for (const u of this.units.values()) {
+      fading(easeView((now - u.seenAt) / APPEAR_MS));
+      this.drawUnit(u, now, time);
+    }
     for (let i = this.leaving.length - 1; i >= 0; i--) {
       const u = this.leaving[i]!;
       const k = 1 - (now - u.goneAt) / APPEAR_MS;
       if (k <= 0) this.leaving.splice(i, 1);
-      else this.drawUnit(u, now, time, k);
+      else {
+        fading(easeView(k));
+        this.drawUnit(u, now, time);
+      }
     }
+    fading(1);
     this.troopers.end();
 
     for (const b of this.buildings.values()) {
@@ -688,8 +699,8 @@ export class ArmyView {
     for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.titanLegs, ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
   }
 
-  /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
-  private drawUnit(u: SeenUnit, now: number, time: number, grown: number): void {
+  /** One unit, where it is now: blended toward what the server last said, or thrown through the air. */
+  private drawUnit(u: SeenUnit, now: number, time: number): void {
     const def = UNITS[u.kind];
     const person = u.kind === "trooper";
     let pitch = 0, roll = 0, lift = 0;
@@ -770,7 +781,7 @@ export class ArmyView {
         z -= Math.cos(u.h) * back;
       } else if (moving) pose = strideFrame(u.stride, u.speed);
       else if (u.flags & F_FIRING) pose = POSE_AIM;
-      this.troopers.add(pose, x, y, z, u.h, pitch, roll, r, g, b, grown);
+      this.troopers.add(pose, x, y, z, u.h, pitch, roll, r, g, b);
     } else {
       // Drones hover; a Titan sways as it walks.
       let bob = 0;
@@ -807,7 +818,7 @@ export class ArmyView {
       }
       const body = this.unitBody.get(u.kind)!, trim = this.unitTrim.get(u.kind)!;
       const i = body.add();
-      place(body.matrices, i, u.x, u.y + bob + lift, u.z, u.h, pitch + sway, roll + lean, grown, grown, grown);
+      place(body.matrices, i, u.x, u.y + bob + lift, u.z, u.h, pitch + sway, roll + lean);
       const j = trim.add();
       trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
       trim.colors!.set([r, g, b, 1], j * 4);
@@ -832,7 +843,7 @@ export class ArmyView {
         const gunTrim = this.gunTrim.get(u.kind)!;
         const k = gun.add(), t = gunTrim.add();
         const head = UNIT_HEADS[u.kind]!;
-        if (pitch !== 0 || roll !== 0 || u.tumble) place(gun.matrices, k, u.x, u.y + bob + lift, u.z, u.h, pitch, roll, grown, grown, grown);
+        if (pitch !== 0 || roll !== 0 || u.tumble) place(gun.matrices, k, u.x, u.y + bob + lift, u.z, u.h, pitch, roll);
         else {
           const kick = head.recoil * Math.max(0, 1 - (now - u.firedAt) / 180);
           const [px, , pz] = head.pivot;
@@ -841,7 +852,7 @@ export class ArmyView {
           const ox = px * ch + pz * sh - (px * ca + pz * sa), oz = -px * sh + pz * ch - (-px * sa + pz * ca);
           // (Tipped with the hull as it rides, as near as matters.)
           const off = Math.cos(u.a - u.h);
-          place(gun.matrices, k, u.x + ox - sa * kick, u.y + bob + lift, u.z + oz - ca * kick, u.a, sway * off, lean * off, grown, grown, grown);
+          place(gun.matrices, k, u.x + ox - sa * kick, u.y + bob + lift, u.z + oz - ca * kick, u.a, sway * off, lean * off);
         }
         gunTrim.matrices.set(gun.matrices.subarray(k * 16, k * 16 + 16), t * 16);
         gunTrim.colors!.set([r, g, b, 1], t * 4);
@@ -856,7 +867,7 @@ export class ArmyView {
       // A Hauler on its way back shows what it mined: crystals heaped in its bed.
       if (u.kind === "hauler" && u.flags & F_LOADED && pitch === 0 && roll === 0) {
         const k = this.loads.add();
-        const back = -0.55, size = 0.34 * grown;
+        const back = -0.55, size = 0.34;
         place(this.loads.matrices, k, u.x + Math.sin(u.h) * back, u.y + 0.84, u.z + Math.cos(u.h) * back, u.h + u.id, 0, 0, size, size, size);
       }
     }

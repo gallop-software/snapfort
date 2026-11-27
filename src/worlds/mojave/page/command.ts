@@ -200,8 +200,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (!spot) return null;
     // On a building as it is drawn (a wall built on the ground by its foot is not a click on it).
     for (const b of army.buildings.values()) {
-      const [x0, , z0, x1, y1, z1] = buildingBox(b.kind, b.x, b.z);
-      if (spot[0] > x0 - 0.6 && spot[0] < x1 + 0.6 && spot[2] > z0 - 0.6 && spot[2] < z1 + 0.6 && spot[1] < y1 + 1.5) return { k: "building", b };
+      const [x0, y0, z0, x1, y1, z1] = buildingBox(b.kind, b.x, b.z, b.l ?? 0);
+      if (spot[0] > x0 - 0.6 && spot[0] < x1 + 0.6 && spot[2] > z0 - 0.6 && spot[2] < z1 + 0.6 && spot[1] < y1 + 1.5 && spot[1] > y0 - 0.5) return { k: "building", b };
     }
     if (spot[1] < 3) {
       for (const f of army.fields.values()) if (Math.abs(spot[0] - (f.cx + 0.5) * CELL) < CELL * 0.75 && Math.abs(spot[2] - (f.cz + 0.5) * CELL) < CELL * 0.75) return { k: "field", f };
@@ -487,16 +487,40 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
 
   // ── Buildings: where they go, what they make ───────────────────────────
 
-  /** The cell a building of this kind would go at, from the spot under the crosshair, and why it cannot (or ""). */
-  function placing(kind: BuildingKind): { cx: number; cz: number; why: string } | null {
+  /**
+   * The cell a building of this kind would go at, from the spot under the crosshair, and why it cannot (or ""). A
+   * turret aimed onto a floor goes up on it (`l`, the floor's storey); everything else stands on the ground.
+   */
+  function placing(kind: BuildingKind): { cx: number; cz: number; l: number; why: string } | null {
     const spot = aimSpot();
     if (!spot) return null;
     const def = BUILDINGS[kind];
     const cx = Math.round(spot[0] / CELL - def.size / 2), cz = Math.round(spot[2] / CELL - def.size / 2);
-    return { cx, cz, why: cannotBuild(kind, cx, cz) };
+    const up = Math.round(spot[1] / LEVEL);
+    const l = def.nearCore && spot[1] > LEVEL * 0.5 && game.build.occupant({ type: "floor", x: cx, y: up, z: cz, rot: 0 })?.type === "floor" ? up : 0;
+    return { cx, cz, l, why: cannotBuild(kind, cx, cz, l) };
   }
 
-  function cannotBuild(kind: BuildingKind, cx: number, cz: number): string {
+  /** As the server judges a turret going up on a floor (Sim.cannotRaise), after the price, reach and Core checks. */
+  function cannotRaise(kind: BuildingKind, cx: number, cz: number, l: number): string {
+    const def = BUILDINGS[kind];
+    const floor = game.build.occupant({ type: "floor", x: cx, y: l, z: cz, rot: 0 });
+    if (!floor || floor.type !== "floor") return "A turret goes up on a floor";
+    const whose = generals.find((g) => g.pids.includes(ownerPid(floor.id)));
+    if (whose && whose.slot !== slot) return "That floor is another army's";
+    for (const b of army.buildings.values()) if (b.x === cx && b.z === cz && (b.l ?? 0) > 0 && (b.l ?? 0) <= l && (b.l ?? 0) + Math.ceil(BUILDINGS[b.kind].height / LEVEL) > l) return "Something is in the way";
+    for (let y = l + 1; y < l + Math.ceil(def.height / LEVEL); y++) {
+      if (game.build.occupant({ type: "floor", x: cx, y, z: cz, rot: 0 }) || game.build.occupant({ type: "ramp", x: cx, y, z: cz, rot: 0 })) return "Something is built there";
+    }
+    const x0 = cx * CELL - 0.45, z0 = cz * CELL - 0.45, x1 = (cx + 1) * CELL + 0.45, z1 = (cz + 1) * CELL + 0.45, y0 = l * LEVEL - 0.5;
+    const on = (at: readonly [number, number, number] | null) => !!at && at[0] > x0 && at[0] < x1 && at[2] > z0 && at[2] < z1 && at[1] > y0 && at[1] < y0 + def.height + 1;
+    const p = game.player.position;
+    if (on([p.x, p.y, p.z])) return "You are standing there";
+    if (game.others().some((o) => generals.some((g) => g.pids.includes(o.id)) && !!o.position && sight.sees(o.position[0], o.position[2]) && on(o.position))) return "A general is standing there";
+    return "";
+  }
+
+  function cannotBuild(kind: BuildingKind, cx: number, cz: number, l = 0): string {
     const def = BUILDINGS[kind];
     const free = kind === "core" && bank.routed === 0;
     if (!free) {
@@ -511,6 +535,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const why = guardWhy((cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL, "turret");
       if (why) return why;
     }
+    if (l > 0) return cannotRaise(kind, cx, cz, l);
     if (kind === "tap") {
       const vent = [...army.fields.values()].find((f) => f.vent && f.cx === cx && f.cz === cz);
       if (!vent) return "A Tap goes on a plasma vent";
@@ -540,7 +565,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
   function taken(x: number, z: number, buildingsOnly: boolean): boolean {
     for (const b of army.buildings.values()) {
       const s = BUILDINGS[b.kind].size;
-      if (x >= b.x && x < b.x + s && z >= b.z && z < b.z + s) return true;
+      if (!b.l && x >= b.x && x < b.x + s && z >= b.z && z < b.z + s) return true;
     }
     if (buildingsOnly) return false;
     for (const f of army.fields.values()) if (f.cx === x && f.cz === z) return true;
@@ -580,7 +605,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       game.toast(at.why);
       return game.play("deny");
     }
-    send({ m: "build", kind, x: at.cx, z: at.cz });
+    send({ m: "build", kind, x: at.cx, z: at.cz, ...(at.l > 0 ? { l: at.l } : {}) });
     game.play("place");
     if (!shift()) setMode(null);
   }
@@ -1251,8 +1276,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         const c: [number, number, number] = at.why ? [1, 0.3, 0.25] : [0.4, 1, 0.5];
         const x = at.cx * CELL + size / 2, z = at.cz * CELL + size / 2;
         // The building itself, see-through, where it would stand; and its corners, so the square it takes is plain.
-        army.ghost(mode.kind, x, z, !at.why);
-        for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) army.mark(at.cx * CELL + dx * size, 0, at.cz * CELL + dz * size, 0.6, c);
+        army.ghost(mode.kind, x, z, !at.why, at.l);
+        for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) army.mark(at.cx * CELL + dx * size, at.l * LEVEL, at.cz * CELL + dz * size, 0.6, c);
         // A turret: how far from each Core it may go, dotted round on the ground.
         if (BUILDINGS[mode.kind].nearCore) guardRings();
         hint = at.why ? `<span class="bad">${at.why}</span>` : `<span class="ok">${BUILDINGS[mode.kind].label}: ${game.touch ? "tap Place" : "click"} to put it here</span>`;
@@ -1420,7 +1445,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     // Buildings stand still: as boxes, for the page's questions of what is solid (where to put a general down, say).
     solids() {
       const out: [number, number, number, number, number, number][] = [];
-      for (const b of army.buildings.values()) out.push(buildingBox(b.kind, b.x, b.z));
+      for (const b of army.buildings.values()) out.push(buildingBox(b.kind, b.x, b.z, b.l ?? 0));
       return out;
     },
     reports,

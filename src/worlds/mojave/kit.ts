@@ -1,3 +1,4 @@
+import { LEVEL } from "../../game/constants";
 /**
  * Mojave's kit: every unit and building a general can make, with its price,
  * strength and weapon. Plain data, shared by the server (which decides
@@ -148,14 +149,14 @@ export const BUILDINGS: Readonly<Record<BuildingKind, BuildingDef>> = {
   sentry: {
     label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 90, height: 4, wide: 2.2, needs: ["foundry"], nearCore: true,
     weapon: { range: 36, damage: 10, cooldown: 0.6, splash: 0, air: false, ground: true, wear: 0, look: "bullet" },
-    blurb: "Guards a spot against ground units",
+    blurb: "Guards a spot against ground units; can go up on a floor",
   },
   flak: {
     label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 100, height: 4, wide: 2.2, needs: ["foundry"], nearCore: true,
     weapon: { range: 48, damage: 16, cooldown: 0.7, splash: 0, air: true, ground: false, wear: 0, look: "bullet" },
-    blurb: "Guards a spot against drones",
+    blurb: "Guards a spot against drones; can go up on a floor",
   },
-  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 80, height: 6, wide: 2.2, needs: ["armory"], nearCore: true, advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
+  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 80, height: 6, wide: 2.2, needs: ["armory"], nearCore: true, advanced: true, blurb: "Shoots artillery shells out of the sky near it; can go up on a floor" },
 };
 
 /** What each building makes, in the order of its buttons. */
@@ -226,11 +227,11 @@ export const ROUTED_LITHIUM = 200;
 
 /**
  * The space a building in cells (cx, cz) fills as it is drawn, m: [x0, y0,
- * z0, x1, y1, z1], in the middle of its cells. (The very top, a mast's tip or
+ * z0, x1, y1, z1], in the middle of its cells, on storey `l` (a turret up on a floor). (The very top, a mast's tip or
  * a turret's barrel, is let through.)
  */
-export function buildingBox(kind: BuildingKind, cx: number, cz: number): [number, number, number, number, number, number] {
+export function buildingBox(kind: BuildingKind, cx: number, cz: number, l = 0): [number, number, number, number, number, number] {
   const def = BUILDINGS[kind];
-  const mx = (cx + def.size / 2) * 5, mz = (cz + def.size / 2) * 5, h = def.wide / 2;
-  return [mx - h, 0, mz - h, mx + h, def.height * 0.92, mz + h];
+  const mx = (cx + def.size / 2) * 5, mz = (cz + def.size / 2) * 5, h = def.wide / 2, y = l * LEVEL;
+  return [mx - h, y, mz - h, mx + h, y + def.height * 0.92, mz + h];
 }

@@ -849,16 +849,89 @@ describe("fighting", () => {
     expect(inside.dead).toBe(true);
   });
 
-  it("an army shoots out over its own walls", () => {
-    const { sim, b, run, piece } = twoSides();
+  it("an army's own walls stop its own shots: it never shoots them, and shoots out over them only from above", () => {
+    const { sim, b, run, piece, host } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
     for (let i = -2; i <= 2; i++) piece("pb", "wall", cx + i, 0, cz, 0);
     const keeper = sim.addUnit("trooper", b.slot, (cx + 0.5) * CELL, (cz + 1.5) * CELL);
     sim.command(b.slot, [keeper.id], { k: "hold" });
     const comer = sim.addUnit("hauler", NEUTRAL, (cx + 0.5) * CELL, (cz - 3) * CELL);
-    run(15);
+    run(10);
+    expect(comer.hp).toBe(UNITS.hauler.hp);
+    expect(host.worn).toHaveLength(0);
+    // A Sentry turret on the ground behind the same wall: stopped too.
+    sim.kill(keeper, false);
+    const low = sim.addBuilding("sentry", b.slot, cx + 1, cz, true);
+    run(6);
+    expect(comer.hp).toBe(UNITS.hauler.hp);
+    // Up on a floor over the wall, it shoots over it.
+    sim.scrap(b.slot, low.id);
+    const floor = piece("pb", "floor", cx - 1, 1, cz, 0);
+    const high = sim.addBuilding("sentry", b.slot, cx - 1, cz, true, 1);
+    expect(sim.centreOf(high)[1]).toBeCloseTo(LEVEL);
+    run(10);
     expect(comer.dead).toBe(true);
+    // The floor under it goes: it falls with it.
+    sim.build.apply({ kind: "remove", id: floor.id });
+    expect(high.dead).toBe(true);
+    expect(sim.buildings.has(high.id)).toBe(false);
+  });
+
+  it("floors and ramps are roofs: a drone cannot hit what is under one (it shoots the roof), nor what is under one hit a drone; a shell bursts on it", () => {
+    const { sim, a, b, run, piece, host } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    const roof = piece("pb", "floor", cx, 1, cz, 0);
+    const under = sim.addUnit("hauler", NEUTRAL, (cx + 0.5) * CELL, (cz + 0.5) * CELL);
+    const drone = sim.addUnit("gunship", a.slot, (cx + 0.5) * CELL, (cz - 4) * CELL);
+    sim.command(a.slot, [drone.id], { k: "attack", tk: T_UNIT, id: under.id });
+    run(4);
+    expect(under.hp).toBe(UNITS.hauler.hp);
+    expect(host.worn.some(([id]) => id === roof.id)).toBe(true);
+    sim.kill(drone, false);
+    // A Trooper under its army's roof never fires at a drone overhead nearby (nor the drone at it).
+    const keeper = sim.addUnit("trooper", b.slot, (cx + 0.5) * CELL, (cz + 0.5) * CELL + 1);
+    sim.command(b.slot, [keeper.id], { k: "hold" });
+    const flyer = sim.addUnit("gunship", a.slot, (cx + 0.5) * CELL + 8, (cz + 0.5) * CELL);
+    sim.command(a.slot, [flyer.id], { k: "hold" });
+    let atDrone = 0;
+    for (let i = 0; i < 40; i++) {
+      run(0.1);
+      for (const fired of sim.happened.shots) if (fired.by === keeper.id && fired.hit === flyer.id) atDrone++;
+      sim.happened = emptyHappened();
+    }
+    expect(atDrone).toBe(0);
+    expect(flyer.hp).toBe(UNITS.gunship.hp);
     expect(keeper.hp).toBe(UNITS.trooper.hp);
+    sim.kill(flyer, false);
+    sim.kill(keeper, false);
+    // Artillery: its shells burst on the roof, and the Hauler under it is sheltered.
+    // (The Trooper beside it shot it: it is a neutral's.)
+    host.worn.length = 0;
+    const before = under.hp;
+    expect(under.dead).toBe(false);
+    const gun = sim.addUnit("artillery", a.slot, (cx + 0.5) * CELL, (cz - 12) * CELL);
+    sim.command(a.slot, [gun.id], { k: "attack", tk: T_UNIT, id: under.id });
+    run(14);
+    expect(host.worn.some(([id]) => id === roof.id)).toBe(true);
+    expect(under.hp).toBe(before);
+  });
+
+  it("only a turret goes up on a floor, and only on one of its own army's", () => {
+    const { sim, a, b, piece } = twoSides();
+    const core = [...sim.buildings.values()].find((x) => x.owner === b.slot && x.kind === "core")!;
+    const c = sim.centreOf(core);
+    const fx = Math.floor(c[0] / CELL) + 5, fz = Math.floor(c[2] / CELL);
+    piece("pb", "floor", fx, 1, fz, 0);
+    piece("pa", "floor", fx, 1, fz + 1, 0);
+    expect(sim.cannotBuild(b.slot, "foundry", fx, fz, true, 1)).toBe("Only turrets go up on a floor");
+    expect(sim.cannotBuild(b.slot, "sentry", fx + 1, fz, true, 1)).toBe("A turret goes up on a floor");
+    expect(sim.cannotBuild(b.slot, "sentry", fx, fz + 1, true, 1)).toBe("That floor is another army's");
+    expect(sim.cannotBuild(b.slot, "sentry", fx, fz, true, 1)).toBe("");
+    sim.addBuilding("sentry", b.slot, fx, fz, true, 1);
+    expect(sim.cannotBuild(b.slot, "flak", fx, fz, true, 1)).toBe("Something is in the way");
+    // A floor over it, as high as it stands, would cut into it.
+    expect(sim.blocks({ id: "pb-x", type: "floor", x: fx, y: 2, z: fz, rot: 0, material: "wood", edit: 0 } as Piece)).toBe(true);
+    expect(a.slot).not.toBe(b.slot);
   });
 
   it("a laser shoots a shell out of the sky; an EMP stops what it hits", () => {

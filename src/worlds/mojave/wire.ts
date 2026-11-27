@@ -24,6 +24,8 @@ export interface WireBuilding {
   o: number;
   x: number;
   z: number;
+  /** The storey it stands on, when it is a turret up on a floor (none: the ground). */
+  l?: number;
   /** Health, 0..100. */
   h: number;
   /** Seconds until it has printed itself (0: finished), and how long that takes in all. */
@@ -106,7 +108,7 @@ export type ToServer =
   | { m: "order"; ids: number[]; k: "patrol"; at: WireSpot; back?: WireSpot; q?: boolean }
   | { m: "order"; ids: number[]; k: "attack"; on: WireTarget; q?: boolean }
   | { m: "order"; ids: number[]; k: "load"; into: number; q?: boolean }
-  | { m: "build"; kind: BuildingKind; x: number; z: number }
+  | { m: "build"; kind: BuildingKind; x: number; z: number; l?: number }
   | { m: "make"; id: number; kind: UnitKind; n?: number }
   | { m: "cancel"; id: number }
   | { m: "research"; id: number; kind: UpgradeKind }

@@ -1,5 +1,5 @@
 import type { BuildState } from "../../game/buildState";
-import { CELL, LEVEL, THICK } from "../../game/constants";
+import { CELL, LEVEL, MAX_LEVEL, THICK } from "../../game/constants";
 import type { Environment } from "../../game/environments";
 import { gridBox, type Piece } from "../../game/pieces";
 import { distanceToPiece, type Vec } from "../../game/trebuchet";
@@ -81,6 +81,10 @@ const HAULER_CROWD = 25;
 const GENERAL_RADIUS = 0.6;
 /** Shells fly this fast, m/s (never there in under a second: time to see it coming). */
 const SHELL_SPEED = 45;
+/** The storey a drone's shots leave from and arrive at, for lines of fire: above every roof. */
+const SKY = 1 << 12;
+/** The footprint key of a building's cell: on the ground, or up on a floor (a turret). */
+const cellKey = (x: number, z: number, l = 0) => (l > 0 ? `${x},${z},${l}` : `${x},${z}`);
 
 /**
  * One of the eight armies. (Called a general from when each army had one:
@@ -238,6 +242,8 @@ export interface Building {
   /** The low corner of its footprint. */
   cx: number;
   cz: number;
+  /** The storey it stands on: 0 the ground, more a turret up on a floor (it falls when the floor goes). */
+  l: number;
   hp: number;
   /** When it finishes printing itself (0: finished). */
   doneAt: number;
@@ -363,6 +369,13 @@ export class Sim {
       // (Low on the ground: no way through, but shots pass over.)
       this.nav.fill(f.cx, f.cz, 1, true, false);
     }
+    // A turret up on a floor falls (and is destroyed) when the floor goes: worn down, taken down, or fallen.
+    build.subscribe((op, piece) => {
+      if (op.kind !== "remove" || piece.type !== "floor" || piece.y <= 0) return;
+      const id = this.footprint.get(cellKey(piece.x, piece.z, piece.y));
+      const b = id === undefined ? undefined : this.buildings.get(id);
+      if (b && !b.dead) this.raze(b, false);
+    });
     this.posts = sentryPosts().map(([x, z]) => ({ x, z, unit: 0, deadAt: -1e9 }));
     // (Nobody is near anybody yet.)
     this.head.fill(-1);
@@ -579,7 +592,14 @@ export class Sim {
     const taken = (x: number, z: number) => {
       const id = this.footprint.get(`${x},${z}`);
       const b = id === undefined ? undefined : this.buildings.get(id);
-      return (!!b && y0 < Math.ceil(BUILDINGS[b.kind].height / LEVEL)) || (y0 < 1 && this.fieldAt.has(`${x},${z}`));
+      if ((!!b && y0 < Math.ceil(BUILDINGS[b.kind].height / LEVEL)) || (y0 < 1 && this.fieldAt.has(`${x},${z}`))) return true;
+      // A turret up on a floor: the storeys it stands up through (the floor it stands on is below them).
+      for (let l = Math.max(1, y0 - 2); l <= y0; l++) {
+        const up = this.footprint.get(cellKey(x, z, l));
+        const t = up === undefined ? undefined : this.buildings.get(up);
+        if (t && y0 >= l && y0 < l + Math.ceil(BUILDINGS[t.kind].height / LEVEL)) return true;
+      }
+      return false;
     };
     // A wall stands on the edge between two cells: it cuts in only when both are taken.
     if (piece.type === "wall") return piece.rot % 2 === 0 ? taken(x0, z0 - 1) && taken(x0, z0) : taken(x0 - 1, z0) && taken(x0, z0);
@@ -589,7 +609,7 @@ export class Sim {
   // ── Buildings ──────────────────────────────────────────────────────────
 
   /** Why a general cannot put this building here, or "" when they can. */
-  cannotBuild(slot: number, kind: BuildingKind, cx: number, cz: number, free = false): string {
+  cannotBuild(slot: number, kind: BuildingKind, cx: number, cz: number, free = false, l = 0): string {
     const g = this.generals[slot];
     const def = BUILDINGS[kind];
     if (!g || !def) return "Not now";
@@ -604,6 +624,7 @@ export class Sim {
       const why = this.guardWhy(slot, (cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL, "turret");
       if (why) return why;
     }
+    if (l > 0) return this.cannotRaise(slot, kind, cx, cz, l);
     if (kind === "tap") {
       const f = this.fieldAt.get(`${cx},${cz}`);
       if (!f || f.kind !== "vent") return "A Tap goes on a plasma vent";
@@ -634,10 +655,38 @@ export class Sim {
     return "";
   }
 
+  /**
+   * Why a turret cannot go up on the floor at storey `l` of a cell (or ""): only a turret goes up, on a floor of its
+   * own army's (or nobody's), with nothing on it and nothing over it as high as it stands, and no general there.
+   */
+  private cannotRaise(slot: number, kind: BuildingKind, cx: number, cz: number, l: number): string {
+    const def = BUILDINGS[kind];
+    if (!def.nearCore || def.size !== 1) return "Only turrets go up on a floor";
+    if (!Number.isInteger(l) || l < 1 || l > MAX_LEVEL) return "Not there";
+    const floor = this.build.occupant({ type: "floor", x: cx, y: l, z: cz, rot: 0 });
+    if (!floor || floor.type !== "floor") return "A turret goes up on a floor";
+    const whose = this.ownerOfPiece(floor.id);
+    if (whose !== NO_OWNER && whose !== slot && this.hostile(slot, whose)) return "That floor is another army's";
+    if (this.footprint.has(cellKey(cx, cz, l)) || this.nav.rampAt(l, cx, cz) >= 0) return "Something is in the way";
+    for (let y = l + 1; y < l + Math.ceil(def.height / LEVEL); y++) {
+      if (this.build.occupant({ type: "floor", x: cx, y, z: cz, rot: 0 }) || this.build.occupant({ type: "ramp", x: cx, y, z: cz, rot: 0 })) return "Something is built there";
+    }
+    // (Nor another turret on the floor below reaching up to this one.)
+    for (let y = Math.max(1, l - 2); y < l; y++) if (this.footprint.has(cellKey(cx, cz, y))) return "Something is built there";
+    const x0 = cx * CELL - 0.45, z0 = cz * CELL - 0.45, x1 = (cx + 1) * CELL + 0.45, z1 = (cz + 1) * CELL + 0.45, y0 = l * LEVEL - 0.5;
+    for (const other of this.generals) {
+      for (const pid of other?.here ?? []) {
+        const at = this.host.positionOf(pid);
+        if (at && at[0] > x0 && at[0] < x1 && at[2] > z0 && at[2] < z1 && at[1] > y0 && at[1] < y0 + def.height + 1) return "A general is standing there";
+      }
+    }
+    return "";
+  }
+
   /** Every building standing, as it is drawn (for the shared rules' questions: a builder thrown, a stone). */
   solidBoxes(): [number, number, number, number, number, number][] {
     const out: [number, number, number, number, number, number][] = [];
-    for (const b of this.buildings.values()) if (!b.dead) out.push(buildingBox(b.kind, b.cx, b.cz));
+    for (const b of this.buildings.values()) if (!b.dead) out.push(buildingBox(b.kind, b.cx, b.cz, b.l));
     return out;
   }
 
@@ -647,10 +696,10 @@ export class Sim {
   }
 
   /** A general puts a building down (`by`: which builder, who must be near): paid for, it stands there finished at once. */
-  orderBuilding(slot: number, kind: BuildingKind, cx: number, cz: number, by: string | null = null): string {
+  orderBuilding(slot: number, kind: BuildingKind, cx: number, cz: number, by: string | null = null, l = 0): string {
     const g = this.generals[slot];
     if (!g) return "Not now";
-    const why = this.cannotBuild(slot, kind, cx, cz);
+    const why = this.cannotBuild(slot, kind, cx, cz, false, l);
     if (why) return why;
     const def = BUILDINGS[kind];
     if (by) {
@@ -662,22 +711,22 @@ export class Sim {
       const short = this.pay(g, def.lithium, def.plasma);
       if (short) return short;
     } else g.lithium = Math.max(g.lithium, ROUTED_LITHIUM);
-    this.addBuilding(kind, slot, cx, cz, true);
+    this.addBuilding(kind, slot, cx, cz, true, l);
     return "";
   }
 
-  addBuilding(kind: BuildingKind, owner: number, cx: number, cz: number, finished: boolean): Building {
+  addBuilding(kind: BuildingKind, owner: number, cx: number, cz: number, finished: boolean, l = 0): Building {
     const def = BUILDINGS[kind];
     const b: Building = {
-      id: this.nextBuilding++, kind, owner, cx, cz, hp: finished ? def.hp : def.hp * 0.1, doneAt: finished ? 0 : this.t + def.time, startedAt: this.t,
+      id: this.nextBuilding++, kind, owner, cx, cz, l, hp: finished ? def.hp : def.hp * 0.1, doneAt: finished ? 0 : this.t + def.time, startedAt: this.t,
       queue: [], research: null, rally: null, field: kind === "tap" ? (this.fieldAt.get(`${cx},${cz}`)?.id ?? 0) : 0, tk: 0, tid: 0, coolAt: 0, stunUntil: 0, rev: 1, dead: false,
     };
     this.buildings.set(b.id, b);
-    for (let x = cx; x < cx + def.size; x++) for (let z = cz; z < cz + def.size; z++) this.footprint.set(`${x},${z}`, b.id);
-    this.nav.fill(cx, cz, def.size, true);
+    for (let x = cx; x < cx + def.size; x++) for (let z = cz; z < cz + def.size; z++) this.footprint.set(cellKey(x, z, l), b.id);
+    this.nav.fill(cx, cz, def.size, true, true, l);
     // Whoever stands where it goes is moved out of the way.
     for (const u of this.units) {
-      if (u.dead || UNITS[u.kind].air || u.inside || u.cx < cx || u.cx >= cx + def.size || u.cz < cz || u.cz >= cz + def.size) continue;
+      if (u.dead || UNITS[u.kind].air || u.inside || u.level !== l || u.cx < cx || u.cx >= cx + def.size || u.cz < cz || u.cz >= cz + def.size) continue;
       this.putOnGround(u, u.x, u.z);
     }
     const g = this.generals[owner];
@@ -709,9 +758,9 @@ export class Sim {
     b.dead = true;
     const def = BUILDINGS[b.kind];
     this.buildings.delete(b.id);
-    for (let x = b.cx; x < b.cx + def.size; x++) for (let z = b.cz; z < b.cz + def.size; z++) this.footprint.delete(`${x},${z}`);
+    for (let x = b.cx; x < b.cx + def.size; x++) for (let z = b.cz; z < b.cz + def.size; z++) this.footprint.delete(cellKey(x, z, b.l));
     // (A vent stays a vent under a Tap that has gone.)
-    if (b.kind !== "tap") this.nav.fill(b.cx, b.cz, def.size, false);
+    if (b.kind !== "tap") this.nav.fill(b.cx, b.cz, def.size, false, true, b.l);
     this.happened.gone.push({ unit: false, id: b.id, at: this.centreOf(b), kind: b.kind, owner: b.owner, left });
     // Its army's Haulers on their way to crystals for it choose again: those near another Core now.
     if (b.kind === "core") {
@@ -740,7 +789,7 @@ export class Sim {
 
   centreOf(b: Building): Vec {
     const half = (BUILDINGS[b.kind].size * CELL) / 2;
-    return [b.cx * CELL + half, 0, b.cz * CELL + half];
+    return [b.cx * CELL + half, b.l * LEVEL, b.cz * CELL + half];
   }
 
   /** Orders units from a building: paid for now, made in turn. Returns "" or why not. */
@@ -1680,7 +1729,7 @@ export class Sim {
 
   /** Whether the target it has is one to shoot now, one to go and get a shot at, or one to let go. */
   private judge(u: Unit, def: UnitDef, w: Weapon, range: number, acquire: number, roam: boolean, ordered: boolean): "fire" | "close" | "none" {
-    const ok = this.canHit(u.x, u.z, u.level, !!def.air, u.owner, w, range, u.tk as TargetKind, u.tid, ordered);
+    const ok = this.canHit(u.x, u.z, def.air ? SKY : u.level, !!def.air, u.owner, w, range, u.tk as TargetKind, u.tid, ordered);
     if (ok === "ok") return "fire";
     if (ok === "far" && (ordered || (roam && this.worthChasing(u, w, acquire)))) return "close";
     this.pledge(u, w, -1);
@@ -1771,7 +1820,7 @@ export class Sim {
         if (d > acquire || (min && d < min)) continue;
         if (u.home && Math.hypot(c[0] - u.home[0], c[2] - u.home[1]) > leash) continue;
         if (this.gaveUp(u, T_BUILDING, b.id)) continue;
-        found.push({ tk: T_BUILDING, tid: b.id, score: this.scoreOf(u, w, range, T_BUILDING, b.id, false), d, x: c[0], z: c[2], l: 0, flying: false });
+        found.push({ tk: T_BUILDING, tid: b.id, score: this.scoreOf(u, w, range, T_BUILDING, b.id, false), d, x: c[0], z: c[2], l: b.l, flying: false });
       }
     }
     if (found.length === 0) return null;
@@ -1779,7 +1828,7 @@ export class Sim {
     // Of those it could shoot from here, one with a clear line is better than one behind a wall (which it would have to break first).
     for (const f of found.slice(0, 4)) {
       const slack = f.tk === T_BUILDING ? (BUILDINGS[this.buildings.get(f.tid as number)!.kind].size * CELL) / 2 : 0;
-      const blocked = !f.flying && f.d <= range && !this.lineOfFire(u.x, u.z, f.x, f.z, Math.max(u.level, f.l), slack, u.owner, !!w.lob || air);
+      const blocked = f.d <= range && !this.lineOfFire(u.x, u.z, air ? SKY : u.level, f.x, f.z, f.flying ? SKY : f.l, slack, !!w.lob || air || f.flying);
       if (!blocked) return f;
       f.score += 0.4;
     }
@@ -1788,28 +1837,57 @@ export class Sim {
   }
 
   /**
-   * After `canHit` said "ok": the wall that stands between, which the shot
-   * hits instead of the target (null: nothing between, the target is hit).
+   * After `canHit` said "ok": the wall (or floor, or ramp) that stands
+   * between, which the shot hits instead of the target (null: nothing
+   * between, the target is hit).
    */
   private shotWall: string | null = null;
+  /** After a `lineOfFire` that a piece stopped: that piece (a wall, a floor or a ramp) and whose it is; null when it was a building, or nothing. */
+  private lineBlock: { id: string; owner: number } | null = null;
 
   /**
-   * Whether a shot from a spot reaches something on the ground: no wall but
-   * the shooter's own stands between (an army shoots out over its own walls,
-   * never in over another's). A straight shot from the ground is stopped by a
-   * building too; a shell in an arc, a drone and a turret (`over`) go over
-   * buildings, never through a wall.
+   * Whether a shot from a spot on one storey reaches a spot on another (SKY:
+   * in the air). Every wall stops it, whoever built it: walls are shields both
+   * ways, so an army behind its own wall shoots out only from above it (they
+   * are looked for on the higher end's storey). Floors and ramps are shields
+   * too: a shot between two heights is stopped by one over its lower end,
+   * below the higher (a roof shelters from a drone, and from a unit up on a
+   * deck). A straight shot from the ground is stopped by a building too; a
+   * shell in an arc, a drone and a turret (`over`) go over buildings. The
+   * piece that stops it is noted in `lineBlock`.
    */
-  private lineOfFire(x: number, z: number, tx: number, tz: number, level: number, slack: number, owner: number, over: boolean): boolean {
-    return this.nav.clearLine(x, z, tx, tz, level, slack, owner, over);
+  private lineOfFire(x: number, z: number, fl: number, tx: number, tz: number, tl: number, slack: number, over: boolean): boolean {
+    this.lineBlock = null;
+    // Walls: on the storey of the higher end that is not in the air (in the air, both: none to cross).
+    const wl = Math.max(fl === SKY ? -1 : fl, tl === SKY ? -1 : tl);
+    if (wl >= 0 && !this.nav.clearLine(x, z, tx, tz, wl, slack, -1, over)) {
+      const lw = this.nav.lineWall;
+      const wall = lw ? this.build.occupant({ type: "wall", x: lw.x, y: lw.l, z: lw.z, rot: lw.rot }) : null;
+      if (wall) this.lineBlock = { id: wall.id, owner: lw!.owner };
+      return false;
+    }
+    // A roof over the lower end.
+    if (fl !== tl) {
+      const low = fl < tl;
+      const r = this.nav.roofOver(low ? x : tx, low ? z : tz, Math.min(fl, tl), Math.max(fl, tl));
+      if (r >= 0) {
+        const cx = Math.floor((low ? x : tx) / CELL), cz = Math.floor((low ? z : tz) / CELL);
+        const roof = this.build.occupant({ type: "floor", x: cx, y: r, z: cz, rot: 0 }) ?? this.build.occupant({ type: "ramp", x: cx, y: r, z: cz, rot: 0 });
+        if (roof) this.lineBlock = { id: roof.id, owner: Math.min(NO_OWNER, this.ownerOfPiece(roof.id)) };
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
-   * Whether a weapon at a spot can hit a target now: "ok", "far" (out of range
-   * or no line), or "gone". Behind a wall of the enemy's that the weapon can
-   * wear, "ok": the wall is hit first (see `shotWall`).
+   * Whether a weapon at a spot (`level`: its storey, SKY for a drone; `over`:
+   * it shoots over buildings, a drone or a turret) can hit a target now:
+   * "ok", "far" (out of range or no line), or "gone". Behind a wall, floor or
+   * ramp of the enemy's (or nobody's) that the weapon can wear, "ok": that is
+   * hit first (see `shotWall`). Its own army's never is.
    */
-  private canHit(x: number, z: number, level: number, air: boolean, owner: number, w: Weapon, range: number, tk: TargetKind, tid: number | string, ordered: boolean): "ok" | "far" | "gone" {
+  private canHit(x: number, z: number, level: number, over: boolean, owner: number, w: Weapon, range: number, tk: TargetKind, tid: number | string, ordered: boolean): "ok" | "far" | "gone" {
     this.shotWall = null;
     let tx: number, tz: number, tl = 0, slack = 0, flying = false;
     if (tk === T_UNIT) {
@@ -1820,12 +1898,13 @@ export class Sim {
       if (flying ? !w.air : !w.ground) return "gone";
       tx = t.x;
       tz = t.z;
-      tl = t.level;
+      tl = flying ? SKY : t.level;
     } else if (tk === T_BUILDING) {
       const b = this.buildings.get(tid as number);
       if (!b || b.dead || !w.ground) return "gone";
       if (!ordered && !this.hostile(owner, b.owner)) return "gone";
       [tx, , tz] = this.centreOf(b);
+      tl = b.l;
       slack = (BUILDINGS[b.kind].size * CELL) / 2;
     } else if (tk === T_GENERAL) {
       // A general is never hit: no gun ever shoots at one.
@@ -1840,22 +1919,20 @@ export class Sim {
     }
     const d = Math.hypot(tx - x, tz - z) - slack;
     if (d > range || (w.minRange && d < w.minRange)) return "far";
-    // Anything on the ground needs a line with no wall of another's on it (see lineOfFire); drones in the air do not.
-    if (!flying && !this.lineOfFire(x, z, tx, tz, Math.max(level, tl), slack, owner, !!w.lob || air)) {
-      // A wall of the enemy's in the way, that this weapon wears: that is what it shoots, until it is down.
-      const lw = this.nav.lineWall;
-      // (A wall nobody's army holds any more is anyone's to break.)
-      if (!lw || w.wear <= 0 || (lw.owner !== NO_OWNER && !this.hostile(owner, lw.owner))) return "far";
-      const wall = this.build.occupant({ type: "wall", x: lw.x, y: lw.l, z: lw.z, rot: lw.rot });
-      const at = wall ? this.spotOf(T_PIECE, wall.id) : null;
-      if (!wall || !at || (w.minRange && Math.hypot(at[0] - x, at[1] - z) < w.minRange)) return "far";
-      this.shotWall = wall.id;
+    if (!this.lineOfFire(x, z, level, tx, tz, tl, slack, !!w.lob || over || flying)) {
+      // A piece of the enemy's in the way, that this weapon wears: that is what it shoots, until it is down.
+      const lb = this.lineBlock;
+      // (One nobody's army holds any more is anyone's to break.)
+      if (!lb || w.wear <= 0 || (lb.owner !== NO_OWNER && !this.hostile(owner, lb.owner))) return "far";
+      const at = this.spotOf(T_PIECE, lb.id);
+      if (!at || (w.minRange && Math.hypot(at[0] - x, at[1] - z) < w.minRange)) return "far";
+      this.shotWall = lb.id;
     }
     return "ok";
   }
 
-  /** The nearest enemy a weapon at a spot can hit, or null. */
-  private findTarget(x: number, z: number, level: number, air: boolean, owner: number, w: Weapon, range: number): [TargetKind, number] | null {
+  /** The nearest enemy a weapon at a spot (as `canHit`) can hit with a clear line, or null. */
+  private findTarget(x: number, z: number, level: number, over: boolean, owner: number, w: Weapon, range: number): [TargetKind, number] | null {
     let best: [TargetKind, number] | null = null, bestD = range * range;
     const min2 = (w.minRange ?? 0) ** 2;
     this.nearby(x, z, range, (o) => {
@@ -1864,7 +1941,7 @@ export class Sim {
       if (flying ? !w.air : !w.ground) return;
       const d = dist2(x, z, o.x, o.z);
       if (d >= bestD || d < min2) return;
-      if (!flying && !this.lineOfFire(x, z, o.x, o.z, Math.max(level, o.level), 0, owner, !!w.lob || air)) return;
+      if (!this.lineOfFire(x, z, level, o.x, o.z, flying ? SKY : o.level, 0, !!w.lob || over || flying)) return;
       bestD = d;
       best = [T_UNIT, o.id];
     });
@@ -1874,7 +1951,7 @@ export class Sim {
       const c = this.centreOf(b);
       const d = Math.max(0, Math.hypot(c[0] - x, c[2] - z) - (BUILDINGS[b.kind].size * CELL) / 2);
       if (d * d >= bestD || d * d < min2) continue;
-      if (!this.lineOfFire(x, z, c[0], c[2], level, (BUILDINGS[b.kind].size * CELL) / 2, owner, !!w.lob || air)) continue;
+      if (!this.lineOfFire(x, z, level, c[0], c[2], b.l, (BUILDINGS[b.kind].size * CELL) / 2, !!w.lob || over)) continue;
       bestD = d * d;
       best = [T_BUILDING, b.id];
     }
@@ -1887,7 +1964,9 @@ export class Sim {
     if (!spot) return;
     const g = this.generals[owner];
     const damage = w.damage * (1 + (g?.upgrades.weapons ?? 0) * UPGRADE_STEP);
-    const ty = tk === T_UNIT ? (this.unitById.get(tid as number)?.y ?? 0) + 1 : tk === T_BUILDING ? 2 : 1.5;
+    const piece = tk === T_PIECE ? this.build.get(tid as string) : undefined;
+    // (A wall is hit at chest height, a floor or ramp at its top: a roof a shell bursts on shelters those under it.)
+    const ty = tk === T_UNIT ? (this.unitById.get(tid as number)?.y ?? 0) + 1 : tk === T_BUILDING ? (this.buildings.get(tid as number)?.l ?? 0) * LEVEL + 2 : (piece?.y ?? 0) * LEVEL + (piece?.type === "wall" ? 1.5 : 0.6);
     const to: Vec = [spot[0], ty, spot[1]];
     if (tk === T_PIECE) {
       // A wall is hit on the face toward the shooter: what it blows up is on that side, and those behind are sheltered.
@@ -1900,7 +1979,7 @@ export class Sim {
     if (w.lob) {
       const time = Math.max(1, Math.hypot(to[0] - from[0], to[2] - from[2]) / SHELL_SPEED);
       this.shells.push({ x: to[0], z: to[2], landAt: this.t + time, owner, weapon: w, damage });
-      this.happened.shots.push({ from, to: [to[0], 0, to[2]], look: w.look, time, owner, hit: 0, by });
+      this.happened.shots.push({ from, to: [to[0], this.nav.topRoof(to[0], to[2]) * LEVEL, to[2]], look: w.look, time, owner, hit: 0, by });
       return;
     }
     this.happened.shots.push({ from, to, look: w.look, time: 0, owner, hit: tk === T_UNIT ? (tid as number) : tk === T_BUILDING ? -(tid as number) : 0, by });
@@ -1917,7 +1996,10 @@ export class Sim {
   /** A blast: everything of the enemy's near it is hurt (less at its edge) and thrown, and pieces are worn. Generals are never touched. */
   blast(at: Vec, radius: number, damage: number, owner: number, w: Pick<Weapon, "air" | "ground" | "wear">): void {
     this.happened.blasts.push({ at, radius });
-    const air = at[1] > FLIGHT_HEIGHT / 2;
+    // (In the air: well above the ground, and above any roof there a shell may have burst on.)
+    const air = at[1] > FLIGHT_HEIGHT / 2 && at[1] > this.nav.topRoof(at[0], at[2]) * LEVEL + 2;
+    // (The storey it bursts on: the ground, or a floor a shell came down on.)
+    const storey = Math.max(0, Math.round((at[1] - 0.5) / LEVEL));
     this.nearby(at[0], at[2], radius + 4, (o) => {
       if (o.dead || o.inside || (owner !== -1 && !this.hostile(owner, o.owner))) return;
       const def = UNITS[o.kind];
@@ -1925,8 +2007,8 @@ export class Sim {
       if (!!def.air !== air) return;
       const d = Math.hypot(o.x - at[0], o.z - at[2]) - def.radius;
       if (d > radius) return;
-      // A wall between shelters from the blast (one in the air has nothing between).
-      if (!air && !this.nav.clearLine(at[0], at[2], o.x, o.z, o.level, 0, owner, true)) return;
+      // A wall, floor or ramp between shelters from the blast, whoever's (one in the air has nothing between).
+      if (!air && !this.lineOfFire(at[0], at[2], storey, o.x, o.z, o.level, 0, true)) return;
       const near = 1 - 0.6 * Math.max(0, d / radius);
       this.hurtUnit(o, damage * near, owner, at[0], at[2]);
       if (!o.dead && !def.air) this.throwUnit(o, at, near, damage);
@@ -1936,7 +2018,7 @@ export class Sim {
       if (b.dead || (owner !== -1 && !this.hostile(owner, b.owner))) continue;
       const c = this.centreOf(b);
       const d = Math.max(0, Math.hypot(c[0] - at[0], c[2] - at[2]) - (BUILDINGS[b.kind].size * CELL) / 2);
-      if (d <= radius && this.nav.clearLine(at[0], at[2], c[0], c[2], 0, (BUILDINGS[b.kind].size * CELL) / 2, owner, true)) this.hurtBuilding(b, damage * (1 - 0.6 * (d / radius)), owner);
+      if (d <= radius && this.lineOfFire(at[0], at[2], storey, c[0], c[2], b.l, (BUILDINGS[b.kind].size * CELL) / 2, true)) this.hurtBuilding(b, damage * (1 - 0.6 * (d / radius)), owner);
     }
     if (w.wear > 0) {
       const seen = new Set<string>();
@@ -2050,11 +2132,12 @@ export class Sim {
         const c = this.centreOf(b);
         if (Math.hypot(c[0] - s.x, c[2] - s.z) > 30) continue;
         b.coolAt = this.t + 3;
-        this.happened.zaps.push({ from: [c[0], BUILDINGS.laser.height, c[2]], to: [s.x, 9, s.z] });
+        this.happened.zaps.push({ from: [c[0], c[1] + BUILDINGS.laser.height, c[2]], to: [s.x, c[1] + 9, s.z] });
         zapped = true;
         break;
       }
-      if (!zapped) this.blast([s.x, 0.5, s.z], s.weapon.splash, s.damage, s.owner, s.weapon);
+      // It bursts on whatever is highest where it comes down: a roof over those under it (which it wears), or the ground.
+      if (!zapped) this.blast([s.x, this.nav.topRoof(s.x, s.z) * LEVEL + 0.5, s.z], s.weapon.splash, s.damage, s.owner, s.weapon);
     }
   }
 
@@ -2065,12 +2148,13 @@ export class Sim {
     const c = this.centreOf(b);
     let wall: string | null = null;
     if (b.tk) {
-      if (this.canHit(c[0], c[2], 0, true, b.owner, w, w.range, b.tk, b.tid, false) !== "ok") b.tk = 0;
+      if (this.canHit(c[0], c[2], b.l, true, b.owner, w, w.range, b.tk, b.tid, false) !== "ok") b.tk = 0;
       else wall = this.shotWall;
     }
     if (!b.tk && (this.step + b.id) % 3 === 0) {
-      // (A turret stands above buildings and shoots out over its own army's walls: only another's wall stops it.)
-      const found = this.findTarget(c[0], c[2], 0, true, b.owner, w, w.range);
+      // (A turret stands above buildings and shoots over them; every wall stops it, its own army's too. Up on a floor,
+      // it shoots over the walls below.)
+      const found = this.findTarget(c[0], c[2], b.l, true, b.owner, w, w.range);
       if (found) {
         b.tk = found[0];
         b.tid = found[1];
@@ -2078,8 +2162,8 @@ export class Sim {
     }
     if (b.tk && this.t >= b.coolAt) {
       b.coolAt = this.t + w.cooldown;
-      if (wall) this.shoot([c[0], BUILDINGS[b.kind].height * 0.8, c[2]], b.owner, w, T_PIECE, wall);
-      else this.shoot([c[0], BUILDINGS[b.kind].height * 0.8, c[2]], b.owner, w, b.tk, b.tid);
+      if (wall) this.shoot([c[0], c[1] + BUILDINGS[b.kind].height * 0.8, c[2]], b.owner, w, T_PIECE, wall);
+      else this.shoot([c[0], c[1] + BUILDINGS[b.kind].height * 0.8, c[2]], b.owner, w, b.tk, b.tid);
     }
   }
 
@@ -2536,6 +2620,12 @@ export class Sim {
         top = Math.max(top, this.nav.pieceTop(cx, cz));
         const b = this.footprint.get(`${cx},${cz}`);
         if (b !== undefined) top = Math.max(top, BUILDINGS[this.buildings.get(b)?.kind ?? "tap"].height);
+        // (A turret up on a floor stands on the floor's top, which pieceTop has counted.)
+        const pieces = this.nav.pieceTop(cx, cz);
+        for (let l = 1; l <= pieces / LEVEL + 0.5; l++) {
+          const t = this.footprint.get(cellKey(cx, cz, l));
+          if (t !== undefined) top = Math.max(top, l * LEVEL + BUILDINGS[this.buildings.get(t)?.kind ?? "tap"].height);
+        }
       }
     }
     return Math.max(FLIGHT_HEIGHT, top + def.height + 2);
@@ -2785,10 +2875,13 @@ export class Sim {
         if (!BUILDING_KINDS.includes(b.kind)) continue;
         // (Buildings stand finished at once now: one saved while it was printing is done.)
         b.doneAt = 0;
+        // (Saved before turrets went up on floors: on the ground. One whose floor has gone since, gone with it.)
+        b.l ??= 0;
+        if (b.l > 0 && !this.build.occupant({ type: "floor", x: b.cx, y: b.l, z: b.cz, rot: 0 })) continue;
         this.buildings.set(b.id, b);
         const size = BUILDINGS[b.kind].size;
-        for (let x = b.cx; x < b.cx + size; x++) for (let z = b.cz; z < b.cz + size; z++) this.footprint.set(`${x},${z}`, b.id);
-        this.nav.fill(b.cx, b.cz, size, true);
+        for (let x = b.cx; x < b.cx + size; x++) for (let z = b.cz; z < b.cz + size; z++) this.footprint.set(cellKey(x, z, b.l), b.id);
+        this.nav.fill(b.cx, b.cz, size, true, true, b.l);
       }
       for (const u of s.units) {
         if (!UNIT_KINDS.includes(u.kind)) continue;

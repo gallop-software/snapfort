@@ -362,7 +362,7 @@ function flagsOf(sim: Sim, u: Unit): number {
 function wireBuilding(sim: Sim, b: Building): WireBuilding {
   const def = BUILDINGS[b.kind];
   return {
-    i: b.id, k: BUILDING_KINDS.indexOf(b.kind), o: b.owner, x: b.cx, z: b.cz, h: Math.max(1, Math.round((b.hp / def.hp) * 100)),
+    i: b.id, k: BUILDING_KINDS.indexOf(b.kind), o: b.owner, x: b.cx, z: b.cz, ...(b.l > 0 ? { l: b.l } : {}), h: Math.max(1, Math.round((b.hp / def.hp) * 100)),
     d: b.doneAt === 0 ? 0 : Math.max(0.1, Math.round((b.doneAt - sim.t) * 10) / 10),
     q: b.queue.map((q) => UNIT_KINDS.indexOf(q.kind)), ql: b.queue[0] ? Math.round(b.queue[0].left * 10) / 10 : 0,
     r: b.research ? UPGRADES.indexOf(b.research.kind) + 1 : 0, rl: b.research ? Math.round(b.research.left) : 0,
@@ -542,7 +542,9 @@ export function warMessage(room: Room, pid: string, data: unknown): void {
     }
     case "build":
       if (!BUILDING_KINDS.includes(msg.kind as BuildingKind) || !isInt(msg.x) || !isInt(msg.z)) return;
-      return refuse(sim.orderBuilding(g.slot, msg.kind as BuildingKind, msg.x, msg.z, pid));
+      // (`l`: a turret up on the floor of that storey.)
+      if (msg.l !== undefined && !(isInt(msg.l) && msg.l >= 0)) return;
+      return refuse(sim.orderBuilding(g.slot, msg.kind as BuildingKind, msg.x, msg.z, pid, msg.l ?? 0));
     case "make":
       if (!isInt(msg.id) || !UNIT_KINDS.includes(msg.kind as UnitKind)) return;
       return refuse(sim.make(g.slot, msg.id, msg.kind as UnitKind, isInt(msg.n) ? msg.n : 1));

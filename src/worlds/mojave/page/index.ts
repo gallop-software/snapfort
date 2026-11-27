@@ -37,6 +37,7 @@ export const page: WorldPage = {
       ["H / P", "Hold position · Patrol"],
       ["1–8", "Choosing an army: the one to serve (with nothing else open they recall groups)"],
       ["B", "Build menu, whatever is selected (V for the advanced buildings)"],
+      ["Walls · floors", "Shields, whoever built them: shots never pass one. Fire over a wall from a floor above it; a turret aimed onto a floor goes up on it"],
       ["J", "Change army (also in the Esc menu)"],
       ["Ctrl + 1–9", "Save a group (Alt or Shift work too)"],
       ["1–9", "Recall a group (twice: face it)"],

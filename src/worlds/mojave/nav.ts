@@ -141,17 +141,46 @@ export class Nav {
     else s.flags[i] = on ? s.flags[i]! | SOLID : s.flags[i]! & ~SOLID;
   }
 
-  /** A building or a field fills these ground cells (or no longer does). `tall`: a building, which shots do not pass through. */
-  fill(cx: number, cz: number, size: number, on: boolean, tall = true): void {
+  /**
+   * A building or a field fills these cells (or no longer does), on the ground or (`l`, a turret up on a floor) on a
+   * storey. `tall`: a building, which shots do not pass through.
+   */
+  fill(cx: number, cz: number, size: number, on: boolean, tall = true, l = 0): void {
     const bits = BUILDING | (tall ? TALL : 0);
+    const s = this.storey(l, on);
+    if (!s) return;
     for (let x = cx; x < cx + size; x++) {
       for (let z = cz; z < cz + size; z++) {
         if (!inside(x, z)) continue;
         const i = idx(x, z);
-        this.ground.flags[i] = on ? this.ground.flags[i]! | bits : this.ground.flags[i]! & ~bits;
+        s.flags[i] = on ? s.flags[i]! | bits : s.flags[i]! & ~bits;
       }
     }
     this.version++;
+  }
+
+  /**
+   * A roof over a cell: the lowest storey above `lo` and no higher than `hi` with a floor or a ramp in that cell, or -1.
+   * A shot between two heights is stopped by one over its lower end (floors and ramps are shields, as walls are).
+   */
+  roofOver(x: number, z: number, lo: number, hi: number): number {
+    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+    if (!inside(cx, cz) || hi <= lo) return -1;
+    let best = -1;
+    for (const [l, s] of this.storeys) {
+      if (l <= lo || l > hi || (best >= 0 && l >= best)) continue;
+      if (s.flags[idx(cx, cz)]! & (FLOOR | RAMP)) best = l;
+    }
+    return best;
+  }
+
+  /** The highest storey with a floor or a ramp in the cell at a spot (where a shell coming down bursts), or 0. */
+  topRoof(x: number, z: number): number {
+    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+    if (!inside(cx, cz)) return 0;
+    let top = 0;
+    for (const [l, s] of this.storeys) if (l > top && s.flags[idx(cx, cz)]! & (FLOOR | RAMP)) top = l;
+    return top;
   }
 
   private flag(l: number, x: number, z: number): number {
@@ -304,7 +333,8 @@ export class Nav {
   /**
    * True when nothing stands on any edge a straight line from one spot to
    * another crosses, on that storey (a line of fire). The walls of `pass` (an
-   * army's slot) are let through: an army shoots out over its own walls. With
+   * army's slot) are let through: shots never are (every wall is a shield,
+   * whoever built it), a unit's line of sight back home is. With
    * `wallsOnly`, buildings and roofs do not stop it (a shell in an arc, a
    * drone): only walls do. A wall that stops it is noted in `lineWall`.
    */
@@ -344,8 +374,8 @@ export class Nav {
       if (!inside(cx, cz)) return true;
       if (wallsOnly) continue;
       if (s.flags[idx(cx, cz)]! & SOLID) return false;
-      // A building in the way (on the ground: they stand there) stops it, unless it is the one aimed at: within `slack` of the end.
-      if (l === 0 && s.flags[idx(cx, cz)]! & TALL && Math.hypot((cx + 0.5) * CELL - x1, (cz + 0.5) * CELL - z1) > slack + CELL * 0.71) return false;
+      // A building in the way (on the ground, or a turret up on a floor) stops it, unless it is the one aimed at: within `slack` of the end.
+      if (s.flags[idx(cx, cz)]! & TALL && Math.hypot((cx + 0.5) * CELL - x1, (cz + 0.5) * CELL - z1) > slack + CELL * 0.71) return false;
     }
     return true;
   }

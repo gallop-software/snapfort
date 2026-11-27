@@ -13,7 +13,7 @@ import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlug
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import { PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape";
 import type { Scene } from "@babylonjs/core/scene";
-import { CELL } from "../../../game/constants";
+import { CELL, LEVEL } from "../../../game/constants";
 import { Solids } from "../../../game/solids";
 import type { PageGame } from "../../pageDoors";
 import { buildingBox, BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
@@ -93,6 +93,9 @@ export interface SeenUnit {
   /** When it went out of view (ms), or 0: it fades away from then, and is forgotten. */
   goneAt: number;
 }
+
+/** The height a building stands at: the ground, or the floor a turret is up on. */
+const baseOf = (b: WireBuilding) => (b.l ?? 0) * LEVEL;
 
 export interface SeenBuilding extends WireBuilding {
   kind: BuildingKind;
@@ -203,7 +206,7 @@ export class ArmyView {
   private readonly leaving: SeenUnit[] = [];
   /** A building shown where it would go, before it is placed: asked for each frame it is wanted. */
   private readonly ghosts = new Map<BuildingKind, Mesh>();
-  private ghostWanted: { kind: BuildingKind; x: number; z: number; ok: boolean } | null = null;
+  private ghostWanted: { kind: BuildingKind; x: number; z: number; ok: boolean; l: number } | null = null;
   private readonly ghostOk: StandardMaterial;
   private readonly ghostBad: StandardMaterial;
 
@@ -405,8 +408,9 @@ export class ArmyView {
       if (bx[i + 1] !== 1) continue;
       const size = BUILDINGS[b.kind].size * CELL;
       const c = rgbOf(this.colorOf(b.o));
-      for (let n = 0; n < 4; n++) this.burst((b.x + Math.random() * BUILDINGS[b.kind].size) * CELL, 1 + Math.random() * BUILDINGS[b.kind].height * 0.6, (b.z + Math.random() * BUILDINGS[b.kind].size) * CELL, size * 0.3, c, now + n * 90);
-      this.flashes.push({ x: b.x * CELL + size / 2, y: 2, z: b.z * CELL + size / 2, start: now, ms: 500, size: size * 1.3, color: [1, 0.75, 0.4], ring: false });
+      const base = baseOf(b);
+      for (let n = 0; n < 4; n++) this.burst((b.x + Math.random() * BUILDINGS[b.kind].size) * CELL, base + 1 + Math.random() * BUILDINGS[b.kind].height * 0.6, (b.z + Math.random() * BUILDINGS[b.kind].size) * CELL, size * 0.3, c, now + n * 90);
+      this.flashes.push({ x: b.x * CELL + size / 2, y: base + 2, z: b.z * CELL + size / 2, start: now, ms: 500, size: size * 1.3, color: [1, 0.75, 0.4], ring: false });
     }
   }
 
@@ -414,7 +418,7 @@ export class ArmyView {
   private makeSolid(b: SeenBuilding): void {
     const node = new TransformNode(`mojave-solid-${b.i}`, this.scene);
     // As wide and tall as it is drawn (kit.ts: buildingBox).
-    const box = buildingBox(b.kind, b.x, b.z);
+    const box = buildingBox(b.kind, b.x, b.z, b.l ?? 0);
     node.position.set((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2);
     const body = new PhysicsBody(node, PhysicsMotionType.STATIC, false, this.scene);
     const shape = new PhysicsShapeBox(Vector3.Zero(), Quaternion.Identity(), new Vector3(box[3] - box[0], box[4] - box[1], box[5] - box[2]), this.scene);
@@ -453,7 +457,7 @@ export class ArmyView {
         const sin = Math.sin(turret.aim), cos = Math.cos(turret.aim);
         const right = muzzle[0] * turret.side;
         fx = cx + right * cos + muzzle[2] * sin;
-        fy = muzzle[1];
+        fy = baseOf(turret) + muzzle[1];
         fz = cz - right * sin + muzzle[2] * cos;
       }
       // A unit's shot: from the end of its barrel (or its rifle), turned as it is aimed; its gun laid on what it fires at.
@@ -483,7 +487,7 @@ export class ArmyView {
         const toward = Math.atan2(fx - cx, fz - cz);
         tx = cx + Math.sin(toward) * size * 0.42;
         tz = cz + Math.cos(toward) * size * 0.42;
-        ty = Math.min(def.height * 0.4, 4);
+        ty = baseOf(building) + Math.min(def.height * 0.4, 4);
       }
       const c = rgbOf(this.colorOf(owner));
       // Bright, in the general's colour.
@@ -659,7 +663,7 @@ export class ArmyView {
     for (const b of this.buildings.values()) {
       const def = BUILDINGS[b.kind];
       const size = def.size * CELL;
-      const x = b.x * CELL + size / 2, z = b.z * CELL + size / 2;
+      const x = b.x * CELL + size / 2, z = b.z * CELL + size / 2, y = baseOf(b);
       b.stale = !this.inSight(x, z);
       b.staleAt = b.stale ? b.staleAt || now : 0;
       // Printing: it rises out of the ground as it is made.
@@ -667,7 +671,7 @@ export class ArmyView {
       const grown = b.d > 0 ? 0.12 + 0.88 * (1 - left / def.time) : 1;
       const body = this.buildingBody.get(b.kind)!, trim = this.buildingTrim.get(b.kind)!;
       const i = body.add();
-      place(body.matrices, i, x, 0, z, 0, 0, 0, 1, grown, 1);
+      place(body.matrices, i, x, y, z, 0, 0, 0, 1, grown, 1);
       const j = trim.add();
       trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
       const c = rgbOf(this.colorOf(b.o));
@@ -678,12 +682,12 @@ export class ArmyView {
       if (head) {
         b.yaw = turn(b.yaw, b.aim, Math.min(1, dt * 18));
         const h = head.add(), headTrim = this.headTrim.get(b.kind)!;
-        place(head.matrices, h, x, 0, z, b.yaw, 0, 0, 1, grown, 1);
+        place(head.matrices, h, x, y, z, b.yaw, 0, 0, 1, grown, 1);
         const t = headTrim.add();
         headTrim.matrices.set(head.matrices.subarray(h * 16, h * 16 + 16), t * 16);
         headTrim.colors!.set([c[0] * dim, c[1] * dim, c[2] * dim, 1], t * 4);
       }
-      if (this.selectedBuildings.has(b.i)) this.ring(x, 0.15, z, size * 0.72, b.h);
+      if (this.selectedBuildings.has(b.i)) this.ring(x, y + 0.15, z, size * 0.72, b.h);
     }
 
     for (const f of this.fields.values()) {
@@ -933,8 +937,9 @@ export class ArmyView {
    * see-through, green where it may go and red where it may not. Asked for
    * each frame it is wanted; gone the frame it is not.
    */
-  ghost(kind: BuildingKind, x: number, z: number, ok: boolean): void {
-    this.ghostWanted = { kind, x, z, ok };
+  /** Shows where a building would go (`l`: up on the floor of that storey, a turret). */
+  ghost(kind: BuildingKind, x: number, z: number, ok: boolean, l = 0): void {
+    this.ghostWanted = { kind, x, z, ok, l };
   }
 
   private drawGhost(): void {
@@ -953,7 +958,7 @@ export class ArmyView {
       this.ghosts.set(want.kind, mesh);
     }
     mesh.material = want.ok ? this.ghostOk : this.ghostBad;
-    mesh.position.set(want.x, 0.02, want.z);
+    mesh.position.set(want.x, want.l * LEVEL + 0.02, want.z);
     mesh.setEnabled(true);
   }
 

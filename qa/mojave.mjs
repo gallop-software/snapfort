@@ -211,6 +211,31 @@ await a.screenshot({ path: "qa/shots/mojave-queue.png" });
 check("T at the Foundry orders a Trooper; Shift orders several", wa === true, `queue ${(await war(a)).buildings.find((b) => b.id === foundry).q}`);
 await clear(a);
 
+// A turret goes up on a floor: on a wall by the Core, a floor over it, and a Sentry aimed onto the floor stands up there.
+const tc = [Math.floor((coreX + inX * 16) / 5), Math.floor(coreZ / 5)];
+// (And a second floor beside it, toward the Core, to stand on and look down onto the first from.)
+const deck = await sf(a, ([x, z, dx]) => { const s = window.snapfort; const w = s.nextId(); const okW = s.history.do({ kind: "place", piece: { type: "wall", x, y: 0, z, rot: 0, id: w, material: "brick", edit: 0 } }); const f = s.nextId(); const okF = s.history.do({ kind: "place", piece: { type: "floor", x, y: 1, z, rot: 0, id: f, material: "brick", edit: 0 } }); const g = s.nextId(); const okG = s.history.do({ kind: "place", piece: { type: "floor", x: x + dx, y: 1, z, rot: 0, id: g, material: "brick", edit: 0 } }); return okW && okF && okG ? { wall: w, floor: f, stand: g } : null; }, [...tc, -inX]);
+await wait(900);
+const deckKept = !!deck && await sf(a, (id) => !!window.snapfort.state.get(id), deck.floor);
+await a.keyboard.press("b");
+await a.keyboard.press("e");
+await sf(a, ([x, z]) => window.snapfort.player.teleport(x, 3.75 + 0.95, z), [tc[0] * 5 + 2.5 - inX * 7, tc[1] * 5 + 2.5]);
+await frames(a, 6);
+await aim(a, [tc[0] * 5 + 2.5, 3.75, tc[1] * 5 + 2.5]);
+await frames(a, 4);
+const raisedGhost = await sf(a, () => { const m = window.snapfort.scene.getMeshByName("mojave-ghost-sentry"); return m ? { on: m.isEnabled(), y: m.position.y, green: m.material.name === "mojave-ghost-ok", hint: document.getElementById("world-panel").textContent.slice(0, 80) } : null; });
+await a.screenshot({ path: "qa/shots/mojave-raised-ghost.png" });
+check("a Sentry aimed onto a floor shows up on the floor, green", deckKept && !!raisedGhost && raisedGhost.on && raisedGhost.green && Math.abs(raisedGhost.y - 3.77) < 0.1, `${deckKept} ${JSON.stringify(raisedGhost)}`);
+await click(a);
+const raised = await until(a, ([x, z]) => [...window.snapfort.feature.army.buildings.values()].find((b) => b.kind === "sentry" && b.x === x && b.z === z && b.l === 1)?.i ?? null, tc, 4000);
+await frames(a, 4);
+await a.screenshot({ path: "qa/shots/mojave-raised.png" });
+check("a click puts it up there: the server has it on the floor's storey", !!raised, `${raised}`);
+// Taken down again (the turret checks further on look for the one Sentry).
+await sf(a, ([id, d]) => { const s = window.snapfort; if (id) s.net.sendWorld({ m: "scrap", id }); if (d) { s.player.teleport(s.player.position.x, 0.95, s.player.position.z + 12); s.removePiece(d.stand); s.removePiece(d.floor); s.removePiece(d.wall); } }, [raised, deck]);
+await until(a, () => ![...window.snapfort.feature.army.buildings.values()].some((b) => b.kind === "sentry") || null, null, 4000);
+await clear(a);
+
 // Supply full: the tiles for making units are faded, and the row says why and what to do about it.
 await aim(a, [site[0] + inX * 5, 3, site[1] + inZ * 5]);
 await click(a);

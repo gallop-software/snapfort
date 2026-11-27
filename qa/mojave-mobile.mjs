@@ -152,7 +152,7 @@ check("Order, with the crosshair on the ground, sends them there", moved === tru
 await p.tap('#hotbar .slot[data-id="back"]');
 check("Deselect lets go, and the pieces are back on the row", await until(p, () => window.snapfort.feature.selected.size === 0) && await until(p, () => [...document.querySelectorAll("#hotbar .slot .label")].some((l) => l.textContent === "Wall")));
 await p.tap("#hotbar .slot:last-child");
-check("a tap on Command opens the general's own menu", await until(p, () => !!document.querySelector('#hotbar .slot[data-id="army"]')));
+check("a tap on Command opens the general's own menu", await until(p, () => !!document.querySelector('#hotbar .slot[data-id="menu:sel"]')));
 await p.tap('#hotbar .slot[data-id="back"]');
 await p.tap('[data-id="t-map"]');
 check("Map opens the map", await until(p, () => document.getElementById("mj").classList.contains("big")));

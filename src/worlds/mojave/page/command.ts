@@ -49,7 +49,7 @@ import { Sight } from "./sight";
 
 type Pending = "move" | "amove" | "patrol" | "unload" | "emp" | "rally";
 /** A menu on the row: the general's own (what the Command tile opens), the eight armies to serve, or the buildings (basic, advanced). */
-type Menu = "cmd" | "army" | 0 | 1;
+type Menu = "cmd" | "army" | "sel" | 0 | 1;
 /** (`from`: a patrol's first end, once it has been clicked.) */
 type Mode = null | { k: "target"; what: Pending; from?: WireSpot } | { k: "menu"; page: Menu } | { k: "place"; kind: BuildingKind };
 /** An enemy unit seen and no longer in sight: where it was, and when. */
@@ -75,9 +75,9 @@ const pendingText = (m: { what: Pending; from?: WireSpot }) => (m.what === "patr
 /** The pieces' keys that pick one from a menu or a selection: walls, floors and ramps (F and X, the floor's and the ramp's letters, are orders there; with nothing selected they pick those pieces as everywhere). */
 type PieceTool = "wall" | "floor" | "ramp";
 const PIECE_KEYS: Record<string, PieceTool> = { KeyZ: "wall", F1: "wall", F2: "floor", F3: "ramp" };
-/** How near the general units are, to be selected all at once (the whole army, all of a kind), m. */
-const SELECT_NEAR = 100;
-/** The keys of the Command menu's tiles that select every unit of a kind near the general (their own letters, where those are free). */
+/** How near the unit clicked twice the others of its kind are, to be selected with it, m. */
+const TWICE_NEAR = 100;
+/** The keys of the select menu's tiles (` opens it) that select every unit of a kind (their own letters, where those are free). */
 const SELECT_KEYS: Partial<Record<UnitKind, string>> = { trooper: "T", scout: "C", tank: "K", artillery: "R", missile: "M", gunship: "G", transport: "U", emp: "E", titan: "I" };
 /** A report is as faint as it gets after this long, ms (it is never dropped for its age: only when the spot is seen again). */
 const REPORT_FADES_MS = 5 * 60_000;
@@ -272,31 +272,30 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     dotted(spot[0], spot[1], spot[2], what === "emp" ? EMP.radius : spreadOf(), color[what ?? "move"]!);
   }
 
-  /** This army's units near the general (not its Haulers), of a kind or all. */
-  function nearMe(kind?: UnitKind): SeenUnit[] {
-    const p = game.player.position;
-    return [...army.units.values()].filter((u) => mine(u.owner) && u.kind !== "hauler" && (!kind || u.kind === kind) && Math.hypot(u.x - p.x, u.z - p.z) <= SELECT_NEAR);
+  /** This army's units, wherever they are (not its Haulers), of a kind or all. */
+  function myUnits(kind?: UnitKind): SeenUnit[] {
+    return [...army.units.values()].filter((u) => mine(u.owner) && u.kind !== "hauler" && (!kind || u.kind === kind));
   }
 
-  /** Every unit of the army within SELECT_NEAR of the general. */
+  /** Every unit of the army, wherever it is. */
   function selectArmy(): void {
-    const ids = nearMe().map((u) => u.id);
-    if (ids.length === 0) return game.toast(`None of your army is within ${SELECT_NEAR} m`);
+    const ids = myUnits().map((u) => u.id);
+    if (ids.length === 0) return game.toast("You have no army yet");
     selectUnits(ids, false);
     game.play("select");
   }
 
-  /** The kinds of unit near the general, with how many of each, in the order the units are listed. */
-  function kindsNear(): [UnitKind, number][] {
+  /** The kinds of unit the army has, with how many of each, in the order the units are listed. */
+  function kindsOf(): [UnitKind, number][] {
     const n = new Map<UnitKind, number>();
-    for (const u of nearMe()) n.set(u.kind, (n.get(u.kind) ?? 0) + 1);
+    for (const u of myUnits()) n.set(u.kind, (n.get(u.kind) ?? 0) + 1);
     return (Object.keys(UNITS) as UnitKind[]).filter((k) => n.has(k)).map((k) => [k, n.get(k)!]);
   }
 
-  /** Every unit of a kind within SELECT_NEAR of the general (Shift: added to what is selected). */
+  /** Every unit of a kind, wherever it is (Shift: added to what is selected). */
   function selectKind(kind: UnitKind): void {
-    const ids = nearMe(kind).map((u) => u.id);
-    if (ids.length === 0) return game.toast(`No ${UNITS[kind].label}s within ${SELECT_NEAR} m`);
+    const ids = myUnits(kind).map((u) => u.id);
+    if (ids.length === 0) return game.toast(`You have no ${UNITS[kind].label}s`);
     selectUnits(ids, shift());
     game.play("select");
   }
@@ -363,7 +362,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       const twice = lastClick.id === p.u.id && now - lastClick.at < 380;
       lastClick = { id: p.u.id, at: now };
       if (twice) {
-        const near = [...army.units.values()].filter((u) => mine(u.owner) && u.kind === p.u.kind && Math.hypot(u.x - p.u.x, u.z - p.u.z) <= SELECT_NEAR);
+        const near = [...army.units.values()].filter((u) => mine(u.owner) && u.kind === p.u.kind && Math.hypot(u.x - p.u.x, u.z - p.u.z) <= TWICE_NEAR);
         selectUnits(near.map((u) => u.id), shift());
       } else if (shift() && selected.has(p.u.id)) {
         selected.delete(p.u.id);
@@ -593,7 +592,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         return setMode({ k: "target", what: k });
       }
       case "menu": {
-        const page: Menu = arg === "cmd" ? "cmd" : arg === "army" ? "army" : arg === "1" ? 1 : 0;
+        const page: Menu = arg === "cmd" ? "cmd" : arg === "army" ? "army" : arg === "sel" ? "sel" : arg === "1" ? 1 : 0;
         return setMode(mode?.k === "menu" && mode.page === page ? null : { k: "menu", page });
       }
       case "b":
@@ -645,6 +644,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         if (ring) return void (ring = null);
         if (mode?.k === "place") return setMode({ k: "menu", page: BUILDINGS[mode.kind].advanced ? 1 : 0 });
         if (mode?.k === "menu" && mode.page === 1) return setMode({ k: "menu", page: 0 });
+        // (The select menu, opened by `: back to nothing.)
+        if (mode?.k === "menu" && mode.page === "sel") return setMode(null);
         if (mode?.k === "menu" && mode.page !== "cmd") return setMode({ k: "menu", page: "cmd" });
         if (mode) return setMode(null);
         return deselect();
@@ -703,14 +704,20 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return {
         tiles: [
           tile("menu:0", "N", "Build", "build"),
-          tile("army", "`", "Whole army", "army", { sub: `${nearMe().length} near` }),
-          // Every kind of unit near the general, each a tile: all of that kind selected.
-          ...kindsNear().map(([kind, n]) => tile(`sel:${kind}`, SELECT_KEYS[kind] ?? "", `${UNITS[kind].label}s`, kind === "emp" ? "emp_unit" : kind, { sub: `${n}` })),
+          tile("menu:sel", "`", "Select", "army", { sub: `${myUnits().length}` }),
           tile("map", "Tab", "Map", "map"),
           tile("menu:army", "J", "Change army", "", { icon: flag(ARMY_COLORS[slot] ?? "#888888") }),
           back(),
         ],
-        status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. Whole army and each kind select those within ${SELECT_NEAR} m; hold the left button on the ground and look away for a ring of them.`,
+        status: `${routed}You serve the ${ARMY_COLOR_NAMES[slot] ?? "grey"} army${with_ > 0 ? `, with ${with_} other general${with_ > 1 ? "s" : ""}` : ", alone"}. \` selects: \` again for the whole army, or a kind's key; or hold the left button on the ground and look away for a ring of them.`,
+      };
+    }
+    if (mode?.k === "menu" && mode.page === "sel") {
+      // ` again: the whole army; a kind's key: every one of that kind.
+      const kinds = kindsOf();
+      return {
+        tiles: [tile("army", "`", "Whole army", "army", { sub: `${myUnits().length}` }), ...kinds.map(([kind, n]) => tile(`sel:${kind}`, SELECT_KEYS[kind] ?? "", `${UNITS[kind].label}s`, kind === "emp" ? "emp_unit" : kind, { sub: `${n}` })), back()],
+        status: kinds.length ? `Select: ${game.touch ? "tap Whole army, or a kind" : "` again for the whole army, or a kind's key (Shift adds)"}.` : "You have no army yet: a Foundry makes Troopers.",
       };
     }
     if (mode?.k === "menu" && mode.page === "army") return { tiles: [...armies(), back()], status: "Change army: press the number of the one to serve. One nobody serves begins afresh. An army you leave with nobody in it is gone in a minute, all of it." };
@@ -984,7 +991,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       return true;
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return false;
-    if (code === "Backquote") return act("army"), true;
+    // ` opens the select menu; ` again there, the whole army.
+    if (code === "Backquote") return act(mode?.k === "menu" && mode.page === "sel" ? "army" : "menu:sel"), true;
     if (code === "Backspace") return act("back"), true;
     const piece = PIECE_KEYS[code];
     /** Lets go of every menu, order and selection, and picks the piece: building again, its preview showing. */
@@ -994,12 +1002,19 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
       game.hold(tool);
       return true;
     };
+    if (mode?.k === "menu" && mode.page === "sel") {
+      // The select menu: a kind's key selects every one of that kind; B, Command; a piece's key builds; anything else closes it.
+      const kind = kindsOf().find(([k]) => `Key${SELECT_KEYS[k]}` === code)?.[0];
+      if (kind) act(`sel:${kind}`);
+      else if (code === "KeyB") act("menu:cmd");
+      else if (piece) return toPieces(piece);
+      else setMode(null);
+      return true;
+    }
     if (mode?.k === "menu" && mode.page === "cmd") {
       // The general's own menu: its tiles' keys; a piece's key builds; anything else (B again too) closes it.
-      const kind = kindsNear().find(([k]) => `Key${SELECT_KEYS[k]}` === code)?.[0];
       if (code === "KeyN") act("menu:0");
       else if (code === "KeyJ") act("menu:army");
-      else if (kind) act(`sel:${kind}`);
       else if (piece) return toPieces(piece);
       else setMode(null);
       return true;

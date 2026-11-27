@@ -150,9 +150,9 @@ await until(a, () => window.snapfort.feature.bank.l > 10000);
 const inX = -Math.sign(coreX), inZ = -Math.sign(coreZ);
 const site = [coreX + inX * 32, coreZ + inZ * 32];
 await a.keyboard.press("b");
-await rowHas(a, ["Whole army"]);
+await rowHas(a, ["Select"]);
 tiles = await row(a);
-check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Whole army,Map,Change army,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
+check("B (the Command tile) opens the general's own menu on the row", tiles.map((t) => t.label).join(",") === "Build,Select,Map,Change army,Back" && keysOf(tiles).Build === "N" && keysOf(tiles).Map === "Tab", tiles.map((t) => `${t.key}:${t.label}`).join(" "));
 await a.keyboard.press("n");
 await rowHas(a, ["Foundry"]);
 tiles = await row(a);
@@ -163,7 +163,7 @@ check("F picks the Foundry to place", (await war(a)).mode === "place");
 await a.keyboard.press("Backspace");
 const step1 = (await war(a)).mode === "menu" && (await rowHas(a, ["Foundry", "Advanced"])) === true;
 await a.keyboard.press("Backspace");
-const step2 = (await rowHas(a, ["Whole army", "Build"])) === true;
+const step2 = (await rowHas(a, ["Select", "Build"])) === true;
 await a.keyboard.press("Backspace");
 const step3 = (await war(a)).mode === null && (await rowHas(a, ["Wall", "Command"])) === true;
 check("Backspace goes back one step: from placing to the buildings, to the general's own menu, to the pieces", step1 && step2 && step3, `${step1} ${step2} ${step3}`);
@@ -263,8 +263,16 @@ check("(nothing selected)", (await war(a)).sel.length === 0);
 await a.keyboard.press("1");
 check("Ctrl + 1 saves the group and 1 brings it back", (await war(a)).sel.length >= 12);
 await a.keyboard.press("Backquote");
+await rowHas(a, ["Whole army"]);
+tiles = await row(a);
+check("` opens the select menu: the whole army on ` again, and a tile for each kind of unit, with its key and how many", (await war(a)).mode === "menu" && keysOf(tiles)["Whole army"] === "`" && keysOf(tiles).Troopers === "T" && keysOf(tiles).Tanks === "K", tiles.map((t) => `${t.key}:${t.label} ${t.sub ?? ""}`).join(" "));
+await a.keyboard.press("t");
 wa = await war(a);
-check("` selects the whole army (not the Haulers)", wa.sel.length >= 16 && wa.sel.every((id) => wa.units.find((u) => u.id === id).kind !== "hauler"), `selected ${wa.sel.length}`);
+check("…and T there selects every Trooper, wherever it is", wa.sel.length >= 12 && wa.sel.length === wa.units.filter((u) => u.owner === wa.slot && u.kind === "trooper").length && wa.sel.every((id) => wa.units.find((u) => u.id === id).kind === "trooper"), `selected ${wa.sel.length}`);
+await a.keyboard.press("Backquote");
+await a.keyboard.press("Backquote");
+wa = await war(a);
+check("` twice selects the whole army, wherever it is (not the Haulers)", wa.sel.length >= 16 && wa.sel.length === wa.units.filter((u) => u.owner === wa.slot && u.kind !== "hauler").length && wa.sel.every((id) => wa.units.find((u) => u.id === id).kind !== "hauler"), `selected ${wa.sel.length}`);
 await rowHas(a, ["Attack"]);
 tiles = await row(a);
 check("the bank is still wholly on the screen beside the longer row", await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth - 4 && r.left >= document.getElementById("hotbar").getBoundingClientRect().right; }), await sf(a, () => { const r = document.getElementById("material").getBoundingClientRect(); return `${Math.round(r.left)}–${Math.round(r.right)} of ${innerWidth}`; }));
@@ -272,15 +280,15 @@ check("the row lists the orders with StarCraft's keys, attack on F and stop on X
 // B is the general's own menu and N the buildings, with units selected as without; Backspace goes up one level
 // however the row was reached (placing an advanced building → advanced → basic → Command → the selection).
 await a.keyboard.press("b");
-const bCmd = (await rowHas(a, ["Whole army", "Change army"])) === true && (await war(a)).sel.length >= 16;
+const bCmd = (await rowHas(a, ["Select", "Change army"])) === true && (await war(a)).sel.length >= 16;
 await a.keyboard.press("b");
 await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("k");
 const placing = (await war(a)).mode === "place";
 await a.keyboard.press("b");
-const bFromPlace = (await rowHas(a, ["Whole army", "Change army"])) === true;
+const bFromPlace = (await rowHas(a, ["Select", "Change army"])) === true;
 await a.keyboard.press("n"); await a.keyboard.press("v"); await a.keyboard.press("k");
 const ups = [];
-for (const want of [["Skyport", "Basic"], ["Foundry", "Advanced"], ["Whole army", "Change army"], ["Move", "Deselect"]]) {
+for (const want of [["Skyport", "Basic"], ["Foundry", "Advanced"], ["Select", "Change army"], ["Move", "Deselect"]]) {
   await a.keyboard.press("Backspace");
   ups.push((await rowHas(a, want)) === true);
 }
@@ -288,6 +296,7 @@ check("B opens Command and N the buildings with units selected too; B while plac
 check("with units selected the keys are orders; Z, which is none, lets go of them and picks a Wall", await (async () => { await a.keyboard.press("z"); return (await until(a, () => window.snapfort.feature.selected.size === 0 && /Wall/.test(document.querySelector("#hotbar .slot:not(.menu).selected")?.textContent ?? ""), null, 2000)) === true; })());
 // (The army again, with nothing in hand, for what follows.)
 await a.keyboard.press("z");
+await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");
 await until(a, () => window.snapfort.feature.selected.size >= 16);
 // Troopers are people: drawn in poses, standing now.

@@ -220,6 +220,7 @@ await sf(a, () => window.snapfort.feature.run("desel"));
 await dev(a, { do: "spawn", kind: "trooper", n: 4 });
 await until(a, () => [...window.snapfort.feature.army.units.values()].filter((u) => u.kind === "trooper").length >= 4, null, 10000);
 await a.keyboard.press("Backquote");
+await a.keyboard.press("Backquote");
 await frames(a, 3);
 v = await look(a);
 console.log("\n── 4c: units selected");
@@ -235,6 +236,7 @@ await frames(a, 4);
 v = await look(a);
 say("C (not an order)", v);
 check("4c. with Troopers selected, C does nothing: no Canopy here, the Troopers stay selected", v.selU > 0 && !v.pieceGhost, JSON.stringify(v));
+await a.keyboard.press("Backquote");
 await a.keyboard.press("Backquote");
 await a.keyboard.press("z");
 await frames(a, 4);
@@ -319,7 +321,12 @@ await b.click("#play-free");
 await until(b, () => window.snapfort.feature.why === "choose" || window.snapfort.feature.slot >= 0, null, 15000);
 if (await sf(b, () => window.snapfort.feature.slot !== 0)) await b.keyboard.press("1");
 await until(b, () => window.snapfort.feature.slot === 0, null, 15000);
-await sf(b, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), [spot9[0], spot9[2]]);
+// (Joining, a general is put by their base: the move there may come after this one, so they are put on the spot until A sees them on it.)
+for (let i = 0; i < 12; i++) {
+  await sf(b, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), [spot9[0], spot9[2]]);
+  await wait(500);
+  if (await sf(a, () => window.snapfort.scene.getMeshByName("mojave-ghost-foundry")?.material.name === "mojave-ghost-bad")) break;
+}
 g9 = await until(a, () => { const m = window.snapfort.scene.getMeshByName("mojave-ghost-foundry"); return m?.material.name === "mojave-ghost-bad" ? { line: document.getElementById("world-panel").textContent } : null; }, [spot9[0], spot9[2]], 8000);
 check("9. with a general standing there, the preview turns red and says so", !!g9 && /A general is standing there/.test(g9.line), JSON.stringify(g9));
 const n9 = (await look(a)).buildings;
@@ -363,6 +370,7 @@ const endA = [core.x + inX * 12, 0, core.z + inZ * 30], endB = [core.x + inX * 1
 const from11 = [core.x, core.z + inZ * 42];
 await sf(a, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), from11);
 await a.keyboard.press("Backquote");
+await a.keyboard.press("Backquote");
 await a.keyboard.press("p");
 await frames(a, 3);
 const pat = () => sf(a, () => { const f = window.snapfort.feature; return { mode: f.mode?.k === "target" ? f.mode.what : null, from: !!f.mode?.from, line: document.getElementById("world-panel").textContent }; });
@@ -386,28 +394,35 @@ const backA = await near(endA);
 check("11. …and back again", backA === true, JSON.stringify(await middle()));
 await sf(a, () => window.snapfort.feature.run("desel"));
 
-// ── 12. The aim ring, a ring to select in, a tile per kind, and "all" only within 100 m ──
-console.log("\n── 12: rings, kinds, all within 100 m");
+// ── 12. The aim ring, a ring to select in, and ` (then ` again, or a kind's key) for all of them, wherever they are ──
+console.log("\n── 12: rings, kinds, all of them wherever they are");
 await sf(a, () => window.snapfort.feature.run("desel"));
 const me12 = await sf(a, () => { const p = window.snapfort.player.position; return [p.x, p.z]; });
 await dev(a, { do: "spawn", kind: "trooper", n: 3, at: [me12[0] + 10, 0, me12[1] + 10] });
 await dev(a, { do: "spawn", kind: "tank", n: 2, at: [me12[0] + 160, 0, me12[1]] });
 await until(a, () => { const f = window.snapfort.feature; return [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind === "tank").length >= 2 ? true : null; });
 await wait(600);
-const within = () => sf(a, () => { const s = window.snapfort, f = s.feature, p = s.player.position; const mine = [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind !== "hauler"); const near = mine.filter((u) => Math.hypot(u.x - p.x, u.z - p.z) <= 100); return { near: near.map((u) => u.id).sort(), troopers: near.filter((u) => u.kind === "trooper").map((u) => u.id).sort(), far: mine.filter((u) => Math.hypot(u.x - p.x, u.z - p.z) > 100).map((u) => u.id), sel: [...f.selected].sort() }; });
+const within = () => sf(a, () => { const s = window.snapfort, f = s.feature, p = s.player.position; const mine = [...f.army.units.values()].filter((u) => u.owner === f.slot && u.kind !== "hauler"); const near = mine.filter((u) => Math.hypot(u.x - p.x, u.z - p.z) <= 100); return { near: near.map((u) => u.id), troopers: mine.filter((u) => u.kind === "trooper").map((u) => u.id).sort(), tanks: mine.filter((u) => u.kind === "tank").map((u) => u.id), far: mine.filter((u) => Math.hypot(u.x - p.x, u.z - p.z) > 100).map((u) => u.id), sel: [...f.selected].sort() }; });
+await a.keyboard.press("Backquote");
+await frames(a, 3);
+const selRow = (await look(a)).row;
+check("12. ` opens the select menu: the whole army on ` again, and a tile for each kind, far off or near (the Tanks 160 m away too)", /`:Whole army/.test(selRow) && /T:Troopers/.test(selRow) && /K:Tanks/.test(selRow), selRow);
 await a.keyboard.press("Backquote");
 await frames(a, 3);
 let w12 = await within();
-check("12. ` selects the whole army within 100 m of the general, and nothing further off", w12.far.length >= 2 && JSON.stringify(w12.sel) === JSON.stringify(w12.near), JSON.stringify(w12));
+check("12. ` again selects the whole army, wherever it is (the far Tanks too)", w12.far.length >= 2 && JSON.stringify(w12.sel) === JSON.stringify([...w12.near, ...w12.far].sort()), JSON.stringify(w12));
 await sf(a, () => window.snapfort.feature.run("desel"));
-await a.keyboard.press("b");
+await a.keyboard.press("Backquote");
+await a.keyboard.press("k");
 await frames(a, 3);
-const cmdRow = (await look(a)).row;
-check("12. Command shows a tile for each kind of unit near the general, with how many (the far Tanks have none)", /T:Troopers/.test(cmdRow) && !/Tanks/.test(cmdRow), cmdRow);
+w12 = await within();
+check("12. ` then K selects every Tank, and nothing else", w12.sel.length >= 2 && w12.far.every((id) => w12.sel.includes(id)) && w12.sel.length === w12.tanks.length, JSON.stringify(w12));
+await sf(a, () => window.snapfort.feature.run("desel"));
+await a.keyboard.press("Backquote");
 await a.keyboard.press("t");
 await frames(a, 3);
 w12 = await within();
-check("12. …and its key selects every Trooper within 100 m", w12.sel.length > 0 && JSON.stringify(w12.sel) === JSON.stringify(w12.troopers), JSON.stringify(w12));
+check("12. ` then T selects every Trooper, and nothing else", w12.sel.length >= 3 && JSON.stringify(w12.sel) === JSON.stringify(w12.troopers), JSON.stringify(w12));
 // The aim ring: with units selected, more rings are drawn than with none, aimed at the same ground.
 const ground12 = [me12[0] + 25, 0, me12[1] - 20];
 await aim(a, ground12);

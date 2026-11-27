@@ -1,5 +1,7 @@
 /** Scroll distance (pixels) that counts as one wheel step. */
 const WHEEL_STEP = 100;
+/** The bits of PointerEvent.buttons, and the MouseEvent.button each is: left, right, middle. */
+const BUTTON_BITS = [[1, 0], [2, 2], [4, 1]] as const;
 /** Largest mouse movement accepted from a single event, in pixels. */
 const MAX_MOUSE_JUMP = 250;
 /**
@@ -48,6 +50,8 @@ export class Input {
   private readonly down = new Set<string>();
   private _typing = false;
   private wheelSum = 0;
+  /** The mouse buttons held, as PointerEvent.buttons last said. */
+  private buttons = 0;
   private wheelAt = 0;
   private lookX = 0;
   private lookY = 0;
@@ -68,7 +72,11 @@ export class Input {
       this.recent = 0;
       this.onLockChange(this.locked);
     });
-    window.addEventListener("blur", () => this.down.clear());
+    window.addEventListener("blur", () => {
+      this.down.clear();
+      // (A button let go of in another window is never heard of here.)
+      this.buttons = 0;
+    });
 
     window.addEventListener("keydown", (e) => {
       // Typing a chat message: keys are letters, not moves or build keys.
@@ -88,10 +96,24 @@ export class Input {
       if (!this.locked) return;
       this.moved(e.movementX, e.movementY, performance.now());
     });
-    canvas.addEventListener("mousedown", (e) => {
-      if (this.locked && !this._typing) this.onMouseDown(e.button);
-    });
-    window.addEventListener("mouseup", (e) => this.onMouseUp(e.button));
+    // Buttons from pointer events, not mouse events: Babylon cancels every pointerdown on the canvas, and a browser that
+    // keeps to the standard (Firefox) then sends no mousedown at all, so no click ever built anything there (Chrome
+    // still sent one while the mouse was captured). A second button pressed while one is held comes as a pointermove
+    // with `buttons` changed, not a pointerdown: every one of them is compared with the buttons held before.
+    const sync = (e: PointerEvent, canPress: boolean) => {
+      if (e.pointerType === "touch") return;
+      const now = e.buttons, was = this.buttons;
+      if (now === was) return;
+      this.buttons = now;
+      for (const [bit, button] of BUTTON_BITS) {
+        if (now & bit && !(was & bit) && canPress && this.locked && !this._typing) this.onMouseDown(button);
+        else if (!(now & bit) && was & bit) this.onMouseUp(button);
+      }
+    };
+    canvas.addEventListener("pointerdown", (e) => sync(e, true));
+    document.addEventListener("pointermove", (e) => sync(e, e.target === canvas || this.locked));
+    window.addEventListener("pointerup", (e) => sync(e, false));
+    window.addEventListener("pointercancel", (e) => sync(e, false));
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener(
       "wheel",

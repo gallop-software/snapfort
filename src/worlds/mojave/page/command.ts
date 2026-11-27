@@ -410,7 +410,12 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     const p = game.player.position;
     if (Math.hypot(p.x - (cx + def.size / 2) * CELL, p.z - (cz + def.size / 2) * CELL) > BUILD_REACH + (def.size * CELL) / 2) return "Too far away: go closer";
     if (Math.abs(cx) > HALF_CELLS - def.size - 1 || Math.abs(cz) > HALF_CELLS - def.size - 1) return "Outside the building area";
-    if (def.nearCore && !coreNear((cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
+    if (def.nearCore) {
+      const x = (cx + def.size / 2) * CELL, z = (cz + def.size / 2) * CELL;
+      if (!coreNear(x, z)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
+      // (Of the others' Cores, those this page has seen: the server knows them all.)
+      if ([...army.buildings.values()].some((b) => !mine(b.o) && b.kind === "core" && Math.hypot((b.x + BUILDINGS.core.size / 2) * CELL - x, (b.z + BUILDINGS.core.size / 2) * CELL - z) <= GUARD_RADIUS)) return `No turret within ${GUARD_RADIUS} m of another army's Command Core`;
+    }
     if (kind === "tap") {
       const vent = [...army.fields.values()].find((f) => f.vent && f.cx === cx && f.cz === cz);
       if (!vent) return "A Tap goes on a plasma vent";

@@ -127,7 +127,7 @@ export interface BuildingDef {
   /** How far across it is drawn, m (inside its cells): what builders bump into and throws land on. */
   wide: number;
   needs?: readonly BuildingKind[];
-  /** A turret: it goes up only within GUARD_RADIUS of a finished Command Core of its own army. */
+  /** A turret: it goes up only within GUARD_RADIUS of a finished Command Core of its own army, and never that near another army's. */
   nearCore?: boolean;
   /** Supply it adds to its general's limit. */
   supply?: number;
@@ -199,7 +199,7 @@ export const PIECE_COST = 8;
 
 /** How high drones fly, m. */
 export const FLIGHT_HEIGHT = 14;
-/** Turrets (sentry, flak, point-defence laser) go up only this close to a finished Core of their own army, m (centre to centre): an army guards its own base, nobody builds guns in someone else's. */
+/** Turrets (sentry, flak, point-defence laser) go up only this close to a finished Core of their own army, m (centre to centre): an army guards its own base, nobody builds guns in someone else's (not within this of another army's Core either, so a Core dropped by someone's base does not let turrets in). */
 export const GUARD_RADIUS = 75;
 /** The EMP: how wide, how long it stops things, and how long until the drone can pulse again. */
 export const EMP = { radius: 12, stun: 6, cooldown: 30, range: 40 } as const;

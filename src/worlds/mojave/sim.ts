@@ -473,10 +473,20 @@ export class Sim {
     return Math.min(MAX_SUPPLY, n);
   }
 
-  /** Whether a spot is within GUARD_RADIUS of a finished Core of an army's own (where its turrets may go). */
+  /** Whether a spot is within GUARD_RADIUS of a finished Core of an army's own (where its turrets may go, unless another army's Core is as near: see nearOtherCore). */
   nearCore(slot: number, x: number, z: number): boolean {
     for (const b of this.buildings.values()) {
       if (b.owner !== slot || b.kind !== "core" || b.dead || b.doneAt !== 0) continue;
+      const c = this.centreOf(b);
+      if (Math.hypot(c[0] - x, c[2] - z) <= GUARD_RADIUS) return true;
+    }
+    return false;
+  }
+
+  /** Whether a spot is within GUARD_RADIUS of a Core of any other army (finished or not): nobody's turrets go there. */
+  nearOtherCore(slot: number, x: number, z: number): boolean {
+    for (const b of this.buildings.values()) {
+      if (b.owner === slot || b.kind !== "core" || b.dead) continue;
       const c = this.centreOf(b);
       if (Math.hypot(c[0] - x, c[2] - z) <= GUARD_RADIUS) return true;
     }
@@ -559,7 +569,11 @@ export class Sim {
       if (g.plasma < def.plasma) return "Not enough plasma";
     }
     if (!Number.isInteger(cx) || !Number.isInteger(cz) || Math.abs(cx) > HALF_CELLS - def.size - 1 || Math.abs(cz) > HALF_CELLS - def.size - 1) return "Outside the building area";
-    if (def.nearCore && !this.nearCore(slot, (cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
+    if (def.nearCore) {
+      const x = (cx + def.size / 2) * CELL, z = (cz + def.size / 2) * CELL;
+      if (!this.nearCore(slot, x, z)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
+      if (this.nearOtherCore(slot, x, z)) return `No turret within ${GUARD_RADIUS} m of another army's Command Core`;
+    }
     if (kind === "tap") {
       const f = this.fieldAt.get(`${cx},${cz}`);
       if (!f || f.kind !== "vent") return "A Tap goes on a plasma vent";

@@ -165,6 +165,15 @@ describe("a general arrives", () => {
     const h = general("p2", 4);
     const theirs = [...sim.buildings.values()].find((b) => b.kind === "core" && b.owner === h.slot)!;
     expect(sim.orderBuilding(g.slot, "sentry", theirs.cx + 4, theirs.cz)).toMatch(/within 75 m/);
+    // A Core dropped by someone else's base lets no turrets in: not theirs, and none of the base's own near it now.
+    h.lithium = 5000;
+    h.plasma = 5000;
+    sim.addBuilding("foundry", h.slot, theirs.cx + 4, theirs.cz + 4, true);
+    const dropped = sim.addBuilding("core", h.slot, core.cx + inX * 12, core.cz, true);
+    expect(sim.orderBuilding(h.slot, "sentry", dropped.cx - inX * 4, dropped.cz + inZ * 4)).toMatch(/No turret within 75 m of another army's Command Core/);
+    expect(sim.orderBuilding(g.slot, "flak", core.cx + inX * 9, core.cz + inZ * 4)).toMatch(/No turret within 75 m of another army's Command Core/);
+    // Away from it, on the far side of their own Core, the base still guards itself.
+    expect(sim.orderBuilding(g.slot, "flak", core.cx - inX * 6, core.cz - inZ * 4)).toBe("");
     // Too far from where the general who orders it stands.
     host.at.set("p1", [0, 0.9, 0]);
     expect(sim.orderBuilding(g.slot, "relay", ...at(inX * 8, inZ * 8), "p1")).toMatch(/Too far/);

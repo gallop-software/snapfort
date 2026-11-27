@@ -201,7 +201,8 @@ const SIDES = [-1, 1] as const;
 // ---------------------------------------------------------------- units
 
 function hauler(p: Parts): void {
-  for (const z of [-1.05, 0, 1.05]) p.axle(z, 0.8, 2.1);
+  // (Its six wheels turn: see UNIT_PARTS.)
+  p.box(GRAPHITE, 1.6, 0.16, 2.9, 0, 0.42, 0);
   p.box(GRAPHITE, 1.3, 0.3, 3.1, 0, 0.6, 0);
   // The cab, its windscreen leaning back.
   p.frustum(STEEL, 1.6, 0.95, 1.45, 0.6, 0.95, 0, 0.75, 1.05, -0.12);
@@ -234,7 +235,8 @@ function trooper(p: Parts): void {
 }
 
 function scout(p: Parts): void {
-  for (const z of [-1.05, 1.05]) for (const s of SIDES) p.rod(TYRE, [s * 0.58, 0.5, z], [s * 0.98, 0.5, z], 1.0, 1.0, 8);
+  // (Its wheels turn, and the front pair steers: see UNIT_PARTS.) The arms they hang on.
+  for (const z of [-1.05, 1.05]) for (const s of SIDES) p.beam(STEEL_D, [s * 0.4, 0.55, z], [s * 0.6, 0.5, z], 0.12);
   p.prism(GRAPHITE, [[-1.45, 0.4], [1.45, 0.4], [1.6, 0.6], [0.6, 0.85], [-1.45, 0.85]], 1.3);
   p.beam(TRIM, [0, 0.825, 0.7], [0, 0.625, 1.5], 1.15, 0.06);
   p.box(TRIM, 1.15, 0.06, 0.7, 0, 0.86, -1.07);
@@ -298,7 +300,11 @@ function artillery(p: Parts): void {
   p.beam(CYAN, mix(from, to, 0.1), to, 0.22, 0.08);
   for (const t of [0.3, 0.58, 0.86]) p.beam(GRAPHITE, mix(from, to, t), mix(from, to, t + 0.05), 0.62, 0.36);
   p.beam(TRIM, mix(from, to, -0.06), mix(from, to, 0.2), 0.78, 0.5);
-  // Stabiliser legs, down on their pads.
+  // (Its stabiliser legs fold down to fire and up to move: see UNIT_PARTS.)
+}
+
+/** The artillery's stabiliser legs, down on their pads (set up to fire). */
+function legsDown(p: Parts): void {
   for (const sx of SIDES) {
     for (const sz of SIDES) {
       p.beam(STEEL_D, [sx * 0.8, 0.95, sz * 1.9], [sx * 1.45, 0.05, sz * 2.3], 0.14);
@@ -307,8 +313,18 @@ function artillery(p: Parts): void {
   }
 }
 
+/** …and folded up along its sides (packed up to move). */
+function legsUp(p: Parts): void {
+  for (const sx of SIDES) {
+    for (const sz of SIDES) {
+      p.beam(STEEL_D, [sx * 0.8, 0.95, sz * 1.9], [sx * 1.0, 1.05, sz * 1.15], 0.14);
+      p.box(GRAPHITE, 0.1, 0.42, 0.42, sx * 1.02, 1.05, sz * 1.1);
+    }
+  }
+}
+
 function missile(p: Parts): void {
-  for (const z of [-1.5, 0, 1.5]) p.axle(z, 0.9, 2.3);
+  // (Its six wheels turn, and the front pair steers: see UNIT_PARTS.)
   p.box(GRAPHITE, 1.7, 0.35, 4.4, 0, 0.7, 0);
   p.frustum(STEEL, 1.9, 1.1, 1.7, 0.75, 0.9, 0, 0.875, 1.6, -0.12);
   p.beam(GLASS, [0, 1.25, 2.027], [0, 1.68, 1.886], 1.5, 0.06);
@@ -329,10 +345,11 @@ function missileHead(p: Parts): void {
   }
 }
 
-/** A ducted rotor lying flat: the duct is the owner's colour. */
+/** A ducted rotor lying flat: the duct is the owner's colour, open, with a hub in the middle (its blades spin: see UNIT_PARTS). */
 function rotor(p: Parts, x: number, y: number, z: number, d: number): void {
-  p.cyl(TRIM, d, d, 0.2, x, y, z, 8);
-  p.cyl(GRAPHITE, d * 0.82, d * 0.82, 0.24, x, y - 0.02, z, 6);
+  p.ring(TRIM, d / 2, 0.12, 0.22, 10, x, y + 0.1, z);
+  p.cyl(GRAPHITE, d * 0.16, d * 0.16, 0.24, x, y - 0.02, z, 6);
+  p.box(GRAPHITE, d * 0.9, 0.05, 0.06, x, y + 0.02, z);
 }
 
 function gunship(p: Parts): void {
@@ -687,6 +704,73 @@ export const UNIT_HEADS: Readonly<Partial<Record<UnitKind, { pivot: V3; muzzles:
 };
 /** Where the shots of a unit that turns as a whole leave it, in its own frame: a Trooper's rifle as it aims, a drone's gun, the rail. */
 export const UNIT_MUZZLES: Readonly<Partial<Record<UnitKind, V3>>> = { trooper: [0.3, 1.42, 1.25], gunship: [0, 0.09, 1.55], artillery: [0, 4.75, 2.75] };
+/**
+ * The parts of a unit that move as it goes, each drawn many times on every
+ * unit of its kind (where `at` puts them, in the unit's own frame: right, up,
+ * ahead): wheels that roll with the ground covered (the front ones steering
+ * into a turn), the wheels down a track's side, rotor blades that spin, and
+ * the artillery's legs, down while it is set up and folded while it moves.
+ */
+export interface UnitPart {
+  motion: "wheel" | "rotor" | "legsDown" | "legsUp";
+  at: readonly V3[];
+  /** A wheel's radius, m (how far it rolls in a turn). */
+  radius: number;
+  /** Turned into a turn (a vehicle's front wheels). */
+  steer?: boolean;
+  build: (p: Parts) => void;
+}
+
+/** A wheel on its side, its axle along x: a tyre, and a hub with spokes, so it is seen to turn. */
+const wheel = (d: number, w: number) => (p: Parts) => {
+  p.rod(TYRE, [-w / 2, 0, 0], [w / 2, 0, 0], d, d, 10);
+  p.box(STEEL_D, w + 0.03, d * 0.64, 0.12, 0, 0, 0);
+  p.box(STEEL_D, w + 0.03, 0.12, d * 0.64, 0, 0, 0);
+};
+/** Rotor blades, two across each other, lying flat. */
+const blades = (d: number) => (p: Parts) => {
+  p.box(GRAPHITE, d * 0.86, 0.04, 0.14, 0, 0, 0);
+  p.box(GRAPHITE, 0.14, 0.04, d * 0.86, 0, 0, 0);
+};
+/** The wheels down the outside of a pair of tracks (x out from the middle, at heights and places along): road wheels and the sprockets at each end. */
+const trackWheels = (x: number, width: number, length: number): UnitPart[] => {
+  const out = x + width / 2 + 0.03, h = length / 2;
+  const road: V3[] = [], ends: V3[] = [];
+  for (const s of SIDES) {
+    for (let i = 0; i < 4; i++) road.push([s * out, 0.32, -h + 0.85 + (i * (length - 1.7)) / 3]);
+    ends.push([s * out, 0.5, h - 0.35], [s * out, 0.45, -h + 0.25]);
+  }
+  return [
+    { motion: "wheel", at: road, radius: 0.3, build: wheel(0.6, 0.06) },
+    { motion: "wheel", at: ends, radius: 0.36, build: wheel(0.72, 0.08) },
+  ];
+};
+export const UNIT_PARTS: Readonly<Partial<Record<UnitKind, readonly UnitPart[]>>> = {
+  hauler: [
+    { motion: "wheel", at: [[-0.88, 0.4, 1.05], [0.88, 0.4, 1.05]], radius: 0.4, steer: true, build: wheel(0.8, 0.34) },
+    { motion: "wheel", at: [[-0.88, 0.4, 0], [0.88, 0.4, 0], [-0.88, 0.4, -1.05], [0.88, 0.4, -1.05]], radius: 0.4, build: wheel(0.8, 0.34) },
+  ],
+  scout: [
+    { motion: "wheel", at: [[-0.78, 0.5, 1.05], [0.78, 0.5, 1.05]], radius: 0.5, steer: true, build: wheel(1.0, 0.4) },
+    { motion: "wheel", at: [[-0.78, 0.5, -1.05], [0.78, 0.5, -1.05]], radius: 0.5, build: wheel(1.0, 0.4) },
+  ],
+  missile: [
+    { motion: "wheel", at: [[-0.98, 0.45, 1.5], [0.98, 0.45, 1.5]], radius: 0.45, steer: true, build: wheel(0.9, 0.36) },
+    { motion: "wheel", at: [[-0.98, 0.45, 0], [0.98, 0.45, 0], [-0.98, 0.45, -1.5], [0.98, 0.45, -1.5]], radius: 0.45, build: wheel(0.9, 0.36) },
+  ],
+  tank: trackWheels(1.15, 0.65, 4.8),
+  artillery: [...trackWheels(1.1, 0.6, 4.4), { motion: "legsDown", at: [[0, 0, 0]], radius: 1, build: legsDown }, { motion: "legsUp", at: [[0, 0, 0]], radius: 1, build: legsUp }],
+  gunship: [{ motion: "rotor", at: [[-1.2, 0.6, -1.2], [1.2, 0.6, -1.2], [-1.2, 0.6, 1.2], [1.2, 0.6, 1.2]], radius: 0.6, build: blades(1.2) }],
+  transport: [{ motion: "rotor", at: [[-1.75, 1.57, -1.7], [1.75, 1.57, -1.7], [-1.75, 1.57, 1.7], [1.75, 1.57, 1.7]], radius: 0.75, build: blades(1.5) }],
+};
+
+/** One of a unit's moving parts (see UNIT_PARTS), about its own middle. */
+export function unitPartModel(kind: UnitKind, index: number, scene: Scene): Mesh {
+  const p = parts(scene);
+  UNIT_PARTS[kind]![index]!.build(p);
+  return merged(p.body, `mojave-${kind}-part-${index}`);
+}
+
 const UNIT_HEAD_MODELS: Readonly<Partial<Record<UnitKind, (p: Parts) => void>>> = { tank: tankHead, scout: scoutHead, missile: missileHead, titan: titanHead };
 
 /** The part of a vehicle that turns to aim (see UNIT_HEADS), in the vehicle's own frame, or null when it has none. */

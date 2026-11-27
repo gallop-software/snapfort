@@ -17,9 +17,9 @@ import { CELL } from "../../../game/constants";
 import { Solids } from "../../../game/solids";
 import type { PageGame } from "../../pageDoors";
 import { buildingBox, BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
-import { F_DOWN, F_FIRING, F_HIT, F_LOADED, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
-import { Many, place, rgbOf, turn } from "./many";
-import { buildingModel, crystalModel, headModel, MUZZLES, UNIT_HEADS, UNIT_MUZZLES, unitHeadModel, unitModel, ventModel } from "./models";
+import { F_DEPLOYED, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
+import { Many, place, placeOn, rgbOf, turn } from "./many";
+import { buildingModel, crystalModel, headModel, MUZZLES, UNIT_HEADS, UNIT_MUZZLES, UNIT_PARTS, unitHeadModel, unitModel, unitPartModel, ventModel } from "./models";
 import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, strideFrame, strideOn, TROOPER_MIDDLE, Troopers } from "./troopers";
 
 /**
@@ -79,6 +79,11 @@ export interface SeenUnit {
   drawnAt: number;
   speed: number;
   stride: number;
+  /** The ground it has covered, m, back as well as forward (its wheels roll by it); how fast it is turning (rad/s), and speeding up (m/s²), smoothed; and its heading last frame. */
+  dist: number;
+  turning: number;
+  accel: number;
+  ph: number;
   /** When it came into view (ms): it grows in from then. */
   seenAt: number;
   /** When it went out of view (ms), or 0: it shrinks away from then, and is forgotten. */
@@ -150,6 +155,8 @@ export class ArmyView {
   private readonly scene: Scene;
   private readonly unitBody = new Map<UnitKind, Many>();
   private readonly unitTrim = new Map<UnitKind, Many>();
+  /** Each kind's moving parts (wheels, rotor blades, legs: see UNIT_PARTS), one set of instances each. */
+  private readonly unitParts = new Map<UnitKind, Many[]>();
   private readonly buildingBody = new Map<BuildingKind, Many>();
   private readonly buildingTrim = new Map<BuildingKind, Many>();
   /** The turning heads of turrets (see models.ts): body and trim, as the buildings themselves. */
@@ -223,6 +230,8 @@ export class ArmyView {
       if (kind === "trooper") continue;
       const model = unitModel(kind, scene);
       this.unitBody.set(kind, prepare(model.body, false, matt, true));
+      const moving = UNIT_PARTS[kind];
+      if (moving) this.unitParts.set(kind, moving.map((_, n) => prepare(unitPartModel(kind, n, scene), false, matt, true)));
       this.unitTrim.set(kind, prepare(model.trim, true, matt, false));
       const gun = unitHeadModel(kind, scene);
       if (gun) {
@@ -317,7 +326,7 @@ export class ArmyView {
       const a = gun > 0 ? ((gun - 1) / 255) * Math.PI * 2 : h;
       let unit = this.units.get(id);
       if (!unit) {
-        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0, px: x, pz: z, drawnAt: now, speed: 0, stride: (id * 0.37) % 1 };
+        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0, px: x, pz: z, drawnAt: now, speed: 0, stride: (id * 0.37) % 1, dist: id * 1.3, turning: 0, accel: 0, ph: h };
         this.units.set(id, unit);
       } else {
         unit.fa = unit.a;
@@ -617,7 +626,7 @@ export class ArmyView {
     const time = now / 1000;
     const dt = Math.min(0.1, Math.max(0, (now - this.lastDraw) / 1000));
     this.lastDraw = now;
-    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
+    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
     this.drawMarks();
     this.troopers.begin();
@@ -670,7 +679,7 @@ export class ArmyView {
 
     this.effects(now);
     this.drawGhost();
-    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
+    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
   }
 
   /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
@@ -715,17 +724,27 @@ export class ArmyView {
         else roll = 1.2;
       }
     }
-    // How it is really moving, as drawn: its speed (smoothed over a few frames) and the ground covered, for its stride.
+    // How it is really moving, as drawn: its speed (smoothed over a few frames), how fast that is changing, how fast it
+    // is turning, the ground covered (for a Trooper's stride, and back as well as forward for wheels).
     const dt = Math.min(0.1, Math.max(0, (now - u.drawnAt) / 1000));
     u.drawnAt = now;
-    const moved = Math.hypot(u.x - u.px, u.z - u.pz);
+    const mx = u.x - u.px, mz = u.z - u.pz;
+    const moved = Math.hypot(mx, mz);
     u.px = u.x;
     u.pz = u.z;
     // (Thrown, or put somewhere far off at once: not walked.)
     if (dt > 0 && moved < 6 && !u.tumble) {
+      const was = u.speed;
       u.speed += (moved / dt - u.speed) * Math.min(1, dt * 8);
+      u.accel += ((u.speed - was) / dt - u.accel) * Math.min(1, dt * 5);
       u.stride += strideOn(moved, u.speed);
-    } else if (u.tumble) u.speed = 0;
+      u.dist += mx * Math.sin(u.h) + mz * Math.cos(u.h) >= 0 ? moved : -moved;
+      let dh = (u.h - u.ph) % (Math.PI * 2);
+      if (dh > Math.PI) dh -= Math.PI * 2;
+      if (dh < -Math.PI) dh += Math.PI * 2;
+      u.turning += (dh / dt - u.turning) * Math.min(1, dt * 6);
+    } else if (u.tumble) u.speed = u.accel = u.turning = 0;
+    u.ph = u.h;
     // On the move: really covering ground (not nudged on the spot by those round it).
     const moving = u.speed > 0.8;
     const c = rgbOf(this.colorOf(u.owner));
@@ -757,12 +776,41 @@ export class ArmyView {
         pitch -= Math.sin(jolt * Math.PI) * 0.07;
         roll += Math.sin(jolt * Math.PI * 2) * 0.03;
       }
+      // How it rides as it goes (upright, and not a Titan, which walks: see its legs): a vehicle sits back as it speeds
+      // up and dips as it brakes, leans out of a turn and bumps over the ground; a drone noses down to fly and banks into a turn.
+      let sway = 0, lean = 0;
+      if (!u.tumble && !(u.flags & F_DOWN) && u.kind !== "titan") {
+        const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+        if (def.air) {
+          sway = Math.min(0.25, u.speed * 0.02) - clamp(u.accel * 0.01, 0.08);
+          lean = clamp(-u.turning * 0.2, 0.2);
+        } else {
+          sway = clamp(-u.accel * 0.012, 0.07);
+          lean = clamp(u.turning * u.speed * 0.008, 0.08);
+          const going = Math.min(1, u.speed / 6);
+          bob += UNIT_PARTS[u.kind]?.[0]?.steer ? Math.sin(u.dist * 2.2 + u.id) * 0.02 * going : Math.abs(Math.sin(u.dist * 1.6)) * 0.012 * going;
+        }
+      }
       const body = this.unitBody.get(u.kind)!, trim = this.unitTrim.get(u.kind)!;
       const i = body.add();
-      place(body.matrices, i, u.x, u.y + bob + lift, u.z, u.h, pitch, roll, grown, grown, grown);
+      place(body.matrices, i, u.x, u.y + bob + lift, u.z, u.h, pitch + sway, roll + lean, grown, grown, grown);
       const j = trim.add();
       trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
       trim.colors!.set([r, g, b, 1], j * 4);
+      // Its moving parts, on the hull as it is placed: wheels rolling with the ground covered (the front ones steered into a
+      // turn), rotor blades spinning, the artillery's legs down while it is set up and folded while it is not.
+      const partsOf = this.unitParts.get(u.kind);
+      if (partsOf) {
+        const specs = UNIT_PARTS[u.kind]!;
+        const steer = Math.max(-0.5, Math.min(0.5, u.turning * 0.6));
+        for (let n = 0; n < specs.length; n++) {
+          const spec = specs[n]!, m = partsOf[n]!;
+          if ((spec.motion === "legsDown" && !(u.flags & F_DEPLOYED)) || (spec.motion === "legsUp" && u.flags & F_DEPLOYED)) continue;
+          const spin = spec.motion === "wheel" ? u.dist / spec.radius : 0;
+          const turned = spec.motion === "rotor" ? time * (u.flags & F_STUNNED ? 4 : 30) + u.id : spec.steer ? steer : 0;
+          for (const [lx, ly, lz] of spec.at) placeOn(m.matrices, m.add(), body.matrices, i, lx, ly, lz, spin, turned);
+        }
+      }
       // Its turret (launcher, upper body), turned to where it aims, kicking back as it fires. Thrown or lying on its side, it goes with the hull.
       const gun = this.gunBody.get(u.kind);
       if (gun) {
@@ -776,7 +824,9 @@ export class ArmyView {
           const sh = Math.sin(u.h), ch = Math.cos(u.h), sa = Math.sin(u.a), ca = Math.cos(u.a);
           // (Turned about its pivot on the hull: the pivot where the hull puts it, the rest about it as the gun is laid.)
           const ox = px * ch + pz * sh - (px * ca + pz * sa), oz = -px * sh + pz * ch - (-px * sa + pz * ca);
-          place(gun.matrices, k, u.x + ox - sa * kick, u.y + bob + lift, u.z + oz - ca * kick, u.a, 0, 0, grown, grown, grown);
+          // (Tipped with the hull as it rides, as near as matters.)
+          const off = Math.cos(u.a - u.h);
+          place(gun.matrices, k, u.x + ox - sa * kick, u.y + bob + lift, u.z + oz - ca * kick, u.a, sway * off, lean * off, grown, grown, grown);
         }
         gunTrim.matrices.set(gun.matrices.subarray(k * 16, k * 16 + 16), t * 16);
         gunTrim.colors!.set([r, g, b, 1], t * 4);

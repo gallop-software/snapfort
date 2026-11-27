@@ -95,3 +95,24 @@ export function turn(from: number, to: number, k: number): number {
   if (d < -Math.PI) d += Math.PI * 2;
   return from + d * k;
 }
+
+/**
+ * Writes the placement of a part carried on something already placed (a
+ * wheel on a hull): at (lx, ly, lz) in that thing's own frame, turned `spin`
+ * about its own x (a wheel rolling) and then `steer` about the up of that
+ * frame (a front wheel steering, a rotor spinning), and then however the thing
+ * itself is placed (`on`, entry `at`).
+ */
+export function placeOn(m: Float32Array, i: number, on: Float32Array, at: number, lx: number, ly: number, lz: number, spin = 0, steer = 0): void {
+  const o = i * 16, h = at * 16;
+  const cs = Math.cos(spin), ss = Math.sin(spin), ct = Math.cos(steer), st = Math.sin(steer);
+  // The part's own axes in the carrier's frame (rows): spun about x, then steered about y.
+  const r = [ct, 0, -st, st * ss, cs, ct * ss, st * cs, -ss, ct * cs];
+  for (let row = 0; row < 3; row++) {
+    const a = r[row * 3]!, b = r[row * 3 + 1]!, c = r[row * 3 + 2]!;
+    for (let col = 0; col < 3; col++) m[o + row * 4 + col] = a * on[h + col]! + b * on[h + 4 + col]! + c * on[h + 8 + col]!;
+    m[o + row * 4 + 3] = 0;
+  }
+  for (let col = 0; col < 3; col++) m[o + 12 + col] = lx * on[h + col]! + ly * on[h + 4 + col]! + lz * on[h + 8 + col]! + on[h + 12 + col]!;
+  m[o + 15] = 1;
+}

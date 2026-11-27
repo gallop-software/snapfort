@@ -10,9 +10,9 @@ import {
   DIG_TIME,
   EMP,
   FLIGHT_HEIGHT,
-  GENERAL_IMMUNE,
   CHASE_OF_SIGHT,
   GENERAL_SIGHT,
+  GUARD_RADIUS,
   HIGH_GROUND,
   LOAD,
   MAX_GENERALS,
@@ -272,10 +272,6 @@ export interface Happened {
 export interface Host {
   /** Where a builder's body is (its centre), or null. */
   positionOf(pid: string): Vec | null;
-  /** In the air or getting up. */
-  isDown(pid: string): boolean;
-  /** Throws a builder away from a blast at `from`. */
-  throwBuilder(pid: string, from: Vec): void;
   /** Wears pieces down: [piece id, hits] (fractions of a hit). */
   wear(point: Vec, hits: [string, number][], by: string): void;
   /** Takes pieces out of the build. */
@@ -313,8 +309,6 @@ export class Sim {
   private readonly serving = new Map<string, number>();
   /** The army each browser tab last served: a reload or a dropped connection comes back to it without being asked. Never sent anywhere. */
   private readonly lastOfTab = new Map<string, number>();
-  /** Each builder cannot be thrown again before this (game seconds). */
-  private readonly immune = new Map<string, number>();
   /** Whose each built piece is: the army its builder served when it went in. */
   private readonly pieceOwner = new Map<string, number>();
   private nextUnit = 1;
@@ -440,7 +434,6 @@ export class Sim {
   leave(pid: string): void {
     const g = this.generalOf(pid);
     this.serving.delete(pid);
-    this.immune.delete(pid);
     if (!g) return;
     g.here = g.here.filter((x) => x !== pid);
     g.pending = 0;
@@ -478,6 +471,16 @@ export class Sim {
     let n = 0;
     for (const b of this.buildings.values()) if (b.owner === slot && !b.dead && b.doneAt === 0) n += BUILDINGS[b.kind].supply ?? 0;
     return Math.min(MAX_SUPPLY, n);
+  }
+
+  /** Whether a spot is within GUARD_RADIUS of a finished Core of an army's own (where its turrets may go). */
+  nearCore(slot: number, x: number, z: number): boolean {
+    for (const b of this.buildings.values()) {
+      if (b.owner !== slot || b.kind !== "core" || b.dead || b.doneAt !== 0) continue;
+      const c = this.centreOf(b);
+      if (Math.hypot(c[0] - x, c[2] - z) <= GUARD_RADIUS) return true;
+    }
+    return false;
   }
 
   private has(slot: number, kind: BuildingKind): boolean {
@@ -556,6 +559,7 @@ export class Sim {
       if (g.plasma < def.plasma) return "Not enough plasma";
     }
     if (!Number.isInteger(cx) || !Number.isInteger(cz) || Math.abs(cx) > HALF_CELLS - def.size - 1 || Math.abs(cz) > HALF_CELLS - def.size - 1) return "Outside the building area";
+    if (def.nearCore && !this.nearCore(slot, (cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
     if (kind === "tap") {
       const f = this.fieldAt.get(`${cx},${cz}`);
       if (!f || f.kind !== "vent") return "A Tap goes on a plasma vent";
@@ -947,10 +951,7 @@ export class Sim {
       const b = this.buildings.get(id as number);
       return b ? [this.centreOf(b)[0], this.centreOf(b)[2]] : null;
     }
-    if (tk === T_GENERAL) {
-      const at = this.generalSpot(id as number);
-      return at ? [at[0], at[2]] : null;
-    }
+    if (tk === T_GENERAL) return null;
     const p = this.build.get(id as string);
     return p ? [(p.x + (p.type === "wall" && p.rot === 1 ? 0 : 0.5)) * CELL, (p.z + (p.type === "wall" && p.rot === 0 ? 0 : 0.5)) * CELL] : null;
   }
@@ -1549,50 +1550,8 @@ export class Sim {
       const d = Math.max(0, Math.hypot(c[0] - u.x, c[2] - u.z) - (BUILDINGS[b.kind].size * CELL) / 2);
       return d / range + 0.55 - (heavy ? 0.3 : 0) - (BUILDINGS[b.kind].weapon ? 0.25 : 0) + scatter(u.id, b.id) * 0.1;
     }
-    if (tk === T_GENERAL) {
-      // A general is what every gun wants most: thrown, they cannot build in the middle of the fight.
-      const at = this.openGeneral(tid as number, u.x, u.z);
-      return at ? Math.hypot(at[0] - u.x, at[2] - u.z) / range - 1 : Infinity;
-    }
     // (A piece: only ever what it was told to shoot.)
     return 1;
-  }
-
-  /**
-   * Of an army's generals, the one nearest a spot who can be thrown now (on
-   * their feet, and not just up again): where they stand, or null.
-   */
-  private openGeneral(slot: number, x: number, z: number): Vec | null {
-    let best: Vec | null = null, bestD = Infinity;
-    for (const pid of this.generals[slot]?.here ?? []) {
-      if (this.t < (this.immune.get(pid) ?? 0) || this.host.isDown(pid)) continue;
-      const at = this.host.positionOf(pid);
-      if (!at) continue;
-      const d = dist2(at[0], at[2], x, z);
-      if (d < bestD) {
-        bestD = d;
-        best = at;
-      }
-    }
-    return best;
-  }
-
-  /** The enemy general a weapon at a spot can throw now (in range, and a line to them), nearest first: their army's slot, or -1. Nobody's sentries shoot at generals. */
-  private generalInReach(x: number, z: number, level: number, air: boolean, owner: number, w: Weapon, range: number): number {
-    if (!w.ground || owner === NEUTRAL) return -1;
-    let best = -1, bestD = range;
-    const min = w.minRange ?? 0;
-    for (const g of this.generals) {
-      if (!g || !this.hostile(owner, g.slot)) continue;
-      const at = this.openGeneral(g.slot, x, z);
-      if (!at) continue;
-      const d = Math.hypot(at[0] - x, at[2] - z);
-      if (d > bestD || d < min) continue;
-      if (!this.lineOfFire(x, z, at[0], at[2], Math.max(level, Math.max(0, Math.floor((at[1] - 0.9) / LEVEL + 0.2))), 0, owner, !!w.lob || air)) continue;
-      bestD = d;
-      best = g.slot;
-    }
-    return best;
   }
 
   /** The target a unit would choose now, of those in its sight (or range, holding): the best scored, with whether it can be shot from here. */
@@ -1610,18 +1569,6 @@ export class Sim {
       if (u.home && Math.hypot(o.x - u.home[0], o.z - u.home[1]) > leash) return;
       found.push({ tk: T_UNIT, tid: o.id, score: this.scoreOf(u, w, range, T_UNIT, o.id, false), d, x: o.x, z: o.z, l: o.level, flying });
     });
-    if (w.ground && u.owner !== NEUTRAL) {
-      // The enemy's generals, wherever they are in its sight (see scoreOf: wanted most of all).
-      for (const g of this.generals) {
-        if (!g || !this.hostile(u.owner, g.slot)) continue;
-        const at = this.openGeneral(g.slot, u.x, u.z);
-        if (!at) continue;
-        const d = Math.hypot(at[0] - u.x, at[2] - u.z);
-        if (d > acquire || (min && d < min)) continue;
-        if (u.home && Math.hypot(at[0] - u.home[0], at[2] - u.home[1]) > leash) continue;
-        found.push({ tk: T_GENERAL, tid: g.slot, score: this.scoreOf(u, w, range, T_GENERAL, g.slot, false), d, x: at[0], z: at[2], l: Math.max(0, Math.floor((at[1] - 0.9) / LEVEL + 0.2)), flying: false });
-      }
-    }
     if (w.ground) {
       for (const b of this.buildings.values()) {
         if (b.dead || !this.hostile(u.owner, b.owner)) continue;
@@ -1686,12 +1633,8 @@ export class Sim {
       [tx, , tz] = this.centreOf(b);
       slack = (BUILDINGS[b.kind].size * CELL) / 2;
     } else if (tk === T_GENERAL) {
-      // (Chosen by itself, a general is let go of while they are in the air or just up: a shot would do nothing.)
-      const at = ordered ? this.generalSpot(tid as number, x, z) : this.openGeneral(tid as number, x, z);
-      if (!at || !w.ground) return "gone";
-      tx = at[0];
-      tz = at[2];
-      tl = Math.max(0, Math.floor((at[1] - 0.9) / LEVEL + 0.2));
+      // A general is never hit: no gun ever shoots at one.
+      return "gone";
     } else {
       const p = this.build.get(tid as string);
       if (!p || w.wear <= 0) return "gone";
@@ -1717,9 +1660,6 @@ export class Sim {
 
   /** The nearest enemy a weapon at a spot can hit, or null. */
   private findTarget(x: number, z: number, level: number, air: boolean, owner: number, w: Weapon, range: number): [TargetKind, number] | null {
-    // A general in reach first, before anything else.
-    const general = this.generalInReach(x, z, level, air, owner, w, range);
-    if (general >= 0) return [T_GENERAL, general];
     let best: [TargetKind, number] | null = null, bestD = range * range;
     const min2 = (w.minRange ?? 0) ** 2;
     this.nearby(x, z, range, (o) => {
@@ -1751,7 +1691,7 @@ export class Sim {
     if (!spot) return;
     const g = this.generals[owner];
     const damage = w.damage * (1 + (g?.upgrades.weapons ?? 0) * UPGRADE_STEP);
-    const ty = tk === T_UNIT ? (this.unitById.get(tid as number)?.y ?? 0) + 1 : tk === T_BUILDING ? 2 : tk === T_GENERAL ? (this.generalSpot(tid as number)?.[1] ?? 1) : 1.5;
+    const ty = tk === T_UNIT ? (this.unitById.get(tid as number)?.y ?? 0) + 1 : tk === T_BUILDING ? 2 : 1.5;
     const to: Vec = [spot[0], ty, spot[1]];
     if (tk === T_PIECE) {
       // A wall is hit on the face toward the shooter: what it blows up is on that side, and those behind are sheltered.
@@ -1768,8 +1708,6 @@ export class Sim {
       return;
     }
     this.happened.shots.push({ from, to, look: w.look, time: 0, owner, hit: tk === T_UNIT ? (tid as number) : tk === T_BUILDING ? -(tid as number) : 0, by });
-    // (A shell burst on a general throws them away from the gun, not from where it burst: their own feet.)
-    if (w.splash > 0 && tk === T_GENERAL) this.hitGeneral(tid as number, to, from);
     if (w.splash > 0) return this.blast(to, w.splash, damage, owner, w);
     if (tk === T_UNIT) {
       const t = this.unitById.get(tid as number);
@@ -1777,26 +1715,10 @@ export class Sim {
     } else if (tk === T_BUILDING) {
       const b = this.buildings.get(tid as number);
       if (b) this.hurtBuilding(b, damage, owner);
-    } else if (tk === T_GENERAL) this.hitGeneral(tid as number, to, from);
-    else if (w.wear > 0) this.wearPiece(tid as string, w.wear, to, owner);
+    } else if (w.wear > 0) this.wearPiece(tid as string, w.wear, to, owner);
   }
 
-  /** Where a general of an army stands: of those serving it, the nearest to a spot (or the first). Null when nobody serves it. */
-  private generalSpot(slot: number, x?: number, z?: number): Vec | null {
-    let best: Vec | null = null, bestD = Infinity;
-    for (const pid of this.generals[slot]?.here ?? []) {
-      const at = this.host.positionOf(pid);
-      if (!at) continue;
-      const d = x === undefined || z === undefined ? 0 : dist2(at[0], at[2], x, z);
-      if (d < bestD) {
-        bestD = d;
-        best = at;
-      }
-    }
-    return best;
-  }
-
-  /** A blast: everything of the enemy's near it is hurt (less at its edge) and thrown, pieces are worn, and generals fly. */
+  /** A blast: everything of the enemy's near it is hurt (less at its edge) and thrown, and pieces are worn. Generals are never touched. */
   blast(at: Vec, radius: number, damage: number, owner: number, w: Pick<Weapon, "air" | "ground" | "wear">): void {
     this.happened.blasts.push({ at, radius });
     const air = at[1] > FLIGHT_HEIGHT / 2;
@@ -1830,37 +1752,6 @@ export class Sim {
         if (distanceToPiece(p, at, this.env) <= radius) this.wearPiece(p.id, w.wear, at, owner);
       }
     }
-    for (const g of this.generals) {
-      if (!g || (owner !== -1 && !this.hostile(owner, g.slot))) continue;
-      for (const pid of g.here) {
-        const p = this.host.positionOf(pid);
-        if (!p || Math.hypot(p[0] - at[0], p[1] - at[1], p[2] - at[2]) > radius + 2.5) continue;
-        // (Behind a wall, a general is sheltered too.)
-        if (this.nav.clearLine(at[0], at[2], p[0], p[2], Math.max(0, Math.floor((p[1] - 0.9) / LEVEL + 0.2)), 0, owner, true)) this.throwGeneral(pid, at);
-      }
-    }
-  }
-
-  /** A shot aimed at an army's generals lands (at `at`): whoever of them is nearest it (within a few metres) is thrown, away from where it came from. */
-  private hitGeneral(slot: number, at: Vec, from: Vec): void {
-    let best = "", bestD = 36;
-    for (const pid of this.generals[slot]?.here ?? []) {
-      const p = this.host.positionOf(pid);
-      const d = p ? dist2(p[0], p[2], at[0], at[2]) : Infinity;
-      if (d < bestD) {
-        bestD = d;
-        best = pid;
-      }
-    }
-    if (best) this.throwGeneral(best, from);
-  }
-
-  /** A general is thrown, unless they were thrown only just now. Nothing else ever happens to a general. */
-  private throwGeneral(pid: string, from: Vec): void {
-    if (this.t < (this.immune.get(pid) ?? 0) || this.host.isDown(pid)) return;
-    // (About four seconds in the air and getting up, then the time they cannot be thrown again.)
-    this.immune.set(pid, this.t + 4 + GENERAL_IMMUNE);
-    this.host.throwBuilder(pid, from);
   }
 
   private hurtUnit(u: Unit, damage: number, by: number, fromX: number, fromZ: number): void {
@@ -1977,15 +1868,6 @@ export class Sim {
     if (b.tk) {
       if (this.canHit(c[0], c[2], 0, true, b.owner, w, w.range, b.tk, b.tid, false) !== "ok") b.tk = 0;
       else wall = this.shotWall;
-    }
-    // Shooting at something else, it looks now and then for a general to throw instead.
-    if (b.tk && b.tk !== T_GENERAL && (this.step + b.id) % 6 === 0) {
-      const general = this.generalInReach(c[0], c[2], 0, true, b.owner, w, w.range);
-      if (general >= 0) {
-        b.tk = T_GENERAL;
-        b.tid = general;
-        wall = null;
-      }
     }
     if (!b.tk && (this.step + b.id) % 3 === 0) {
       // (A turret stands above buildings and shoots out over its own army's walls: only another's wall stops it.)

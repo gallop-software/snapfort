@@ -127,6 +127,8 @@ export interface BuildingDef {
   /** How far across it is drawn, m (inside its cells): what builders bump into and throws land on. */
   wide: number;
   needs?: readonly BuildingKind[];
+  /** A turret: it goes up only within GUARD_RADIUS of a finished Command Core of its own army. */
+  nearCore?: boolean;
   /** Supply it adds to its general's limit. */
   supply?: number;
   weapon?: Weapon;
@@ -144,16 +146,16 @@ export const BUILDINGS: Readonly<Record<BuildingKind, BuildingDef>> = {
   skyport: { label: "Skyport", key: "K", lithium: 150, plasma: 100, hp: 700, size: 2, time: 35, sight: 100, height: 9, wide: 9.8, needs: ["foundry"], advanced: true, blurb: "Makes drones" },
   titanbay: { label: "Titan bay", key: "T", lithium: 250, plasma: 200, hp: 900, size: 3, time: 50, sight: 90, height: 12, wide: 14.2, needs: ["armory", "skyport"], advanced: true, blurb: "Makes the Titan walker" },
   sentry: {
-    label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 90, height: 4, wide: 2.2, needs: ["foundry"],
+    label: "Sentry turret", key: "E", lithium: 100, plasma: 0, hp: 350, size: 1, time: 18, sight: 90, height: 4, wide: 2.2, needs: ["foundry"], nearCore: true,
     weapon: { range: 36, damage: 10, cooldown: 0.6, splash: 0, air: false, ground: true, wear: 0, look: "bullet" },
     blurb: "Guards a spot against ground units",
   },
   flak: {
-    label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 100, height: 4, wide: 2.2, needs: ["foundry"],
+    label: "Flak turret", key: "L", lithium: 75, plasma: 25, hp: 300, size: 1, time: 18, sight: 100, height: 4, wide: 2.2, needs: ["foundry"], nearCore: true,
     weapon: { range: 48, damage: 16, cooldown: 0.7, splash: 0, air: true, ground: false, wear: 0, look: "bullet" },
     blurb: "Guards a spot against drones",
   },
-  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 80, height: 6, wide: 2.2, needs: ["armory"], advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
+  laser: { label: "Point-defence laser", key: "P", lithium: 100, plasma: 75, hp: 250, size: 1, time: 22, sight: 80, height: 6, wide: 2.2, needs: ["armory"], nearCore: true, advanced: true, blurb: "Shoots artillery shells out of the sky near it" },
 };
 
 /** What each building makes, in the order of its buttons. */
@@ -197,12 +199,10 @@ export const PIECE_COST = 8;
 
 /** How high drones fly, m. */
 export const FLIGHT_HEIGHT = 14;
+/** Turrets (sentry, flak, point-defence laser) go up only this close to a finished Core of their own army, m (centre to centre): an army guards its own base, nobody builds guns in someone else's. */
+export const GUARD_RADIUS = 75;
 /** The EMP: how wide, how long it stops things, and how long until the drone can pulse again. */
 export const EMP = { radius: 12, stun: 6, cooldown: 30, range: 40 } as const;
-/** A general thrown by a hit cannot be thrown again for this long after getting up: long enough to get going, not to build. */
-export const GENERAL_IMMUNE = 2;
-/** How far a hit throws a general, m: away from whatever hit them, well out of the fight. */
-export const GENERAL_THROWN = 40;
 /** How far a general sees on foot; standing higher adds this much for every metre, up to three times as far. */
 export const GENERAL_SIGHT = 120;
 export const SIGHT_PER_METRE = 2.4;

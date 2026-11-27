@@ -376,7 +376,18 @@ check("Troopers bring their rifles up to fire, and flinch when a bullet finds th
 await a.screenshot({ path: "qa/shots/mojave-fight.png" });
 
 // ── A turret turns to what it fires on ───────────────────────────────────
-const post = await sf(a, () => { const s = window.snapfort; const p = s.player.position; const x = Math.round(p.x / 5) + 3, z = Math.round(p.z / 5) + 3; s.net.sendWorld({ m: "build", kind: "sentry", x, z }); return [x * 5 + 2.5, z * 5 + 2.5]; });
+// (A turret goes up only near a Core of its own army: by the Core, at the first clear spot.)
+const tryAt = [[-6, 6], [6, -6], [-6, -6], [6, 6], [0, 8], [8, 0], [0, -8], [-8, 0], [-10, 4], [4, -10]];
+let post = null;
+await sf(a, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), [coreX - inX * 10, coreZ - inZ * 10]);
+check("a turret is refused far from its army's Core", await sf(a, ([x, z]) => new Promise((res) => { const s = window.snapfort; const p = s.player; p.teleport(x, 0.95, z); s.net.sendWorld({ m: "build", kind: "sentry", x: Math.round(x / 5) + 3, z: Math.round(z / 5) + 3 }); setTimeout(() => res(![...s.feature.army.buildings.values()].some((b) => b.kind === "sentry") && /within 75 m of your Command Core/.test(document.getElementById("toast")?.textContent ?? "")), 1200); }), [coreX + inX * 90, coreZ + inZ * 90]));
+await sf(a, ([x, z]) => window.snapfort.player.teleport(x, 0.95, z), [coreX - inX * 10, coreZ - inZ * 10]);
+for (const [dx, dz] of tryAt) {
+  const at = [Math.round(coreX / 5 + dx), Math.round(coreZ / 5 + dz)];
+  await sf(a, ([x, z]) => window.snapfort.net.sendWorld({ m: "build", kind: "sentry", x, z }), at);
+  await wait(600);
+  if (await sf(a, () => [...window.snapfort.feature.army.buildings.values()].some((b) => b.kind === "sentry"))) { post = [at[0] * 5 + 2.5, at[1] * 5 + 2.5]; break; }
+}
 const sentryId = await until(a, () => [...window.snapfort.feature.army.buildings.values()].find((b) => b.kind === "sentry")?.i ?? null);
 await until(a, (id) => window.snapfort.feature.army.buildings.get(id)?.d === 0, sentryId, 5000);
 const turned = [];
@@ -493,13 +504,13 @@ check("T changes no material: there is one", await (async () => { await b.keyboa
 await until(a, (id) => !!window.snapfort.state.get(id), placedId);
 await sf(a, ([x, z]) => window.snapfort.player.teleport(x * 5 + 2.5, 0.95, z * 5 - 4), wallAt);
 await frames(a, 5);
-// Walking into it and jumping, again and again: nobody gets over a wall here.
+// Walking into it and jumping: a general jumps a wall (it stops shots, not generals).
 await sf(a, () => { window.snapfort.rig.yaw = 0; window.snapfort.rig.pitch = 0; });
 await a.keyboard.down("w");
-for (let i = 0; i < 8; i++) { await a.keyboard.press("Space"); await wait(300); }
+await a.keyboard.down("Space"); await wait(2400); await a.keyboard.up("Space");
 await a.keyboard.up("w");
 const overZ = await sf(a, () => window.snapfort.player.position.z);
-check("walking into a wall and jumping, a general stays on their side of it", overZ < wallAt[1] * 5, `${overZ.toFixed(2)} vs the wall at ${wallAt[1] * 5}`);
+check("walking into a wall and jumping, a general gets over it", overZ > wallAt[1] * 5 + 0.5, `${overZ.toFixed(2)} vs the wall at ${wallAt[1] * 5}`);
 const floorId = await sf(b, ([x, z]) => { const s = window.snapfort; const id = s.nextId(); s.history.do({ kind: "place", piece: { type: "floor", x: x + 2, y: 0, z: z + 2, rot: 0, id, material: "brick", edit: 0 } }); return id; }, wallAt);
 await wait(900);
 check("walls only: the world refuses a floor", await sf(a, (id) => !window.snapfort.state.get(id), floorId) && await sf(b, (id) => !window.snapfort.state.get(id), floorId));

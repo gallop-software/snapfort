@@ -6,6 +6,7 @@ import {
   BUILDING_KINDS,
   BUILDINGS,
   EMP,
+  GUARD_RADIUS,
   HIGH_GROUND,
   MAKES,
   PIECE_COST,
@@ -352,7 +353,6 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     };
     if (p?.k === "unit" && !mine(p.u.owner)) return attack([1, p.u.id], [p.u.x, p.u.y, p.u.z]);
     if (p?.k === "building" && !mine(p.b.o)) return attack([2, p.b.i], spot);
-    if (p?.k === "general" && !mine(p.slot)) return attack([3, p.slot], spot);
     if (p?.k === "unit" && p.u.kind === "transport" && mine(p.u.owner) && !selected.has(p.u.id)) {
       send({ m: "order", ids, k: "load", into: p.u.id, q: queue });
       return mark([p.u.x, 0, p.u.z], [0.6, 0.8, 1]);
@@ -410,6 +410,7 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     const p = game.player.position;
     if (Math.hypot(p.x - (cx + def.size / 2) * CELL, p.z - (cz + def.size / 2) * CELL) > BUILD_REACH + (def.size * CELL) / 2) return "Too far away: go closer";
     if (Math.abs(cx) > HALF_CELLS - def.size - 1 || Math.abs(cz) > HALF_CELLS - def.size - 1) return "Outside the building area";
+    if (def.nearCore && !coreNear((cx + def.size / 2) * CELL, (cz + def.size / 2) * CELL)) return `A turret goes within ${GUARD_RADIUS} m of your Command Core`;
     if (kind === "tap") {
       const vent = [...army.fields.values()].find((f) => f.vent && f.cx === cx && f.cz === cz);
       if (!vent) return "A Tap goes on a plasma vent";
@@ -444,6 +445,17 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
     if (buildingsOnly) return false;
     for (const f of army.fields.values()) if (f.cx === x && f.cz === z) return true;
     return false;
+  }
+
+  /** This army's finished Cores: where each stands (m). */
+  function myCores(): [number, number][] {
+    const size = BUILDINGS.core.size * CELL;
+    return [...army.buildings.values()].filter((b) => mine(b.o) && b.kind === "core" && b.d === 0).map((b) => [b.x * CELL + size / 2, b.z * CELL + size / 2]);
+  }
+
+  /** Whether a spot is near enough one of this army's Cores for a turret (as Sim.nearCore judges it). */
+  function coreNear(x: number, z: number): boolean {
+    return myCores().some(([cx, cz]) => Math.hypot(cx - x, cz - z) <= GUARD_RADIUS);
   }
 
   function placeBuilding(kind: BuildingKind): void {
@@ -1093,6 +1105,10 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         // The building itself, see-through, where it would stand; and its corners, so the square it takes is plain.
         army.ghost(mode.kind, x, z, !at.why);
         for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) army.mark(at.cx * CELL + dx * size, 0, at.cz * CELL + dz * size, 0.6, c);
+        // A turret: how far from each Core it may go, dotted round on the ground.
+        if (BUILDINGS[mode.kind].nearCore) {
+          for (const [kx, kz] of myCores()) for (let i = 0; i < 72; i++) army.mark(kx + Math.sin((i / 72) * Math.PI * 2) * GUARD_RADIUS, 0, kz + Math.cos((i / 72) * Math.PI * 2) * GUARD_RADIUS, 0.7, [0.45, 0.8, 1]);
+        }
         hint = at.why ? `<span class="bad">${at.why}</span>` : `<span class="ok">${BUILDINGS[mode.kind].label}: ${game.touch ? "tap Place" : "click"} to put it here</span>`;
       } else hint = `<span class="bad">Aim at the ground</span>`;
     } else if (mode?.k === "target") {

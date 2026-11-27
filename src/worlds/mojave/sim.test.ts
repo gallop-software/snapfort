@@ -13,14 +13,9 @@ function fakeHost() {
   const at = new Map<string, Vec>();
   const host = {
     at,
-    thrown: [] as string[],
-    /** Where each throw came from (a gun, or a blast's middle). */
-    from: [] as Vec[],
     worn: [] as [string, number][],
     removed: [] as string[],
     positionOf: (pid: string) => at.get(pid) ?? null,
-    isDown: () => false,
-    throwBuilder: (pid: string, from: Vec) => void (host.thrown.push(pid), host.from.push(from)),
     wear: (_p: Vec, hits: [string, number][]) => void host.worn.push(...hits),
     removePieces: (ids: string[]) => void host.removed.push(...ids),
   };
@@ -161,6 +156,15 @@ describe("a general arrives", () => {
     // Units still take their time.
     run(1);
     expect(foundry.queue).toHaveLength(1);
+    // A turret goes up near a Core of its own army, and nowhere else.
+    const core = [...sim.buildings.values()].find((b) => b.kind === "core" && b.owner === g.slot)!;
+    expect(sim.orderBuilding(g.slot, "sentry", core.cx + inX * 9, core.cz)).toBe("");
+    expect(sim.orderBuilding(g.slot, "flak", core.cx + inX * 17, core.cz)).toMatch(/within 75 m of your Command Core/);
+    expect(sim.orderBuilding(g.slot, "sentry", core.cx + inX * 17, core.cz + inZ * 17)).toMatch(/within 75 m of your Command Core/);
+    // Another army's Core is no help.
+    const h = general("p2", 4);
+    const theirs = [...sim.buildings.values()].find((b) => b.kind === "core" && b.owner === h.slot)!;
+    expect(sim.orderBuilding(g.slot, "sentry", theirs.cx + 4, theirs.cz)).toMatch(/within 75 m/);
     // Too far from where the general who orders it stands.
     host.at.set("p1", [0, 0.9, 0]);
     expect(sim.orderBuilding(g.slot, "relay", ...at(inX * 8, inZ * 8), "p1")).toMatch(/Too far/);
@@ -737,51 +741,34 @@ describe("fighting", () => {
     expect(sim.cannotBuild(b.slot, "core", 40, 40)).toBe("");
   });
 
-  it("every gun goes for an enemy general first: thrown away from it, never anything worse, and not again until a moment after getting up", () => {
-    const { sim, a, b, run, host } = twoSides();
-    host.at.set("pb", [OPEN[0], 0.9, OPEN[1] + 30]);
-    const tank = sim.addUnit("tank", a.slot, OPEN[0], OPEN[1]);
-    // A Hauler nearer the Tank than the general is: the general is still the one shot at.
-    const hauler = sim.addUnit("hauler", b.slot, OPEN[0] + 1, OPEN[1] + 12);
-    sim.command(a.slot, [tank.id], { k: "hold" });
-    run(1);
-    expect(host.thrown).toEqual(["pb"]);
-    expect(hauler.hp).toBe(UNITS.hauler.hp);
-    // Thrown from the Tank's side: away from it.
-    expect(Math.hypot(host.from[0]![0] - tank.x, host.from[0]![2] - tank.z)).toBeLessThan(3);
-    expect(sim.generals[b.slot]).not.toBeNull();
-    // In the air and just up (six seconds in all), not thrown again: the Tank shoots the Hauler meanwhile.
-    run(3);
-    expect(host.thrown).toEqual(["pb"]);
-    expect(hauler.hp).toBeLessThan(UNITS.hauler.hp);
-    run(4);
-    expect(host.thrown).toEqual(["pb", "pb"]);
-  });
-
-  it("a turret drops what it is shooting at for a general; nobody's sentries let generals be", () => {
+  it("a general is never hit: no unit, turret or sentry post shoots at one, and a blast leaves them be", () => {
     const { sim, a, b, run, host } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
-    const turret = sim.addBuilding("sentry", a.slot, cx, cz, true);
-    const c = sim.centreOf(turret);
-    const trooper = sim.addUnit("trooper", b.slot, c[0] + 20, c[2]);
-    sim.command(b.slot, [trooper.id], { k: "hold" });
-    host.at.set("pb", [c[0] - 300, 0.9, c[2]]);
+    // A general right in front of a Tank, a Trooper, an artillery piece, a turret of the enemy's and a sentry post of nobody's.
+    const pb: Vec = [OPEN[0], 0.9, OPEN[1] + 15];
+    host.at.set("pb", pb);
+    host.at.set("pa", [OPEN[0] - 300, 0.9, OPEN[1]]);
+    const tank = sim.addUnit("tank", a.slot, OPEN[0] + 4, OPEN[1]);
+    sim.addUnit("trooper", a.slot, OPEN[0] - 4, OPEN[1]);
+    // (Even told to: an order to attack a general comes to nothing.)
+    sim.command(a.slot, [tank.id], { k: "attack", tk: 3, id: b.slot });
+    sim.addUnit("artillery", a.slot, OPEN[0], OPEN[1] - 15);
+    sim.addBuilding("sentry", a.slot, cx + 4, cz + 3, true);
+    sim.addBuilding("sentry", NEUTRAL, cx - 5, cz + 3, true);
+    // (They shoot each other meanwhile: the sentry post is everyone's enemy.)
+    let shots = 0, atGeneral = 0;
+    for (let i = 0; i < Math.round(8 / DT); i++) {
+      sim.tick();
+      shots += sim.happened.shots.length;
+      atGeneral += sim.happened.shots.filter((s) => Math.hypot(s.to[0] - pb[0], s.to[2] - pb[2]) < 3).length;
+    }
+    expect(shots).toBeGreaterThan(10);
+    expect(atGeneral).toBe(0);
+    // A blast at their feet: nothing at all happens to them (and nothing asks where they are to throw them).
+    sim.blast([pb[0], 0.5, pb[2]], 6, 60, a.slot, { air: false, ground: true, wear: 1 });
     run(1);
-    expect(trooper.hp).toBeLessThan(UNITS.trooper.hp);
-    // The general walks up: the turret turns on them.
-    host.at.set("pb", [c[0], 0.9, c[2] - 25]);
-    run(1.5);
-    expect(host.thrown).toEqual(["pb"]);
-    // A sentry post of nobody's: never at a general.
-    host.thrown.length = 0;
-    const post = sim.addBuilding("sentry", NEUTRAL, cx + 60, cz, true);
-    const pc = sim.centreOf(post);
-    host.at.set("pb", [pc[0] + 15, 0.9, pc[2]]);
-    host.at.set("pa", [pc[0] - 15, 0.9, pc[2]]);
-    sim.kill(trooper, false);
-    (sim as unknown as { raze(b: typeof turret, left: boolean): void }).raze(turret, false);
-    run(10);
-    expect(host.thrown).toEqual([]);
+    expect(host.at.get("pb")).toEqual(pb);
+    expect(sim.generals[b.slot]).not.toBeNull();
   });
 });
 
@@ -881,25 +868,6 @@ describe("leaving, and changing sides", () => {
     expect(again.sim.ownerOfPiece(after.id)).toBe(4);
     expect(again.sim.lastServed("tab-p1")).toBe(4);
     expect(again.sim.generals.every((g) => !g || g.here.length === 0)).toBe(true);
-  });
-
-  it("each general is thrown for themselves: two serving one army, the one by the blast flies, and has a moment's grace after", () => {
-    const { sim, general, host } = setup();
-    general("pa", 0);
-    general("pb", 4);
-    general("pc", 4);
-    host.at.set("pb", [OPEN[0], 0.9, OPEN[1]]);
-    host.at.set("pc", [OPEN[0] + 60, 0.9, OPEN[1]]);
-    sim.tick();
-    sim.blast([OPEN[0] + 1, 0.5, OPEN[1]], 4, 30, 0, { air: false, ground: true, wear: 0 });
-    expect(host.thrown).toEqual(["pb"]);
-    sim.blast([OPEN[0] + 1, 0.5, OPEN[1]], 4, 30, 0, { air: false, ground: true, wear: 0 });
-    expect(host.thrown).toEqual(["pb"]);
-    sim.blast([OPEN[0] + 61, 0.5, OPEN[1]], 4, 30, 0, { air: false, ground: true, wear: 0 });
-    expect(host.thrown).toEqual(["pb", "pc"]);
-    // Their own army's blasts throw neither.
-    sim.blast([OPEN[0] + 61, 0.5, OPEN[1]], 4, 30, 4, { air: false, ground: true, wear: 0 });
-    expect(host.thrown).toEqual(["pb", "pc"]);
   });
 });
 

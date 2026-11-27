@@ -38,8 +38,8 @@ export const world: Environment = {
   halfCells: HALF_CELLS,
 
   gravity: 26,
-  // A hop, well short of a wall (a storey, 3.75 m): nobody jumps over one here, or onto it.
-  jumpHeight: 1.2,
+  // Over a wall (a storey, 3.75 m): walls stop shots, not generals.
+  jumpHeight: 4.2,
   stoneGravity: 9.81,
   flightTime: 1,
   range: 1,

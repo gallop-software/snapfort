@@ -389,16 +389,45 @@ function emp(p: Parts): void {
   for (const sx of SIDES) for (const sz of SIDES) p.box(CYAN, 0.3, 0.28, 0.3, sx * 0.884, 0.5, sz * 0.884, Math.PI / 4);
 }
 
+/**
+ * The Titan's legs, each a thigh, a shin and a foot drawn on their own (see
+ * TITAN_LEG and army.ts): its hips, at (±hipX, hipY, hipZ) on the pelvis; how
+ * long the thigh and the shin are; how high the ankle is over the sole; and
+ * how far one cycle of its walk (a step with each foot) carries it, m.
+ */
+export const TITAN_LEG = { hipX: 1.2, hipY: 3.8, hipZ: 0.3, thigh: 1.79, shin: 1.99, ankle: 0.45, stride: 5.2 } as const;
+
+/** The pelvis the legs hang from (and the upper body turns on): the legs are drawn on their own. */
 function titan(p: Parts): void {
-  for (const s of SIDES) {
-    const x = s * 1.2;
-    p.frustum(GRAPHITE, 1.3, 2.2, 0.9, 1.3, 0.5, x, 0, 0.2);
-    p.beam(STEEL, [x, 0.4, 0.1], [x, 2.3, -0.5], 0.7, 0.8);
-    p.beam(TRIM, [x, 0.81, 0.41], [x, 2.24, -0.04], 0.5, 0.1);
-    p.rod(GRAPHITE, [x - 0.5, 2.25, -0.5], [x + 0.5, 2.25, -0.5], 0.95);
-    p.beam(STEEL_D, [x, 2.2, -0.5], [x, 3.8, 0.3], 0.8, 0.9);
-  }
   p.box(GRAPHITE, 2.6, 0.8, 1.5, 0, 3.9, 0.2);
+  p.box(TRIM, 2.0, 0.12, 0.06, 0, 4.05, 0.97);
+  p.rod(GRAPHITE, [-1.75, TITAN_LEG.hipY, TITAN_LEG.hipZ], [1.75, TITAN_LEG.hipY, TITAN_LEG.hipZ], 0.75, 0.75, 8);
+}
+
+/** A thigh, hanging from the hip (its origin) straight down. */
+function titanThigh(p: Parts): void {
+  p.beam(STEEL_D, [0, 0.1, 0], [0, -TITAN_LEG.thigh, 0], 0.8, 0.9);
+}
+
+/** A shin, hanging from the knee (its origin) straight down to the ankle; the knee joint across its top, a stripe down its front. */
+function titanShin(p: Parts): void {
+  p.rod(GRAPHITE, [-0.5, 0, 0], [0.5, 0, 0], 0.95, 0.95, 8);
+  p.beam(STEEL, [0, 0, 0], [0, -TITAN_LEG.shin - 0.05, 0], 0.7, 0.8);
+  p.beam(STEEL_D, [0, -0.35, 0.42], [0, -TITAN_LEG.shin + 0.35, 0.42], 0.5, 0.1);
+}
+
+/** A foot, under the ankle (its origin). */
+function titanFoot(p: Parts): void {
+  p.frustum(GRAPHITE, 1.3, 2.2, 0.9, 1.3, 0.5, 0, -TITAN_LEG.ankle, 0.1);
+}
+
+/** The Titan's thigh, shin and foot, each about its own joint (see TITAN_LEG). */
+export function titanLegModels(scene: Scene): Mesh[] {
+  return [titanThigh, titanShin, titanFoot].map((make, n) => {
+    const p = parts(scene);
+    make(p);
+    return merged(p.body, `mojave-titan-leg-${n}`);
+  });
 }
 
 /** The Titan's upper body, its cannon and its missile pod: it turns at the waist to face what it fires at. */

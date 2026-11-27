@@ -616,6 +616,18 @@ await dev(a, { do: "spawn", kind: "scout", n: 1, at: [bx - Math.sign(bx) * 40, 0
 check("looked at again, their base is gone: no Core, nothing of theirs; no computer plays blue", await until(a, () => { const f = window.snapfort.feature; return [...f.army.buildings.values()].every((x) => x.o !== 1) && ![...f.army.units.values()].some((u) => u.owner === 1) ? true : null; }, null, 15000) === true);
 await c2.close();
 
+// ── A Titan walks on its legs ───────────────────────────────────────────
+{
+  const me = await sf(a, () => { const p = window.snapfort.player.position; return [p.x, p.z]; });
+  await dev(a, { do: "spawn", kind: "titan", n: 1, at: [me[0] + 12, 0, me[1] + 12] });
+  const titanId = await until(a, () => { const f = window.snapfort.feature; return [...f.army.units.values()].find((u) => u.kind === "titan" && u.owner === f.slot)?.id ?? null; });
+  await sf(a, ([id, x, z]) => window.snapfort.net.sendWorld({ m: "order", ids: [id], k: "move", at: [x, 0, z] }), [titanId, me[0] + 12, me[1] + 60]);
+  await wait(1500);
+  // Each foot, frame by frame: where it is while it is down, and how far the Titan goes meanwhile.
+  const walk = await sf(a, (id) => new Promise((res) => { const f = window.snapfort.feature, u = f.army.units.get(id), feet = f.army.titanLegs[2]; let slid = 0, planted = 0, lifted = 0, last = null, x0 = u.x, z0 = u.z, frames = 0; const step = () => { const m = feet.matrices; const now = [[m[12], m[14]], [m[28], m[30]]]; if (last) for (const side of [0, 1]) { if (u.feet & (side ? 2 : 1) && last.feet & (side ? 2 : 1)) { slid = Math.max(slid, Math.hypot(now[side][0] - last.at[side][0], now[side][1] - last.at[side][1])); planted++; } else lifted++; } last = { at: now, feet: u.feet }; if (++frames < 90) requestAnimationFrame(step); else res({ slid, planted, lifted, went: Math.hypot(u.x - x0, u.z - z0), legs: f.army.titanLegs.map((l) => l.count) }); }; requestAnimationFrame(step); }), titanId);
+  check("a Titan walks on its legs: each foot planted while it goes on over it (never sliding), then lifted and swung ahead", walk.went > 4 && walk.planted > 40 && walk.lifted > 20 && walk.slid < 0.12 && walk.legs.every((n) => n >= 2), JSON.stringify(walk));
+}
+
 check("no errors on any page", errors.length === 0, errors.slice(0, 4).join(" | "));
 await browser.close();
 const failed = results.filter((r) => !r.ok);

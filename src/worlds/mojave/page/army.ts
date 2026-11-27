@@ -19,7 +19,7 @@ import type { PageGame } from "../../pageDoors";
 import { buildingBox, BUILDING_KINDS, BUILDINGS, FLIGHT_HEIGHT, UNIT_KINDS, UNITS, type BuildingKind, type UnitKind } from "../kit";
 import { F_DEPLOYED, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_STUNNED, UNIT_FIELDS, type WireBuilding, type WireField } from "../wire";
 import { Many, place, placeOn, rgbOf, turn } from "./many";
-import { buildingModel, crystalModel, headModel, MUZZLES, UNIT_HEADS, UNIT_MUZZLES, UNIT_PARTS, unitHeadModel, unitModel, unitPartModel, ventModel } from "./models";
+import { buildingModel, crystalModel, headModel, MUZZLES, TITAN_LEG, titanLegModels, UNIT_HEADS, UNIT_MUZZLES, UNIT_PARTS, unitHeadModel, unitModel, unitPartModel, ventModel } from "./models";
 import { flailFrame, POSE_AIM, POSE_DOWN, POSE_FLINCH, POSE_STAND, strideFrame, strideOn, TROOPER_MIDDLE, Troopers } from "./troopers";
 
 /**
@@ -84,6 +84,9 @@ export interface SeenUnit {
   turning: number;
   accel: number;
   ph: number;
+  /** A Titan: how much it is stepping (0 standing, 1 walking: eased in and out), and which feet are down (1 left, 2 right). */
+  stepping: number;
+  feet: number;
   /** When it came into view (ms): it grows in from then. */
   seenAt: number;
   /** When it went out of view (ms), or 0: it shrinks away from then, and is forgotten. */
@@ -157,6 +160,8 @@ export class ArmyView {
   private readonly unitTrim = new Map<UnitKind, Many>();
   /** Each kind's moving parts (wheels, rotor blades, legs: see UNIT_PARTS), one set of instances each. */
   private readonly unitParts = new Map<UnitKind, Many[]>();
+  /** Titans' thighs, shins and feet (see titanLegs). */
+  private readonly titanLegs: Many[] = [];
   private readonly buildingBody = new Map<BuildingKind, Many>();
   private readonly buildingTrim = new Map<BuildingKind, Many>();
   /** The turning heads of turrets (see models.ts): body and trim, as the buildings themselves. */
@@ -232,6 +237,7 @@ export class ArmyView {
       this.unitBody.set(kind, prepare(model.body, false, matt, true));
       const moving = UNIT_PARTS[kind];
       if (moving) this.unitParts.set(kind, moving.map((_, n) => prepare(unitPartModel(kind, n, scene), false, matt, true)));
+      if (kind === "titan") for (const leg of titanLegModels(scene)) this.titanLegs.push(prepare(leg, false, matt, true));
       this.unitTrim.set(kind, prepare(model.trim, true, matt, false));
       const gun = unitHeadModel(kind, scene);
       if (gun) {
@@ -326,7 +332,7 @@ export class ArmyView {
       const a = gun > 0 ? ((gun - 1) / 255) * Math.PI * 2 : h;
       let unit = this.units.get(id);
       if (!unit) {
-        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0, px: x, pz: z, drawnAt: now, speed: 0, stride: (id * 0.37) % 1, dist: id * 1.3, turning: 0, accel: 0, ph: h };
+        unit = { id, kind, owner, fx: x, fy: y, fz: z, fh: h, tx: x, ty: y, tz: z, th: h, at: now, fa: a, ta: a, a, x, y, z, h, hp: 100, flags: 0, extra: 0, tumble: null, hitAt: -1e9, seenAt: now, goneAt: 0, firedAt: -1e9, muzzle: 0, smokeAt: 0, px: x, pz: z, drawnAt: now, speed: 0, stride: (id * 0.37) % 1, dist: id * 1.3, turning: 0, accel: 0, ph: h, stepping: 0, feet: 3 };
         this.units.set(id, unit);
       } else {
         unit.fa = unit.a;
@@ -626,7 +632,7 @@ export class ArmyView {
     const time = now / 1000;
     const dt = Math.min(0.1, Math.max(0, (now - this.lastDraw) / 1000));
     this.lastDraw = now;
-    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
+    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.titanLegs, ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.begin();
 
     this.drawMarks();
     this.troopers.begin();
@@ -679,7 +685,7 @@ export class ArmyView {
 
     this.effects(now);
     this.drawGhost();
-    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
+    for (const m of [...this.gunBody.values(), ...this.gunTrim.values(), this.smokeMesh, this.chunkMesh, this.scorchMesh, ...this.headBody.values(), ...this.headTrim.values(), ...this.unitBody.values(), ...this.unitTrim.values(), ...[...this.unitParts.values()].flat(), ...this.titanLegs, ...this.buildingBody.values(), ...this.buildingTrim.values(), this.crystals, this.vents, this.loads, this.rings, this.tracerMesh, this.ballMesh, this.flashMesh, this.pulseMesh, this.sparkMesh]) m.end();
   }
 
   /** One unit, where it is now: blended toward what the server last said, or thrown through the air. `grown` is how much of it shows (coming into view, or going out). */
@@ -769,7 +775,15 @@ export class ArmyView {
       // Drones hover; a Titan sways as it walks.
       let bob = 0;
       if (def.air) bob = Math.sin(time * 2.2 + u.id) * 0.25;
-      else if (moving && u.kind === "titan") roll += Math.sin(time * 3 + u.id) * 0.05;
+      // A Titan walks: it dips a little as each foot comes down (twice a cycle), and its hips sway over the foot it stands on.
+      const phase = u.dist / TITAN_LEG.stride;
+      if (u.kind === "titan") {
+        u.stepping += ((moving ? 1 : 0) - u.stepping) * Math.min(1, dt * 4);
+        if (!u.tumble && !(u.flags & F_DOWN)) {
+          bob -= ((1 - Math.cos(phase * Math.PI * 4)) / 2) * 0.16 * u.stepping;
+          roll += Math.sin(phase * Math.PI * 2) * 0.035 * u.stepping;
+        }
+      }
       // Struck: a jolt, rocked back from the hit, settling at once.
       const jolt = Math.max(0, 1 - (now - u.hitAt) / 260);
       if (jolt > 0 && !def.air && !u.tumble) {
@@ -797,6 +811,7 @@ export class ArmyView {
       const j = trim.add();
       trim.matrices.set(body.matrices.subarray(i * 16, i * 16 + 16), j * 16);
       trim.colors!.set([r, g, b, 1], j * 4);
+      if (u.kind === "titan") this.titanWalks(u, body.matrices, i, phase, bob, now);
       // Its moving parts, on the hull as it is placed: wheels rolling with the ground covered (the front ones steered into a
       // turn), rotor blades spinning, the artillery's legs down while it is set up and folded while it is not.
       const partsOf = this.unitParts.get(u.kind);
@@ -846,6 +861,60 @@ export class ArmyView {
       }
     }
     if (u.goneAt === 0 && this.selected.has(u.id)) this.ring(u.x, def.air ? Math.max(0.12, u.y - FLIGHT_HEIGHT + 0.12) : u.y + 0.12, u.z, def.radius + 0.5, u.hp);
+  }
+
+  /**
+   * A Titan's legs, on its pelvis as it is placed (`on`, entry `at`, drawn
+   * `bob` up or down): each foot planted while the body goes on over it, then
+   * lifted and swung ahead to come down again (the other half a cycle after),
+   * by the ground covered, so the feet never slide; the knee where a thigh
+   * and a shin of their lengths meet between the hip and the ankle (bending
+   * back, as a Titan's does). Each foot coming down raises a little dust.
+   */
+  private titanWalks(u: SeenUnit, on: Float32Array, at: number, phase: number, bob: number, now: number): void {
+    const L = TITAN_LEG, [thighs, shins, feet] = this.titanLegs as [Many, Many, Many];
+    const duty = 0.55, half = ((duty * L.stride) / 2) * u.stepping;
+    const reach = L.thigh + L.shin - 0.01;
+    /** The turn about its own x that points a part's down (-y) from one point to another, in the (z, y) of the hull. */
+    const toward = (z0: number, y0: number, z1: number, y1: number) => Math.atan2(-(z1 - z0), -(y1 - y0));
+    const o = at * 16;
+    for (const side of [-1, 1] as const) {
+      const p = phase + (side > 0 ? 0.5 : 0), t = p - Math.floor(p);
+      let fz: number, lift = 0;
+      if (t < duty) fz = half - (t / duty) * 2 * half;
+      else {
+        const k = (t - duty) / (1 - duty);
+        fz = -half + k * 2 * half;
+        lift = Math.sin(Math.PI * k) * 0.7 * u.stepping;
+      }
+      const hx = side * L.hipX, hy = L.hipY, hz = L.hipZ;
+      // The ankle, over its sole on the ground (the hull is drawn `bob` up from it).
+      let dz = 0.1 + fz - hz, dy = L.ankle + lift - bob - hy;
+      let d = Math.hypot(dz, dy);
+      if (d > reach) {
+        dz *= reach / d;
+        dy *= reach / d;
+        d = reach;
+      }
+      const uz = dz / d, uy = dy / d;
+      const cos = Math.max(-1, Math.min(1, (L.thigh * L.thigh + d * d - L.shin * L.shin) / (2 * L.thigh * d)));
+      const sin = Math.sqrt(1 - cos * cos);
+      const kz = hz + L.thigh * (cos * uz + sin * uy), ky = hy + L.thigh * (cos * uy - sin * uz);
+      const az = hz + dz, ay = hy + dy;
+      placeOn(thighs.matrices, thighs.add(), on, at, hx, hy, hz, toward(hz, hy, kz, ky));
+      placeOn(shins.matrices, shins.add(), on, at, hx, ky, kz, toward(kz, ky, az, ay));
+      placeOn(feet.matrices, feet.add(), on, at, hx, ay, az);
+      // A foot coming down: dust where it lands.
+      const bit = side > 0 ? 2 : 1, down = t < duty;
+      if (down && !(u.feet & bit) && u.stepping > 0.5 && u.goneAt === 0) {
+        const sole = L.ankle;
+        const wx = hx * on[o]! + (ay - sole) * on[o + 4]! + az * on[o + 8]! + on[o + 12]!;
+        const wy = hx * on[o + 1]! + (ay - sole) * on[o + 5]! + az * on[o + 9]! + on[o + 13]!;
+        const wz = hx * on[o + 2]! + (ay - sole) * on[o + 6]! + az * on[o + 10]! + on[o + 14]!;
+        this.puff(wx, wy + 0.2, wz, 0.9, 0.9, 0.78, now, 0.4);
+      }
+      u.feet = down ? u.feet | bit : u.feet & ~bit;
+    }
   }
 
   /**

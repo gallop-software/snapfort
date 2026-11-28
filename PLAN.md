@@ -447,7 +447,7 @@ Everything is in `src/worlds/mojave/` (its look copied from the Meadow, 2026-11-
 - Generals can be ordered attacked; thrown, they cannot be thrown again for 5 s after getting up.
 - Upkeep: over 100 supply income is ×0.8, over 150 ×0.6.
 - Standing higher sees further: a general by 1.2 m a metre (up to three times), units and buildings on a floor by 1.3, and they shoot that much further too.
-- Neutral sentries (80 Troopers) guard the five rich fields in the middle, and come back after five minutes to a field nobody holds.
+- (Until 2026-11-28 neutral sentries, 80 Troopers, guarded the five rich fields in the middle; they are gone: see the end.)
 - A routed general's new Core is free, 20 s after the last one fell.
 - Units do only what they are told (2026-11-27, below): they shoot whatever of the enemy's is in range, walls too, on the move as well, and never go after anything; a patrol stops to destroy what it meets; a group marches at its slowest unit's pace.
 - Pieces: lattice 4, printcrete 8, steel 14 lithium; a rail battery (the siege slot, worked by the general) 150. Nothing comes back for a piece removed. Only its builder can remove or edit a piece; anyone's army can shoot it down. A straight shot needs a clear line (walls shelter); artillery lobs over.
@@ -673,4 +673,11 @@ Stage A (this; walls and towers are stage B):
 **Measured** (against a person who does nothing): its natural at about 3.5 minutes, three bases at 5, six at 8, each with four Sentries, two Flak and a Laser; 60 Haulers by 7 minutes; full at about 13 with eight Titans; the person's Core gone at about 9.5. The defended base (four sentries, 16 Troopers, 4 Tanks) falls at about 12.5 minutes (it was 11 when it attacked early, never for medium). A think about 0.2 ms.
 
 Checks: `ai.test.ts`: booms first (natural within 4 minutes, three bases within 6, five or more, every new base its first Sentries within 90 s and its full defence, 40 Haulers, nothing over anything, turrets by its Cores); takes empty colours' starts, never one in play, and a newcomer is begun elsewhere; with every start held, it clears a rich field and builds there; attacks only once booming, with advanced units, and razes a do-nothing person; the defended base falls; no wave at a far stronger fortress (Titans meanwhile).
+
+## Mojave: no neutral sentries (user, 2026-11-28: "can you remove neutral soldiers from the game?")
+
+- The 80 neutral Troopers that stood round the five rich fields, and came back to a field nobody held, are gone: no posts, nothing brought back, nothing saved (a war saved with some loses them when it wakes). The rich fields in the middle are free to anyone from the start. `NEUTRAL` stays as the side nobody commands (checks put units on it).
+- The computer has no clearing to do: a rich field is a site like any other, and being nearer than any empty start (about 250 m from its own, against 400 and more), it usually takes its natural and then the middle, which also gives it the richest vents (8,000 plasma): Titans sooner. Its bases there are the most exposed, and are guarded like every other.
+
+Checks: `ai.test.ts`: with every start held it takes the middle; with the middle taken (the person's Cores there) it takes empty starts, never one in play, and a newcomer is begun elsewhere; the rest as before; unit tests all pass.
 

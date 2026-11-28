@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BuildState } from "../../game/buildState";
 import { Computer } from "./ai";
 import { BUILDINGS, COMPUTER, GUARD_RADIUS, MAX_SUPPLY, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS, UPGRADE_LEVELS } from "./kit";
-import { STARTS } from "./map";
+import { SITES, STARTS } from "./map";
 import { DT, emptyHappened, Sim, type Host } from "./sim";
 import { HALF_CELLS, world } from "./world";
 
@@ -14,7 +14,6 @@ function setup(start = 0) {
   const host: Host = { positionOf: (p) => at.get(p) ?? null, wear: () => {}, removePieces: () => {} };
   const sim = new Sim(build, world, host);
   sim.computerOn = true;
-  sim.postSentries(true);
   const ai = new Computer(sim);
   const person = sim.serve("p", start, "tab-of-p")!;
   at.set("p", [STARTS[person.start]!.spawn[0], 0.9, STARTS[person.start]!.spawn[1]]);
@@ -122,11 +121,12 @@ describe("the computer", () => {
     expect(thinkMs()).toBeLessThan(1);
   }, 120_000);
 
-  it("takes the starts of colours nobody plays, never one a colour in play holds; and a newcomer is never begun beside it", () => {
+  it("never builds on a start a colour in play holds; with the middle taken, it takes the starts of colours nobody plays; and a newcomer is never begun beside it", () => {
     const { sim, run, theirs } = setup(0);
-    // A second person, on the start beside the computer's.
+    // A second person, on the start beside the computer's; and the person's Cores on every rich field in the middle.
     sim.serve("q", 6, "tab-of-q");
-    run(8 * 60);
+    for (const site of SITES.filter((x) => x.kind === "rich")) sim.addBuilding("core", 0, site.cx - 1, site.cz - 1, true);
+    run(9 * 60);
     const cores = theirs(COMPUTER).buildings.filter((b) => b.kind === "core").map((b) => sim.centreOf(b));
     const nearStart = (i: number) => cores.some((c) => Math.hypot(c[0] - (STARTS[i]!.cx + 0.5) * 5, c[2] - (STARTS[i]!.cz + 0.5) * 5) < 120);
     // On someone's start (or its natural): never.
@@ -142,7 +142,7 @@ describe("the computer", () => {
     for (const c of cores) expect(Math.hypot(sim.centreOf(theirCore)[0] - c[0], sim.centreOf(theirCore)[2] - c[2])).toBeGreaterThan(120);
   }, 120_000);
 
-  it("with every start held, it clears a rich field's sentries with its army and puts a base there", () => {
+  it("with every start held, it takes the rich fields in the middle (nobody guards them)", () => {
     const { sim, run, theirs } = setup(0);
     // An army on every other start (nobody serving them: they do nothing), so the only free sites are the middle's.
     sim.fill();

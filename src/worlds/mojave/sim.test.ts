@@ -1313,7 +1313,7 @@ describe("leaving, and changing sides", () => {
 });
 
 describe("sides", () => {
-  it("every general is against every other, and against the sentries: there are no alliances", () => {
+  it("every general is against every other, and against the side nobody commands: there are no alliances", () => {
     const { sim, general, run } = setup();
     const a = general("pa", 0), b = general("pb", 4);
     const ua = sim.addUnit("trooper", a.slot, OPEN[0], OPEN[1]);

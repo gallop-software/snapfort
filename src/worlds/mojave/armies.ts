@@ -98,7 +98,7 @@ export function openWar(room: Room): War {
     // and an army nobody has served for a minute since it was saved is gone.)
     w.swept = true;
     for (const g of sim.generals) if (g) w.gone.set(g.slot, saved.at);
-  } else sim.postSentries(true);
+  }
   return w;
 }
 

@@ -41,7 +41,7 @@ import {
   type UpgradeKind,
   type Weapon,
 } from "./kit";
-import { makeFields, mid, REFILL_MS, sentryPosts, STARTS, type Field } from "./map";
+import { makeFields, mid, REFILL_MS, STARTS, type Field } from "./map";
 import { DX, DZ, INF, INFANTRY, Nav, NO_OWNER, OPEN_WAY, SHUT_WAY, TOWERING, VEHICLE, WALL_WAY, type Flow, type MoveClass, type Node } from "./nav";
 import { HALF_CELLS } from "./world";
 
@@ -55,7 +55,7 @@ import { HALF_CELLS } from "./world";
  * measured by itself: the room it runs in is behind `Host`.
  */
 
-/** The side nobody commands: the sentries guarding the rich fields. Hostile to everyone. */
+/** The side nobody commands, hostile to everyone. (There were neutral sentries round the rich fields; none now: only checks put units on it.) */
 export const NEUTRAL = MAX_GENERALS;
 /** Seconds of game per step. */
 export const DT = 0.1;
@@ -192,8 +192,6 @@ export interface Unit {
   linger: number;
   /** Staggered just now by a hit (for drawing), until this time. */
   hitUntil: number;
-  /** A neutral sentry's post, by index (else -1). */
-  post: number;
   dead: boolean;
 }
 
@@ -331,8 +329,6 @@ export class Sim {
   private readonly shells: Shell[] = [];
   /** Wear on pieces waiting to be passed on: piece id → hits, and where. */
   private readonly worn = new Map<string, { hits: number; at: Vec; by: number }>();
-  /** The neutral sentries' posts: where, which unit stands there (0: none), and when it fell. */
-  readonly posts: { x: number; z: number; unit: number; deadAt: number }[];
   /** Which general a piece id's first part belongs to. */
   private readonly slotOfPid = new Map<string, number>();
   /** The cells of buildings, for placing pieces: "x,z" → building id. */
@@ -359,7 +355,6 @@ export class Sim {
       const b = id === undefined ? undefined : this.buildings.get(id);
       if (b && !b.dead) this.raze(b, false);
     });
-    this.posts = sentryPosts().map(([x, z]) => ({ x, z, unit: 0, deadAt: -1e9 }));
     // (Nobody is near anybody yet.)
     this.head.fill(-1);
   }
@@ -896,7 +891,7 @@ export class Sim {
     const u: Unit = {
       id: this.nextUnit++, kind, owner, x, y: def.air ? FLIGHT_HEIGHT : 0, z, cx: Math.floor(x / CELL), cz: Math.floor(z / CELL), level: 0, heading: 0, side: 1, sideUntil: 0, hp: def.hp,
       order: { k: "stop" }, queue: [], goal: null, group: 0, arrived: true, tk: 0, tid: 0, coolAt: 0, stunUntil: 0, downUntil: 0, deployedAt: 0, packedAt: 0,
-      carry: 0, phase: 0, digUntil: 0, field: 0, cargo: [], inside: 0, empAt: 0, stuck: 0, linger: 0, hitUntil: 0, post: -1, dead: false,
+      carry: 0, phase: 0, digUntil: 0, field: 0, cargo: [], inside: 0, empAt: 0, stuck: 0, linger: 0, hitUntil: 0, dead: false,
       aim: 0, replans: 0, pace: 0,
     };
     if (!def.air) this.putOnGround(u, x, z);
@@ -955,13 +950,6 @@ export class Sim {
     for (const id of u.cargo) {
       const inside = this.unitById.get(id);
       if (inside) this.kill(inside, left);
-    }
-    if (u.post >= 0) {
-      const post = this.posts[u.post];
-      if (post) {
-        post.unit = 0;
-        post.deadAt = this.t;
-      }
     }
     const f = u.phase === 2 ? this.fieldById.get(u.field) : undefined;
     if (f && this.digger.get(f.id) === u.id) this.digger.delete(f.id);
@@ -2668,30 +2656,6 @@ export class Sim {
     if (this.step % 20 === 0) {
       for (const u of this.units) if (!u.dead && !u.inside && u.kind === "hauler" && u.order.k !== "gather" && u.owner !== NEUTRAL) this.autoGather(u);
     }
-    // Sentries come back to a field nobody holds.
-    if (this.step % 600 === 0) this.postSentries(false);
-  }
-
-  /** Stands a neutral sentry at every empty post (`all`), or at those long empty with nobody of anyone's near. */
-  postSentries(all: boolean): void {
-    for (let i = 0; i < this.posts.length; i++) {
-      const post = this.posts[i]!;
-      if (post.unit || this.units.length >= MAX_UNITS) continue;
-      if (!all) {
-        if (this.t - post.deadAt < 300) continue;
-        let near = false;
-        this.nearby(post.x, post.z, 80, (o) => {
-          if (o.owner !== NEUTRAL && dist2(o.x, o.z, post.x, post.z) < 80 * 80) near = true;
-        });
-        for (const b of this.buildings.values()) if (dist2(...xz(this.centreOf(b)), post.x, post.z) < 80 * 80) near = true;
-        if (near) continue;
-      }
-      const u = this.addUnit("trooper", NEUTRAL, post.x, post.z);
-      u.order = { k: "hold" };
-      u.post = i;
-      u.heading = Math.atan2(u.x, u.z);
-      post.unit = u.id;
-    }
   }
 
   /** Lets go of every path worked out (the war has stopped: they are worked out again when wanted). */
@@ -2714,14 +2678,13 @@ export class Sim {
       units: this.units.filter((u) => !u.dead).map((u) => ({ ...u, goal: null, tk: 0, tid: 0 })),
       buildings: [...this.buildings.values()].map((b) => ({ ...b, tk: 0, tid: 0 })),
       fields: this.fields.map((f) => [f.id, Math.round(f.amount), f.refillAt]),
-      posts: this.posts.map((p) => [p.unit, p.deadAt]),
     };
   }
 
   /** Takes up where a snapshot left off. Returns false (and stays empty) when it cannot be read. */
   restore(data: unknown): boolean {
     try {
-      const s = data as { v: number; t: number; step: number; next: number[]; generals: (General | null)[]; units: Unit[]; buildings: Building[]; fields: [number, number, number][]; posts: [number, number][]; owners?: [string, number][]; tabs?: [string, number][] };
+      const s = data as { v: number; t: number; step: number; next: number[]; generals: (General | null)[]; units: Unit[]; buildings: Building[]; fields: [number, number, number][]; owners?: [string, number][]; tabs?: [string, number][] };
       if (!s || s.v !== 1 || !Array.isArray(s.units) || !Array.isArray(s.buildings) || s.generals.length !== MAX_GENERALS) return false;
       this.t = s.t;
       this.step = s.step;
@@ -2762,7 +2725,9 @@ export class Sim {
         this.nav.fill(b.cx, b.cz, size, true, true, b.l);
       }
       for (const u of s.units) {
-        if (!UNIT_KINDS.includes(u.kind)) continue;
+        // (Saved when neutral sentries stood round the rich fields: there are none any more.)
+        if (!UNIT_KINDS.includes(u.kind) || u.owner === NEUTRAL) continue;
+        delete (u as unknown as Record<string, unknown>).post;
         // Whatever they were doing, they pick it up again from where they stand.
         const order = u.order;
         u.linger ??= 0;
@@ -2779,13 +2744,6 @@ export class Sim {
         this.unitById.set(u.id, u);
         if (order.k !== "stop" && order.k !== "hold" && !u.inside) this.begin(u, order, 0, 2);
       }
-      s.posts.forEach(([unit, deadAt], i) => {
-        const post = this.posts[i];
-        if (post) {
-          post.unit = this.unitById.has(unit) ? unit : 0;
-          post.deadAt = deadAt;
-        }
-      });
       // The owners of walls are known again now: the paths are read afresh.
       this.nav.version++;
       return true;

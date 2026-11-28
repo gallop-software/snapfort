@@ -110,17 +110,6 @@ export function makeFields(): Field[] {
   return fields.filter((f) => Math.abs(f.cx) < HALF_CELLS - 1 && Math.abs(f.cz) < HALF_CELLS - 1);
 }
 
-/** The sites in the middle that neutral sentries guard: where each sentry stands, m. */
-export function sentryPosts(): [number, number][] {
-  const posts: [number, number][] = [];
-  const ring = (x: number, z: number, n: number, r: number) => {
-    for (let i = 0; i < n; i++) posts.push([(x + Math.sin((i / n) * Math.PI * 2) * r + 0.5) * CELL, (z + Math.cos((i / n) * Math.PI * 2) * r + 0.5) * CELL]);
-  };
-  for (const [x, z] of [[30, 0], [-30, 0], [0, 30], [0, -30]] as const) ring(x, z, 14, 8.5);
-  ring(0, 0, 24, 9.5);
-  return posts;
-}
-
 /** The middle of a cell, m. */
 export const mid = (c: number) => (c + 0.5) * CELL;
 /** The cell a spot is in. */

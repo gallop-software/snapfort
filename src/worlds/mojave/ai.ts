@@ -1,7 +1,7 @@
 import { CELL } from "../../game/constants";
 import { BUILDINGS, COMPUTER, GUARD_RADIUS, MAX_SUPPLY, UNITS, UPGRADE_COST, UPGRADE_LEVELS, type BuildingKind, type UnitKind } from "./kit";
 import { mid, SITES, STARTS } from "./map";
-import { NEUTRAL, T_BUILDING, T_UNIT, type Building, type General, type Sim, type Unit } from "./sim";
+import { NEUTRAL, T_BUILDING, type Building, type General, type Sim, type Unit } from "./sim";
 
 /**
  * The computer: one army, always pink (slot COMPUTER), played by the same
@@ -18,8 +18,8 @@ import { NEUTRAL, T_BUILDING, T_UNIT, type Building, type General, type Sim, typ
  * possible... then building the most advanced units possible"): Haulers on
  * every patch; a Foundry, then every Core its first turrets, and a new base as
  * soon as it has saved for one, on any free site (its natural, a start no
- * colour in play holds, or a rich field in the middle once its army has
- * cleared the sentries there); each base its full defence on the side trouble
+ * colour in play holds, or a rich field in the middle); each base its full
+ * defence on the side trouble
  * comes from. Its army stays small and at home meanwhile. Once booming (three
  * guarded bases, or full), it builds what makes the most advanced army (Titan
  * bays, Skyports, an Armory and its upgrades) and makes Titans, Tanks and
@@ -47,12 +47,6 @@ const SITE_TAKEN = 120;
 const EARLY_ARMY = 24, HOME_GUARD = 6;
 /** Once booming, Troopers are made only while they are less than this share of its army's fighting supply. */
 const TROOPERS_AT_MOST = 0.2;
-/** Sentries guarding a site are cleared once its army at home is this many times as strong as them. */
-const CLEAR_AT = 1.5;
-/** Neutral sentries this near a site guard it, m. */
-const SITE_GUARDS = 70;
-/** A site sentries guard counts as this much further off than it is, m (clearing it costs time and lives: a free one first). */
-const GUARDED_FURTHER = 600;
 /** The fighting supply of its first wave, how much more each next one waits for, and the most. */
 const FIRST_WAVE = 12, WAVE_STEP = 10, BIGGEST_WAVE = 160;
 /** Seconds between waves at least, and the longest a wave stays out before coming home. */
@@ -115,8 +109,6 @@ interface Mind {
   strength: Map<number, number>;
   /** Its Cores with no room left round them for more turrets. */
   cramped: Set<number>;
-  /** A site for its next base that sentries guard: its army clears them first. */
-  clearing: { x: number; z: number; guarded: number } | null;
 }
 
 export class Computer {
@@ -133,7 +125,7 @@ export class Computer {
       return;
     }
     if (!this.mind || this.mind.bornAt !== g.bornAt) {
-      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map(), cramped: new Set(), clearing: null };
+      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map(), cramped: new Set() };
     }
     const mind = this.mind;
     const slot = g.slot;
@@ -217,14 +209,13 @@ export class Computer {
       return false;
     };
     const site = cores.length < MOST_CORES && cores.every(basic) && (cores.length < BOOM_CORES || cores.every(full)) ? this.nextSite(g, cores) : null;
-    mind.clearing = site && site.guarded > 0 ? site : null;
     ((): void => {
       if (!has("foundry") && !build("foundry", () => this.placeNear(g, "foundry", home))) return;
       if (this.freeVent(g, cores) && !build("tap", () => this.placeTap(g, cores))) return;
       // Every Core its first turrets, before anything else.
       for (const c of cores) if (!basic(c) && !build("sentry", turret(c, "sentry"))) return;
-      // The next base (one guarded by sentries is cleared by the army first: see Fighting).
-      if (site && site.guarded === 0 && !build("core", () => this.settle(g, site))) return;
+      // The next base.
+      if (site && !build("core", () => this.settle(g, site))) return;
       // Every Core its full defence.
       for (const c of cores) {
         if (full(c)) continue;
@@ -405,26 +396,8 @@ export class Computer {
     }
 
     if (threat) return;
-    // Not booming yet: no waves. Its army stays at home, but for clearing the sentries off the site of its next base.
-    if (!booming) {
-      const c = mind.clearing;
-      if (!c) return;
-      const guards = sim.units.filter((u) => !u.dead && u.owner === NEUTRAL && Math.hypot(u.x - c.x, u.z - c.z) < SITE_GUARDS);
-      if (guards.length === 0 || supplyOf(atHome) < CLEAR_AT * c.guarded) return;
-      // Each with nothing to do: at the nearest sentry there (an attack stops at the edge of range and clears all in it).
-      for (const u of atHome.filter((u) => u.order.k === "stop" || u.order.k === "hold")) {
-        let best = guards[0]!, bestD = Infinity;
-        for (const s of guards) {
-          const dd = Math.hypot(s.x - u.x, s.z - u.z);
-          if (dd < bestD) {
-            bestD = dd;
-            best = s;
-          }
-        }
-        sim.command(slot, [u.id], { k: "attack", tk: T_UNIT, id: best.id });
-      }
-      return;
-    }
+    // Not booming yet: no waves; its army stays at home.
+    if (!booming) return;
     // Big enough for what it has seen of them (and long enough since the last): the next wave, to gather short of them.
     if (sim.t - mind.sentAt < WAVE_GAP || atHome.length === 0) return;
     const [hx, hz] = middleOf(atHome);
@@ -588,14 +561,13 @@ export class Computer {
 
   /**
    * Where its next base goes: the nearest free site to its bases (its natural, a start no colour in play holds, or its
-   * natural, or a rich field in the middle), as cells, with the supply of neutral sentries guarding it (to be cleared
-   * first; such a site counts as further off). None with a Core of its own on it, or another army's near it.
+   * natural, or a rich field in the middle), as cells. None with a Core of its own on it, or another army's near it.
    */
-  private nextSite(g: General, cores: Building[]): { cx: number; cz: number; x: number; z: number; guarded: number } | null {
+  private nextSite(g: General, cores: Building[]): { cx: number; cz: number } | null {
     const sim = this.sim;
     const held = new Set<number>();
     for (const other of sim.generals) if (other && other.slot !== g.slot) held.add(other.start);
-    let best: { cx: number; cz: number; x: number; z: number; guarded: number } | null = null, bestS = Infinity;
+    let best: { cx: number; cz: number } | null = null, bestD = Infinity;
     for (const site of SITES) {
       if (site.start >= 0 && held.has(site.start)) continue;
       const x = mid(site.cx), z = mid(site.cz);
@@ -607,14 +579,9 @@ export class Computer {
       }
       if (taken) continue;
       for (const c of cores) near = Math.min(near, Math.hypot(sim.centreOf(c)[0] - x, sim.centreOf(c)[2] - z));
-      let guarded = 0;
-      sim.nearby(x, z, SITE_GUARDS, (u) => {
-        if (!u.dead && u.owner === NEUTRAL && Math.hypot(u.x - x, u.z - z) < SITE_GUARDS) guarded += UNITS[u.kind].supply;
-      });
-      const score = near + (guarded > 0 ? GUARDED_FURTHER : 0);
-      if (score < bestS) {
-        bestS = score;
-        best = { cx: site.cx, cz: site.cz, x, z, guarded };
+      if (near < bestD) {
+        bestD = near;
+        best = { cx: site.cx, cz: site.cz };
       }
     }
     return best;

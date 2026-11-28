@@ -11,6 +11,8 @@ import {
   EMP,
   FLIGHT_HEIGHT,
   CHASE_OF_SIGHT,
+  COMPUTER,
+  COMPUTER_SUPPLY,
   GENERAL_SIGHT,
   GUARD_RADIUS,
   WALL_WEAR,
@@ -113,6 +115,10 @@ export interface General {
   routedAt: number;
   /** When it was last told it is under attack, and where. */
   alertAt: number;
+  /** The computer plays this army (always pink, slot COMPUTER: nobody serves it). */
+  ai: boolean;
+  /** When it was begun, or began again after being routed (game seconds): the computer leaves an army alone for NEWCOMER_PEACE after this. */
+  bornAt: number;
 }
 
 /** What a unit has been told to do. */
@@ -419,6 +425,9 @@ export class Sim {
   serve(pid: string, slot: number, tab: string | null = null): General | null {
     if (!Number.isInteger(slot) || slot < 0 || slot >= MAX_GENERALS) return null;
     let g = this.generals[slot];
+    // The computer's colour: nobody serves it. (A person's army already standing there from before the computer took
+    // pink is still its own people's to come back to, until it is gone: nobody loses an army to the computer.)
+    if (slot === COMPUTER && (!g || g.ai || !(g.pids.includes(pid) || (tab !== null && this.lastOfTab.get(tab) === slot)))) return null;
     if (g && g.here.length === 0 && !g.pids.includes(pid) && !(tab !== null && this.lastOfTab.get(tab) === slot)) {
       this.wipe(slot);
       g = null;
@@ -432,7 +441,24 @@ export class Sim {
     if (!g.pids.includes(pid)) g.pids.push(pid);
     this.slotOfPid.set(pid, slot);
     if (tab) this.lastOfTab.set(tab, slot);
+    this.keepComputer();
     return g;
+  }
+
+  /** Whether the computer plays at all here: set by the room (on, but for test rooms, where checks want quiet until one turns it on). Off in a bare Sim. */
+  computerOn = false;
+
+  /**
+   * The computer's army is here exactly while someone's army is: begun afresh (a Core and four Haulers, as anyone
+   * begins) when there is a person's army and no computer, and gone, everything of it, when there is no person's army
+   * left. (It never keeps the war running by itself: the war runs only while someone serves an army.) It waits while
+   * pink is still a person's army from before.
+   */
+  keepComputer(): void {
+    const people = this.generals.some((g) => g && !g.ai);
+    const c = this.generals[COMPUTER];
+    if (c?.ai && (!people || !this.computerOn)) this.wipe(COMPUTER);
+    else if (!c && people && this.computerOn) this.seat(COMPUTER);
   }
 
   /** The army a browser tab last served (while this war has been running), or -1. */
@@ -445,18 +471,34 @@ export class Sim {
     const used = new Set(this.generals.flatMap((g) => (g ? [g.start] : [])));
     // Its own start when that is free (it always is in a war begun with eight); else any that is.
     const start = !used.has(slot) ? slot : (STARTS.map((_, i) => i).find((i) => !used.has(i)) ?? slot);
+    const ai = slot === COMPUTER;
     const g: General = {
-      slot, here: [], pids: [], name: `${ARMY_COLOR_NAMES[slot % ARMY_COLOR_NAMES.length]!} army`, color: ARMY_COLORS[slot % ARMY_COLORS.length]!, team: slot, lithium: START_LITHIUM, plasma: 0, pending: 0,
-      upgrades: { weapons: 0, armour: 0 }, start, routedAt: 0, alertAt: -100,
+      slot, here: [], pids: [], name: armyName(slot, ai), color: ARMY_COLORS[slot % ARMY_COLORS.length]!, team: slot, lithium: START_LITHIUM, plasma: 0, pending: 0,
+      upgrades: { weapons: 0, armour: 0 }, start, routedAt: 0, alertAt: -100, ai, bornAt: this.t,
     };
     this.generals[slot] = g;
     const s = STARTS[start]!;
-    const core = this.addBuilding("core", slot, s.cx - 1, s.cz - 1, true);
+    // (On its start, or the nearest clear ground: never on top of what someone has built there.)
+    const [cx, cz] = this.clearSpot(slot, "core", s.cx - 1, s.cz - 1) ?? [s.cx - 1, s.cz - 1];
+    const core = this.addBuilding("core", slot, cx, cz, true);
     for (let i = 0; i < START_HAULERS; i++) {
       const u = this.spawnBeside(core, "hauler");
       if (u) this.autoGather(u);
     }
     return g;
+  }
+
+  /** The nearest cell to (cx, cz) where this army could put a building of this kind (paid for or not), within `reach` cells, or null. */
+  clearSpot(slot: number, kind: BuildingKind, cx: number, cz: number, reach = 16): [number, number] | null {
+    for (let r = 0; r <= reach; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (this.cannotBuild(slot, kind, cx + dx, cz + dz, true) === "") return [cx + dx, cz + dz];
+        }
+      }
+    }
+    return null;
   }
 
   /** An army begun on every colour nobody has (for checks: in a war, an army is begun only for someone who takes it up). */
@@ -504,7 +546,7 @@ export class Sim {
   supplyMax(slot: number): number {
     let n = 0;
     for (const b of this.buildings.values()) if (b.owner === slot && !b.dead && b.doneAt === 0) n += BUILDINGS[b.kind].supply ?? 0;
-    return Math.min(MAX_SUPPLY, n);
+    return Math.min(this.generals[slot]?.ai ? COMPUTER_SUPPLY : MAX_SUPPLY, n);
   }
 
   /** Why a turret or a wall may not go at a spot (m), or "": it goes within GUARD_RADIUS of a finished Core of the army's own, and never that near another army's. */
@@ -730,7 +772,11 @@ export class Sim {
       this.putOnGround(u, u.x, u.z);
     }
     const g = this.generals[owner];
-    if (g && kind === "core") g.routedAt = 0;
+    if (g && kind === "core") {
+      // (Routed and beginning again: as good as new, so the computer leaves it alone for a while again.)
+      if (g.routedAt > 0) g.bornAt = this.t;
+      g.routedAt = 0;
+    }
     return b;
   }
 
@@ -2857,9 +2903,12 @@ export class Sim {
         // (A war saved under earlier rules: each army has its own side, colour and name now, and nobody is serving it yet.)
         g.team = g.slot;
         g.color = ARMY_COLORS[g.slot % ARMY_COLORS.length]!;
-        g.name = `${ARMY_COLOR_NAMES[g.slot % ARMY_COLOR_NAMES.length]!} army`;
+        // (The computer only ever plays pink. A war saved before it did may have a person's army there: it stays theirs.)
+        g.ai = g.slot === COMPUTER && g.ai === true;
+        g.bornAt ??= -1e9;
+        g.name = armyName(g.slot, g.ai);
         g.here = [];
-        for (const old of ["asked", "pid", "tab", "ai", "leftAt", "joinedAt", "immuneUntil"]) delete (g as unknown as Record<string, unknown>)[old];
+        for (const old of ["asked", "pid", "tab", "leftAt", "joinedAt", "immuneUntil"]) delete (g as unknown as Record<string, unknown>)[old];
         for (const pid of g.pids) this.slotOfPid.set(pid, g.slot);
       });
       for (const [id, slot] of s.owners ?? []) this.pieceOwner.set(id, slot);
@@ -2980,4 +3029,5 @@ export function stamp(grid: Uint8Array, x: number, z: number, range: number): vo
 }
 
 const xz = (v: Vec): [number, number] => [v[0], v[2]];
+const armyName = (slot: number, ai: boolean) => (ai ? "Computer" : `${ARMY_COLOR_NAMES[slot % ARMY_COLOR_NAMES.length]!} army`);
 const article = (label: string) => (/^[aeiou]/i.test(label) ? `an ${label}` : `a ${label}`);

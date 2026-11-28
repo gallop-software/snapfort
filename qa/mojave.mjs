@@ -1,6 +1,6 @@
 /**
- * Mojave: eight colours, an army only for someone playing, and no computer
- * plays any. A general chooses a colour from tiles on the row (one nobody
+ * Mojave: seven colours for people and the computer's (pink: off in this test
+ * room until the check near the end turns it on). A general chooses a colour from tiles on the row (one nobody
  * serves begins a new army), commands all of it with whoever else serves it,
  * and may change sides at any moment; an army nobody serves for a minute is
  * gone, everything of it. They
@@ -72,9 +72,9 @@ check("(two Full Game keys, for two generals)", /^SNAP-/.test(keyA ?? "") && /^S
 // ── A general arrives, and chooses an army ───────────────────────────────
 const a = await open("A", keyA);
 await until(a, () => window.snapfort.feature.why === "choose" && window.snapfort.feature.generals.length === 8);
-await rowHas(a, ["Red", "Blue", "Pink"]);
+await rowHas(a, ["Red", "Blue", "Computer"]);
 let tiles = await row(a);
-check("arriving, the row offers the eight armies to serve, each with its number; nothing of the war is known yet", tiles.length === 8 && tiles.map((t) => t.key).join("") === "12345678" && tiles.every((t) => t.sub === "nobody") && await sf(a, () => window.snapfort.feature.slot === -1 && window.snapfort.feature.army.units.size === 0), tiles.map((t) => `${t.key}:${t.label} (${t.sub})`).join(" "));
+check("arriving, the row offers the seven armies to serve, each with its number, and the computer's (pink), not to be chosen; nothing of the war is known yet", tiles.length === 8 && tiles.map((t) => t.key).join("") === "1234567" && tiles.slice(0, 7).every((t) => t.sub === "nobody") && tiles[7].label === "Computer" && tiles[7].off && await sf(a, () => window.snapfort.feature.slot === -1 && window.snapfort.feature.army.units.size === 0), tiles.map((t) => `${t.key}:${t.label} (${t.sub})`).join(" "));
 check("each tile is in its army's colour", await sf(a, () => { const fills = [...document.querySelectorAll("#hotbar .slot svg path[style]")].map((p) => p.style.fill); return fills.length === 8 && new Set(fills).size === 8; }));
 await a.screenshot({ path: "qa/shots/mojave-choose.png" });
 await a.keyboard.press("1");
@@ -672,6 +672,25 @@ check("a minute on, everything of it is gone: the wall they built too", await un
 await dev(a, { do: "spawn", kind: "scout", n: 1, at: [bx - Math.sign(bx) * 40, 0, bz - Math.sign(bz) * 40] });
 check("looked at again, their base is gone: no Core, nothing of theirs; no computer plays blue", await until(a, () => { const f = window.snapfort.feature; return [...f.army.buildings.values()].every((x) => x.o !== 1) && ![...f.army.units.values()].some((u) => u.owner === 1) ? true : null; }, null, 15000) === true);
 await c2.close();
+
+// ── The computer plays pink (off in a test room until asked for) ────────
+{
+  await dev(a, { do: "computer", on: true });
+  check("the computer's army is begun, as anyone's is: pink, played by nobody", await until(a, () => { const g = window.snapfort.feature.generals[7]; return g && g.ai && g.pids.length === 0 ? true : null; }) === true);
+  await a.keyboard.press("j");
+  await rowHas(a, ["Computer", "Back"]);
+  const pink = (await row(a)).find((t) => t.label === "Computer");
+  await a.keyboard.press("8");
+  await wait(600);
+  check("in Change army its tile says Computer and is faded; 8 does not take it", !!pink && pink.off && pink.key === "" && (await war(a)).slot === 0, JSON.stringify(pink));
+  await sf(a, () => window.snapfort.feature.run("back"));
+  // A scout to the west start, to see it: its Core, and Haulers at work.
+  await dev(a, { do: "spawn", kind: "scout", n: 1, at: [-340, 0, 10] });
+  const seen = await until(a, () => { const f = window.snapfort.feature; const core = [...f.army.buildings.values()].some((b) => b.o === 7 && b.kind === "core"); const haulers = [...f.army.units.values()].filter((u) => u.owner === 7 && u.kind === "hauler").length; return core && haulers >= 4 ? haulers : null; }, null, 15000);
+  check("at the west start: the computer's Core, and its Haulers at work", !!seen, `${seen} Haulers`);
+  await dev(a, { do: "computer", on: false });
+  check("turned off, everything of it is gone", await until(a, () => { const f = window.snapfort.feature; return ![...f.army.buildings.values()].some((b) => b.o === 7) && ![...f.army.units.values()].some((u) => u.owner === 7) && !f.generals[7].pids.length ? true : null; }, null, 10000) === true);
+}
 
 // ── A Titan walks on its legs ───────────────────────────────────────────
 {

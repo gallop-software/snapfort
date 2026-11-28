@@ -31,9 +31,9 @@ async function open(label, army) {
   await page.waitForSelector("body.ready", { timeout: 40000 });
   await page.click("#play-free");
   await wait(2500);
-  // Arriving: the eight armies to choose from, on the row. Its number serves one.
+  // Arriving: the seven armies to choose from, on the row, and the computer's (pink, not to be chosen). Its number serves one.
   const offered = await page.evaluate(() => [...document.querySelectorAll("#hotbar .slot .label")].map((l) => l.firstChild?.textContent).join(","));
-  say(offered === "Red,Blue,Yellow,Green,Purple,Orange,Teal,Pink", `${label} is offered the eight armies (${offered})`);
+  say(offered === "Red,Blue,Yellow,Green,Purple,Orange,Teal,Computer", `${label} is offered the seven armies and the computer's (${offered})`);
   await page.keyboard.press(army);
   await wait(3000);
   return page;

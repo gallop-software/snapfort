@@ -1,7 +1,8 @@
 import { CELL, LEVEL } from "../../game/constants";
 import type { Piece } from "../../game/pieces";
 import type { Room } from "../serverDoors";
-import { BUILDING_KINDS, BUILDINGS, LEAVE_GRACE, MAX_UNITS, ROUTED_WAIT, UNIT_KINDS, UNITS, UPGRADES, type BuildingKind, type UnitKind } from "./kit";
+import { Computer } from "./ai";
+import { BUILDING_KINDS, BUILDINGS, COMPUTER, LEAVE_GRACE, MAX_UNITS, ROUTED_WAIT, UNIT_KINDS, UNITS, UPGRADES, type BuildingKind, type UnitKind } from "./kit";
 import { mid, STARTS } from "./map";
 import { ARMY_COLOR_NAMES, ARMY_COLORS, DT, NEUTRAL, emptyHappened, Sim, T_BUILDING, T_PIECE, T_UNIT, type Building, type General, type Order, type TargetKind, type Unit } from "./sim";
 import { F_DEPLOYED, F_DIGGING, F_DOWN, F_FIRING, F_HIT, F_LOADED, F_MOVING, F_STUNNED, LOOKS, type ToPage, type ToServer, type WireBuilding } from "./wire";
@@ -13,17 +14,17 @@ import { HALF_CELLS } from "./world";
  * page what its army can see and nothing more (an enemy out of sight is never
  * sent, so nobody can see further by tampering with their page).
  *
- * There are eight colours, and an army only for someone playing: no computer
- * plays one. A general chooses a colour; one nobody has begins an army
- * afresh, with a Core, four Haulers and the first lithium, and with nobody
- * else here they are alone, to practise and build up. Any number of people
- * may serve one army, each commanding all of it, and a general may change
- * at any moment. An army nobody serves is kept for a minute (a reload or a
- * dropped connection comes straight back to it), then everything of it
- * disappears, what was built for it too: someone who comes back later
- * begins again, as anyone new does. With nobody here at all the war is
- * paused. Someone without the Full Game is told so and sent nothing of the
- * war: nobody watches.
+ * There are seven colours for people, and the computer's (pink, ai.ts). A
+ * general chooses a colour; one nobody has begins an army afresh, with a
+ * Core, four Haulers and the first lithium. Any number of people may serve
+ * one army, each commanding all of it, and a general may change at any
+ * moment. An army nobody serves is kept for a minute (a reload or a dropped
+ * connection comes straight back to it), then everything of it disappears,
+ * what was built for it too: someone who comes back later begins again, as
+ * anyone new does. The computer's army is here while anyone's army is: begun
+ * with the first (as anyone's is begun) and gone with the last. With nobody
+ * here at all the war is paused, the computer with it. Someone without the
+ * Full Game is told so and sent nothing of the war: nobody watches.
  */
 
 /** A page connected to the room. */
@@ -66,6 +67,8 @@ interface War {
   gone: Map<number, number>;
   /** For the load test only (a test room): armies nobody serves are kept, not swept away after a minute. */
   keep: boolean;
+  /** The computer's mind (it plays the pink army). */
+  computer: Computer;
   /** How long steps have been taking (for the load test): how many, the milliseconds in all, the worst, and the characters sent. */
   perf: { steps: number; ms: number; worst: number; sent: number };
 }
@@ -85,7 +88,9 @@ export function openWar(room: Room): War {
     wear: (point, hits, by) => room.wear?.(point, hits, by),
     removePieces: (ids, by) => room.remove?.(ids, by),
   });
-  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, dirty: false, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, gone: new Map(), keep: false, perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
+  const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, dirty: false, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, gone: new Map(), keep: false, computer: new Computer(sim), perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
+  // (A test room, where the checks run, is quiet: no computer until a check asks for one.)
+  sim.computerOn = room.test?.() !== true;
   // The war is taken up where it was left, however long ago: it has no end.
   const saved = room.load("war") as { at?: number; sim?: unknown } | undefined;
   if (saved && typeof saved.at === "number" && sim.restore(saved.sim)) {
@@ -148,7 +153,8 @@ function sweep(room: Room): void {
   const w = war(room);
   const now = Date.now();
   for (const g of w.sim.generals) {
-    if (!g) continue;
+    // (The computer's army is never anyone's: it goes with the last person's, below.)
+    if (!g || g.ai) continue;
     if (g.here.length > 0 || w.keep) {
       w.gone.delete(g.slot);
       continue;
@@ -161,6 +167,13 @@ function sweep(room: Room): void {
       w.gens = "";
       w.dirty = true;
     }
+  }
+  // The computer is here while someone's army is (and pink is free of a person's from before).
+  const had = !!w.sim.generals[COMPUTER];
+  w.sim.keepComputer();
+  if (had !== !!w.sim.generals[COMPUTER]) {
+    w.gens = "";
+    w.dirty = true;
   }
 }
 
@@ -218,7 +231,13 @@ function tell(room: Room, viewer: Viewer, why?: "choose" | "visitor"): void {
 }
 
 /** The eight colours, and who serves each now (a colour with no army is nobody's: taking it up begins one). */
-const gensFor = (w: War): ToPage => ({ m: "gens", g: w.sim.generals.map((g, slot) => (g ? { slot, name: g.name, color: g.color, pids: [...g.here] } : { slot, name: `${ARMY_COLOR_NAMES[slot]!} army`, color: ARMY_COLORS[slot]!, pids: [] })) });
+const gensFor = (w: War): ToPage => ({
+  m: "gens",
+  g: w.sim.generals.map((g, slot) =>
+    // (Pink is the computer's even before its army is begun. A person's army there from before is shown as theirs.)
+    g ? { slot, name: g.name, color: g.color, pids: [...g.here], ...(g.ai ? { ai: true } : {}) } : { slot, name: slot === COMPUTER ? "Computer" : `${ARMY_COLOR_NAMES[slot]!} army`, color: ARMY_COLORS[slot]!, pids: [], ...(slot === COMPUTER ? { ai: true } : {}) },
+  ),
+});
 
 /** A general chooses the army they serve (on arriving, or changing sides at any moment): they command all of it from now, and stand before its Core. */
 function serve(room: Room, viewer: Viewer, slot: number): void {
@@ -313,6 +332,8 @@ function step(room: Room): void {
   const sim = w.sim;
   const began = performance.now();
   sim.tick();
+  // The computer thinks every two seconds.
+  if (sim.step % 20 === 7) w.computer.think();
   if (sim.step % 10 === 0) everySecond(room);
   if (sim.step % SEND_EVERY === 0) {
     sendAll(room);
@@ -603,6 +624,12 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
   const w = war(room);
   const sim = w.sim;
   if (msg.do === "speed" && num(msg.n)) w.speed = Math.max(0.1, Math.min(20, msg.n));
+  // The computer on or off (a test room has it off): off, its army is gone at once.
+  if (msg.do === "computer") {
+    sim.computerOn = msg.on !== false;
+    sim.keepComputer();
+    w.gens = "";
+  }
   if (msg.do === "perf") {
     // How the server is doing, and afresh from here.
     const p = w.perf;
@@ -642,6 +669,7 @@ function devMessage(room: Room, pid: string, g: General | null, msg: Record<stri
   } else if (msg.do === "stress") {
     // All eight generals with a full army each, all sent to the middle (an army begun on every colour nobody has, and kept).
     w.keep = true;
+    sim.computerOn = true;
     sim.fill();
     w.gens = "";
     const kinds: UnitKind[] = ["trooper", "trooper", "trooper", "tank", "scout", "gunship", "artillery", "missile"];

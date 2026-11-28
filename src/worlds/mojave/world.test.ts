@@ -4,7 +4,7 @@ import type { Fall } from "../../game/fall";
 import type { Piece } from "../../game/pieces";
 import type { Vec } from "../../game/trebuchet";
 import type { Room } from "../serverDoors";
-import { LEAVE_GRACE, MAX_GENERALS, PIECE_COST, START_LITHIUM, UNIT_KINDS } from "./kit";
+import { COMPUTER, LEAVE_GRACE, MAX_GENERALS, PIECE_COST, START_LITHIUM, UNIT_KINDS } from "./kit";
 import { STARTS } from "./map";
 import { server } from "./server";
 import type { Sim } from "./sim";
@@ -127,15 +127,19 @@ describe("who is a general", () => {
     expect(list.g.map((x) => x.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(new Set(list.g.map((x) => x.color)).size).toBe(MAX_GENERALS);
     expect(list.g.every((x) => x.pids.length === 0)).toBe(true);
+    // (Pink is the computer's, not to be chosen.)
+    expect(list.g.filter((x) => x.ai).map((x) => x.slot)).toEqual([COMPUTER]);
     r.run(3);
     expect(r.to("a").some((m) => m.m === "tick" || m.m === "res" || m.m === "fields")).toBe(false);
-    // Choosing: an army of their own, begun for them (a Core, four Haulers, the first lithium), and they command it at once.
+    // Choosing: an army of their own, begun for them (a Core, four Haulers, the first lithium), and they command it at
+    // once; and the computer's, begun with it, the same.
     r.say("a", { m: "serve", slot: 2 });
     const g = r.sim().generalOf("a")!;
     expect(g.slot).toBe(2);
     expect(g.lithium).toBe(START_LITHIUM);
-    expect(r.sim().buildings.size).toBe(buildings + 1);
-    expect(r.sim().units.length).toBe(units + 4);
+    expect(r.sim().buildings.size).toBe(buildings + 2);
+    expect(r.sim().units.length).toBe(units + 8);
+    expect(r.sim().generals[COMPUTER]!.ai).toBe(true);
     const you = r.to("a").filter((m) => m.m === "you").pop() as Extract<ToPage, { m: "you" }>;
     expect(you.slot).toBe(2);
     // (Where to stand: before the army's Core, on the side toward the middle of the map.)
@@ -212,13 +216,73 @@ describe("who is a general", () => {
     expect(r.sim().generalOf("a")!.slot).toBe(0);
   });
 
-  it("no computer plays any army: alone, a general is alone, however long", () => {
+  it("the computer plays pink while anyone plays: begun with the first army as anyone's is, nobody's to serve, and gone with the last", () => {
     const r = fakeRoom();
+    // Nobody here: no computer, nothing running.
+    expect(r.sim().generals.every((x) => x === null)).toBe(true);
     r.join("a", 0);
+    const c = r.sim().generals[COMPUTER]!;
+    expect(c.ai).toBe(true);
+    expect(c.lithium).toBe(START_LITHIUM);
+    expect([...r.sim().buildings.values()].filter((b) => b.owner === COMPUTER).map((b) => b.kind)).toEqual(["core"]);
+    expect(r.sim().units.filter((u) => u.owner === COMPUTER).map((u) => u.kind)).toEqual(["hauler", "hauler", "hauler", "hauler"]);
+    for (let slot = 1; slot < COMPUTER; slot++) expect(r.sim().generals[slot]).toBeNull();
+    // Nobody serves it: not by choosing it, nor by a tab.
+    r.join("b");
+    r.say("b", { m: "serve", slot: COMPUTER });
+    expect(r.sim().generalOf("b")).toBeNull();
+    expect(c.here).toEqual([]);
+    // It plays: four minutes on, it has built up.
     r.run(240);
-    for (let slot = 1; slot < MAX_GENERALS; slot++) expect(r.sim().generals[slot]).toBeNull();
-    expect(r.sim().units.every((u) => u.owner === 0 || u.owner === MAX_GENERALS)).toBe(true);
-    expect([...r.sim().buildings.values()].every((b) => b.owner === 0)).toBe(true);
+    expect([...r.sim().buildings.values()].filter((b) => b.owner === COMPUTER).length).toBeGreaterThan(3);
+    // The last general goes: the war is paused at once, the computer with it (nothing runs for nobody).
+    r.leave("a");
+    r.leave("b");
+    const t = r.sim().t;
+    r.run(LEAVE_GRACE + 5);
+    expect(r.sim().t).toBe(t);
+    // Someone new, more than a minute later: every army left is gone, the computer's too, and a fresh one is begun
+    // beside theirs, as fresh as they are.
+    r.join("d", 3);
+    expect(r.sim().generals.filter((x) => x).map((x) => x!.slot)).toEqual([3, COMPUTER]);
+    expect([...r.sim().buildings.values()].filter((b) => b.owner === COMPUTER)).toHaveLength(1);
+    expect(r.sim().generals[COMPUTER]!.lithium).toBe(START_LITHIUM);
+    expect(r.sim().units.filter((u) => u.owner === COMPUTER)).toHaveLength(4);
+  }, 60_000);
+
+  it("a test room is quiet: no computer until a check asks for one", () => {
+    const r = fakeRoom({ test: true });
+    r.join("a", 0);
+    expect(r.sim().generals[COMPUTER]).toBeNull();
+    r.say("a", { m: "dev", do: "computer", on: true });
+    expect(r.sim().generals[COMPUTER]?.ai).toBe(true);
+    r.say("a", { m: "dev", do: "computer", on: false });
+    expect(r.sim().generals[COMPUTER]).toBeNull();
+  });
+
+  it("a war saved before the computer, with a person's pink army: it stays theirs to come back to, and the computer takes pink once it is gone", () => {
+    const r = fakeRoom({ test: true });
+    r.join("a", 0);
+    const old = r.sim().seat(COMPUTER);
+    // (As saved before: a person's army, with no `ai`, that "p" served.)
+    old.ai = false;
+    old.pids.push("p");
+    r.room.save("war", { at: Date.now(), sim: JSON.parse(JSON.stringify(r.sim().snapshot(), (k, v) => (k === "ai" ? undefined : v))) });
+    const again = fakeRoom({ saved: r.saved });
+    expect(again.sim().generals[COMPUTER]!.ai).toBe(false);
+    // Its own general comes back to it (their tab served it), and someone else may not take it.
+    again.join("q");
+    again.say("q", { m: "serve", slot: COMPUTER });
+    expect(again.sim().generalOf("q")).toBeNull();
+    again.join("p", COMPUTER);
+    expect(again.sim().generalOf("p")?.slot).toBe(COMPUTER);
+    expect(again.sim().generals[COMPUTER]!.ai).toBe(false);
+    // They go, and a minute later their army is gone; the computer takes pink, begun afresh.
+    again.say("q", { m: "serve", slot: 2 });
+    again.leave("p");
+    again.run(LEAVE_GRACE + 5);
+    expect(again.sim().generals[COMPUTER]?.ai).toBe(true);
+    expect([...again.sim().buildings.values()].filter((b) => b.owner === COMPUTER)).toHaveLength(1);
   });
 });
 
@@ -574,9 +638,9 @@ describe("a war never runs wild", () => {
     r.run(1);
     quiet.mockRestore();
     expect(r.to("a").some((m) => m.m === "note" && /fault/.test(m.text))).toBe(true);
-    expect(sim.generals.filter((x) => x !== null).map((x) => x!.slot)).toEqual([5]);
+    expect(sim.generals.filter((x) => x !== null).map((x) => x!.slot)).toEqual([5, COMPUTER]);
     expect(sim.units.some((u) => u.kind === "titan")).toBe(false);
-    expect([...sim.buildings.values()].filter((b) => b.kind === "core")).toHaveLength(1);
+    expect([...sim.buildings.values()].filter((b) => b.kind === "core")).toHaveLength(2);
     expect(sim.generalOf("a")?.slot).toBe(5);
     const t = sim.t;
     r.run(3);

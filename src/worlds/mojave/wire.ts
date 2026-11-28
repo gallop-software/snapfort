@@ -51,6 +51,8 @@ export interface WireGeneral {
   color: string;
   /** The builders serving it now. */
   pids: string[];
+  /** The computer's (pink): nobody may serve it. */
+  ai?: boolean;
 }
 
 /** One field: id, kind (0 crystal, 1 vent), cell x, cell z, what is left, what it holds. */

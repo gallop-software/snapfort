@@ -660,7 +660,8 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
         // Serve this army: on arriving, or changing sides.
         const to = Number(arg);
         if (to === slot) return setMode(null);
-        if (Number.isInteger(to) && to >= 0 && to < 8) send({ m: "serve", slot: to });
+        // (Not the computer's.)
+        if (Number.isInteger(to) && to >= 0 && to < 8 && !general(to)?.ai) send({ m: "serve", slot: to });
         return;
       }
       case "back":
@@ -721,17 +722,18 @@ export function startCommand(game: PageGame): WorldFeature & Record<string, unkn
 
   function row(): { tiles: RowTile[] | null; status: string | null; html?: string } {
     const tile = (id: string, key: string, label: string, icon: string, more: Partial<RowTile> = {}): RowTile => ({ id, key, label, icon: ICONS[icon] ?? "", ...more });
-    /** The eight colours, each a tile, with how many generals serve its army now ("nobody": taking it up begins one afresh). */
+    /** The colours, each a tile, with how many generals serve its army now ("nobody": taking it up begins one afresh); the computer's (pink) shown, never to be chosen. */
     const armies = (): RowTile[] =>
       [...generals]
         .sort((a, b) => a.slot - b.slot)
         .map((g) => {
+          if (g.ai) return tile(`serve:${g.slot}`, "", "Computer", "", { icon: flag(g.color), sub: "plays pink", off: true });
           const others = g.pids.filter((id) => id !== game.myId()).length;
           const name = ARMY_COLOR_NAMES[g.slot] ?? "grey";
           return tile(`serve:${g.slot}`, `${g.slot + 1}`, name[0]!.toUpperCase() + name.slice(1), "", { icon: flag(g.color), sub: g.slot === slot ? (others ? `you + ${others}` : "you") : others === 0 ? "nobody" : others === 1 ? "1 general" : `${others} generals`, on: g.slot === slot });
         });
     // Not a general of any army yet: the armies, to choose from.
-    if (slot < 0) return why === "choose" ? { tiles: armies(), status: `Choose your colour: ${game.touch ? "tap it" : "press its number"}. One nobody serves begins a new army of your own; one with generals, you command with them.` } : { tiles: null, status: null };
+    if (slot < 0) return why === "choose" ? { tiles: armies(), status: `Choose your colour: ${game.touch ? "tap it" : "press its number"}. One nobody serves begins a new army of your own; one with generals, you command with them. Pink is the computer's: it plays whenever someone is here.` } : { tiles: null, status: null };
     const cost = (lithium: number, plasma: number) => (plasma > 0 ? `${lithium} · ${plasma} pl` : `${lithium}`);
     const has = (kind: BuildingKind) => [...army.buildings.values()].some((b) => mine(b.o) && b.kind === kind && b.d === 0);
     const back = (label = "Back") => tile("back", "⌫", label, label === "Back" ? "back" : "cancel");

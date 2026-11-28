@@ -332,8 +332,8 @@ function step(room: Room): void {
   const sim = w.sim;
   const began = performance.now();
   sim.tick();
-  // The computer thinks every two seconds.
-  if (sim.step % 20 === 7) w.computer.think();
+  // The computer thinks every second.
+  if (sim.step % 10 === 7) w.computer.think();
   if (sim.step % 10 === 0) everySecond(room);
   if (sim.step % SEND_EVERY === 0) {
     sendAll(room);

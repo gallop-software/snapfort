@@ -11,7 +11,6 @@ import {
   EMP,
   FLIGHT_HEIGHT,
   COMPUTER,
-  COMPUTER_SUPPLY,
   GENERAL_SIGHT,
   GUARD_RADIUS,
   WALL_WEAR,
@@ -112,7 +111,7 @@ export interface General {
   alertAt: number;
   /** The computer plays this army (always pink, slot COMPUTER: nobody serves it). */
   ai: boolean;
-  /** When it was begun, or began again after being routed (game seconds): the computer leaves an army alone for NEWCOMER_PEACE after this. */
+  /** When it was begun, or began again after being routed (game seconds): the computer begins its own plans afresh from this. */
   bornAt: number;
 }
 
@@ -522,7 +521,7 @@ export class Sim {
   supplyMax(slot: number): number {
     let n = 0;
     for (const b of this.buildings.values()) if (b.owner === slot && !b.dead && b.doneAt === 0) n += BUILDINGS[b.kind].supply ?? 0;
-    return Math.min(this.generals[slot]?.ai ? COMPUTER_SUPPLY : MAX_SUPPLY, n);
+    return Math.min(MAX_SUPPLY, n);
   }
 
   /** Why a turret or a wall may not go at a spot (m), or "": it goes within GUARD_RADIUS of a finished Core of the army's own, and never that near another army's. */

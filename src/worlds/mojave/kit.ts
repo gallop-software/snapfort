@@ -182,14 +182,11 @@ export const MAX_UNITS = 1700;
 /** Armies at once: seven colours for people, and the computer's. */
 export const MAX_GENERALS = 8;
 /**
- * The computer's army: always pink, the last colour (user, 2026-11-27: "add 1 computer player... medium difficulty...
- * the max number of players is going to be 7"). Nobody may serve it; it plays only while someone serves an army.
+ * The computer's army: always pink, the last colour (user, 2026-11-27: "add 1 computer player... the max number of
+ * players is going to be 7"; later the same day, "Make pink really good"). Nobody may serve it; it plays only while
+ * someone serves an army, by a person's rules and limits.
  */
 export const COMPUTER = MAX_GENERALS - 1;
-/** The computer leaves an army alone for this long after it was begun, s: someone new has time to build. */
-export const NEWCOMER_PEACE = 300;
-/** The most supply the computer's army may have (a person's may have MAX_SUPPLY): part of what makes it medium. */
-export const COMPUTER_SUPPLY = 120;
 /** What a new general has in the bank, and beside the Core. */
 export const START_LITHIUM = 50;
 export const START_HAULERS = 4;

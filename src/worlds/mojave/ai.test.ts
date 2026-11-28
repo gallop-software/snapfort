@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BuildState } from "../../game/buildState";
 import { Computer } from "./ai";
-import { BUILDINGS, COMPUTER, COMPUTER_SUPPLY, GUARD_RADIUS, NEWCOMER_PEACE, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS } from "./kit";
+import { BUILDINGS, COMPUTER, GUARD_RADIUS, MAX_SUPPLY, ROUTED_WAIT, START_HAULERS, START_LITHIUM, UNITS, UPGRADE_LEVELS } from "./kit";
 import { STARTS } from "./map";
 import { DT, emptyHappened, Sim, type Host } from "./sim";
 import { HALF_CELLS, world } from "./world";
@@ -19,11 +19,11 @@ function setup(start = 0) {
   const person = sim.serve("p", start, "tab-of-p")!;
   at.set("p", [STARTS[person.start]!.spawn[0], 0.9, STARTS[person.start]!.spawn[1]]);
   let ms = 0, thinks = 0;
-  /** Runs the war as the room does: the computer thinks every two seconds. `each`: called every second. */
+  /** Runs the war as the room does: the computer thinks every second. `each`: called every second. */
   const run = (seconds: number, each?: () => void) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) {
       sim.tick();
-      if (sim.step % 20 === 7) {
+      if (sim.step % 10 === 7) {
         const t0 = performance.now();
         ai.think();
         ms += performance.now() - t0;
@@ -101,31 +101,35 @@ describe("the computer", () => {
     expect(thinkMs()).toBeLessThan(1);
   }, 60_000);
 
-  it("stops at its supply limit, medium's, and never makes a Titan", () => {
+  it("with money to spare it builds up to a person's limits, no further: 200 supply, Titans, upgrades to the top", () => {
     const { sim, run, theirs } = setup(0);
     sim.generals[COMPUTER]!.lithium = 50_000;
     sim.generals[COMPUTER]!.plasma = 50_000;
-    run(600);
-    expect(sim.supplyMax(COMPUTER)).toBeLessThanOrEqual(COMPUTER_SUPPLY);
-    expect(sim.supplyUsed(COMPUTER)).toBeLessThanOrEqual(COMPUTER_SUPPLY);
-    expect(theirs(COMPUTER).buildings.some((b) => b.kind === "titanbay")).toBe(false);
-    expect(sim.generals[COMPUTER]!.upgrades.weapons).toBeLessThanOrEqual(2);
+    let titans = 0;
+    run(600, () => void (titans = Math.max(titans, theirs(COMPUTER).units.filter((u) => u.kind === "titan").length)));
+    expect(sim.supplyMax(COMPUTER)).toBe(MAX_SUPPLY);
+    expect(sim.supplyUsed(COMPUTER)).toBeLessThanOrEqual(MAX_SUPPLY);
+    expect(titans).toBeGreaterThan(0);
+    expect(sim.generals[COMPUTER]!.upgrades.weapons).toBe(UPGRADE_LEVELS);
+    expect(sim.generals[COMPUTER]!.upgrades.armour).toBe(UPGRADE_LEVELS);
   }, 60_000);
 
-  it("leaves a new army alone for its first five minutes, then comes for it: a person who does nothing loses their Core", () => {
+  it("leaves nobody alone: it comes for a new army as soon as it has a few units, and a person who does nothing loses their Core early", () => {
     const { sim, run, theirs, core } = setup(0);
     const home = sim.centreOf(core(0)!);
     let firstNear = Infinity;
-    run(15 * 60, () => {
+    run(9 * 60, () => {
       if (firstNear === Infinity && theirs(COMPUTER).fighters.some((u) => Math.hypot(u.x - home[0], u.z - home[2]) < 120)) firstNear = sim.t;
     });
-    expect(firstNear).toBeGreaterThan(NEWCOMER_PEACE);
+    // (It was five minutes of peace, and the Core gone within fifteen.)
+    expect(firstNear).toBeLessThan(480);
     expect(core(0)).toBeUndefined();
   }, 120_000);
 
-  it("is beatable: a wave that runs into a defended base breaks and goes home, and the base stands", () => {
-    const { sim, run, theirs, core, ai } = setup(0);
-    // A person who has built up: turrets and an army by their Core, between it and the computer.
+  it("breaks a defended base that the medium computer could not: turrets and an army by the Core, and the Core falls", () => {
+    const { sim, run, core, ai } = setup(0);
+    // A person who has built up: turrets and an army by their Core, between it and the computer. (Medium's waves broke on
+    // this and went home, and the base stood.)
     const c = sim.centreOf(core(0)!);
     const toward = [STARTS[COMPUTER]!.cx * 5 - c[0], STARTS[COMPUTER]!.cz * 5 - c[2]];
     const d = Math.hypot(toward[0]!, toward[1]!);
@@ -133,30 +137,55 @@ describe("the computer", () => {
     for (let i = 0; i < 4; i++) sim.addBuilding("sentry", 0, Math.floor(fx / 5) + i * 2 - 3, Math.floor(fz / 5), true);
     for (let i = 0; i < 16; i++) sim.addUnit("trooper", 0, fx + (i % 8) * 2 - 8, fz + Math.floor(i / 8) * 2 + 5);
     for (let i = 0; i < 4; i++) sim.addUnit("tank", 0, fx + i * 4 - 8, fz + 12);
-    let sent = false, back = false, lost = 0, peak = 0;
-    run(9 * 60, () => {
-      const n = theirs(COMPUTER).fighters.length;
-      if (ai.attacking) {
-        sent = true;
-        peak = Math.max(peak, n);
-      } else if (sent && !back) {
-        back = true;
-        lost = peak - n;
-      }
+    let fell = Infinity, sent = false;
+    run(16 * 60, () => {
+      sent ||= ai.attacking;
+      if (fell === Infinity && !core(0)) fell = sim.t;
     });
     expect(sent).toBe(true);
-    // It gave up on that wave (and lost units doing it), and the person's base still stands.
-    expect(back).toBe(true);
-    expect(lost).toBeGreaterThan(0);
+    expect(fell).toBeLessThan(16 * 60);
+  }, 180_000);
+
+  it("does not throw its army at a fortress far stronger than it has: it waits, growing, rather than attack", () => {
+    const { sim, run, theirs, core, ai } = setup(0);
+    const c = sim.centreOf(core(0)!);
+    const toward = [STARTS[COMPUTER]!.cx * 5 - c[0], STARTS[COMPUTER]!.cz * 5 - c[2]];
+    const d = Math.hypot(toward[0]!, toward[1]!);
+    const fx = c[0] + (toward[0]! / d) * 25, fz = c[2] + (toward[1]! / d) * 25;
+    for (let i = 0; i < 10; i++) sim.addBuilding("sentry", 0, Math.floor(fx / 5) + i * 2 - 10, Math.floor(fz / 5), true);
+    for (let i = 0; i < 40; i++) sim.addUnit("tank", 0, fx + (i % 10) * 4 - 20, fz + Math.floor(i / 10) * 5 + 6);
+    let wentIn = false;
+    run(8 * 60, () => void (wentIn ||= ai.attacking && (ai as unknown as { mind: { phase: string } }).mind.phase === "attack"));
+    expect(wentIn).toBe(false);
+    expect(theirs(COMPUTER).fighters.length).toBeGreaterThan(40);
     expect(core(0)).toBeTruthy();
-  }, 120_000);
+  }, 180_000);
+
+  it("a wave all but wiped out turns for home, rather than throw away the last of it", () => {
+    const { sim, run, theirs, ai } = setup(0);
+    let cut = false;
+    run(12 * 60, () => {
+      if (cut || !ai.attacking) return;
+      // Out, and nearly all of it lost at once.
+      const wave = theirs(COMPUTER).fighters.filter((u) => (ai as unknown as { mind: { out: Set<number> } }).mind.out.has(u.id));
+      if (wave.length < 10) return;
+      for (const u of wave.slice(0, Math.ceil(wave.length * 0.85))) sim.kill(u, false);
+      cut = true;
+      run(3);
+      expect(ai.attacking).toBe(false);
+      // (Going home, or there already: not going on.)
+      for (const u of wave.filter((u) => !u.dead)) expect(["move", "stop"]).toContain(u.order.k);
+    });
+    expect(cut).toBe(true);
+  }, 180_000);
 
   it("drives off whoever comes at its base", () => {
     const { sim, run, theirs, core } = setup(0);
     run(300);
     const c = sim.centreOf(core(COMPUTER)!);
     const raiders = [0, 1, 2].map((i) => sim.addUnit("scout", 0, c[0] + 60 + i * 3, c[2] + 20));
-    run(40);
+    // (Its army may be out by now, gathering at someone's door: it comes back for them.)
+    run(75);
     expect(raiders.every((u) => u.dead)).toBe(true);
     expect(theirs(COMPUTER).buildings.length).toBeGreaterThan(3);
   }, 60_000);
@@ -175,7 +204,7 @@ describe("the computer", () => {
     expect(theirs(COMPUTER).units.filter((u) => u.kind === "hauler").length).toBeGreaterThan(0);
   }, 60_000);
 
-  it("a person routed and beginning again is left alone again for a while", () => {
+  it("a person routed and beginning again is begun afresh: their army's time starts again", () => {
     const { sim, person, core } = setup(0);
     sim.t = 2000;
     const old = core(0)!;

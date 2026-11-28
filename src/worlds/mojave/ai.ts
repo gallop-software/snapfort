@@ -1,5 +1,5 @@
 import { CELL } from "../../game/constants";
-import { BUILDINGS, COMPUTER, COMPUTER_SUPPLY, NEWCOMER_PEACE, UNITS, UPGRADE_COST, type BuildingKind, type UnitKind } from "./kit";
+import { BUILDINGS, COMPUTER, MAX_SUPPLY, UNITS, UPGRADE_COST, UPGRADE_LEVELS, type BuildingKind, type UnitKind } from "./kit";
 import { mid, STARTS } from "./map";
 import { NEUTRAL, T_BUILDING, type Building, type General, type Sim, type Unit } from "./sim";
 
@@ -10,45 +10,59 @@ import { NEUTRAL, T_BUILDING, type Building, type General, type Sim, type Unit }
  * where the starts and the Cores are, which everyone can see on the map). It
  * has no body, so it builds wherever its own base is, and it builds no walls.
  *
- * Medium (user, 2026-11-27: "make it a good opponent, but don't make it
- * impossible to beat"): it mines, builds up in a sensible order, counters what
- * it sees (missile trucks for drones, artillery for turrets), defends its base,
- * and attacks in waves that grow. What keeps it beatable is below under
- * MEDIUM: it thinks every two seconds, stops at 120 supply, takes upgrades to
- * level 2, never makes a Titan, leaves an army alone for its first five
- * minutes, and pulls a wave back when it has lost most of it, which is the
- * moment to strike back.
+ * Hard, and fair (user, 2026-11-27: "Make pink really good. it's too easy"; it
+ * was medium the same morning). It gets no more than a person: the same income,
+ * prices, supply (200) and sight. It is strong by playing well: Haulers on
+ * every patch and its natural expansion taken early, its money always spent on
+ * four Foundries, two Skyports and a Titan bay, upgrades to the top, Relays
+ * well ahead of need, and waves that come as soon as it has a few units and
+ * grow to most of its army. A wave goes for the army it meets before the
+ * buildings, is fed by everything made while it is out, and turns back only
+ * when nearly gone. It leaves nobody alone: there is no time of peace.
  *
  * Nothing of its own is saved: what it is in the middle of is worked out
  * again from the board after a restart.
  */
 
-// ── MEDIUM: everything that sets how hard it is ─────────────────────────────
+// ── HARD: everything that sets how hard it is ───────────────────────────────
 /** Haulers it keeps for its first Core, and more for each other Core, up to the most. */
-const HAULERS_FIRST = 16, HAULERS_MORE = 8, HAULERS_MOST = 24;
+const HAULERS_FIRST = 20, HAULERS_MORE = 14, HAULERS_MOST = 40;
 /** The fighting supply of its first wave, how much more each next one waits for, and the most. */
-const FIRST_WAVE = 14, WAVE_STEP = 8, BIGGEST_WAVE = 60;
+const FIRST_WAVE = 12, WAVE_STEP = 10, BIGGEST_WAVE = 160;
 /** Seconds between waves at least, and the longest a wave stays out before coming home. */
-const WAVE_GAP = 90, WAVE_TIME = 360;
-/** A wave down to this share of the supply it set out with comes home to gather again. */
-const RETREAT_AT = 0.35;
+const WAVE_GAP = 40, WAVE_TIME = 600;
+/** A wave down to this share of the supply it set out with (and was sent since) comes home to gather again. */
+const RETREAT_AT = 0.2;
+/** Units made while a wave is in join it, together, once this much fighting supply of them has gathered (or 40% of the wave's). */
+const REINFORCE_AT = 8;
+/** A wave gathers this far short of its target before it goes in, m, all within GATHERED m of the spot (or for GATHER_TIME s at most). */
+const STAGE = 110, GATHERED = 35, GATHER_TIME = 50;
+/** A wave waits to be this many times as strong as it has seen its target army to be. */
+const STRONGER = 1.3;
+/** What a turret counts for, in the supply of units it is as strong as. */
+const TURRET_WORTH = 4;
+/** An enemy unit it can see this near a wave's middle is what the wave goes for, m. */
+const ENGAGE_RANGE = 70;
 /** Enemies this near any of its buildings are driven off by everyone at home, m. */
-const DEFEND_RANGE = 90;
-/** A wave sent out less than this long ago comes back to defend too, s. */
-const RECALL_WITHIN = 60;
-/** Upgrades go this far (a person's go to 3). */
-const TOP_UPGRADE = 2;
+const DEFEND_RANGE = 110;
+/** A wave sent out less than this long ago comes back to defend too, s (and any wave, when what is at its base outnumbers those at home). */
+const RECALL_WITHIN = 90;
+/** Upgrades go this far: as far as a person's. */
+const TOP_UPGRADE = UPGRADE_LEVELS;
 /** It takes its natural expansion this long after it began, s. */
-const EXPAND_AFTER = 600;
+const EXPAND_AFTER = 240;
 /** Lithium it always keeps back from units, for buildings. */
 const KEEP_BACK = 50;
+/** With everything in BUILD_ORDER up, this much lithium in the bank is spent on another Foundry, up to the most. */
+const SPARE = 500, MOST_FOUNDRIES = 6;
 /** How the army is made up: tanks to troopers, and the most of each kind it keeps. */
-const TANKS_PER_TROOPER = 0.5;
-const MOST: Partial<Record<UnitKind, number>> = { scout: 2, missile: 6, artillery: 3, gunship: 6 };
+const TANKS_PER_TROOPER = 0.6;
+const MOST: Partial<Record<UnitKind, number>> = { scout: 2, missile: 8, artillery: 4, gunship: 8, titan: 3 };
 
 /** What it builds, in order: each once the one before it stands. (`core` 2: the natural expansion, after EXPAND_AFTER.) */
 const BUILD_ORDER: readonly [BuildingKind, number][] = [
-  ["foundry", 1], ["tap", 1], ["relay", 1], ["sentry", 1], ["foundry", 2], ["armory", 1], ["flak", 1], ["skyport", 1], ["core", 2], ["tap", 2], ["sentry", 2],
+  ["foundry", 1], ["tap", 1], ["relay", 1], ["foundry", 2], ["armory", 1], ["sentry", 1], ["core", 2], ["tap", 2], ["skyport", 1], ["foundry", 3],
+  ["flak", 1], ["titanbay", 1], ["foundry", 4], ["sentry", 2], ["skyport", 2], ["laser", 1], ["flak", 2],
 ];
 
 /** What it is in the middle of. */
@@ -68,6 +82,15 @@ interface Mind {
   sawForts: boolean;
   /** When it last put up a Relay mast (they stand at once: a little time for supply to be used before the next). */
   relayAt: number;
+  /** The enemy army a wave is fighting: where it was sent at them. */
+  foe: [number, number] | null;
+  /** A wave gathering short of its target, or gone in; where it gathers (and those made since gather), and since when. */
+  phase: "gather" | "attack";
+  stage: [number, number];
+  stageAt: number;
+  reserve: Set<number>;
+  /** How strong each army it may attack has looked (fighting supply, and turrets), by slot: what a wave waits to outdo. */
+  strength: Map<number, number>;
 }
 
 export class Computer {
@@ -84,7 +107,7 @@ export class Computer {
       return;
     }
     if (!this.mind || this.mind.bornAt !== g.bornAt) {
-      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9 };
+      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map() };
     }
     const mind = this.mind;
     const slot = g.slot;
@@ -129,13 +152,15 @@ export class Computer {
     }
     // Supply before it runs out (more ahead the more it makes at once).
     const makers = built("foundry").length + built("skyport").length;
-    if (max < COMPUTER_SUPPLY && max - used < 4 + makers * 3 && sim.t - mind.relayAt > 8 && g.lithium >= BUILDINGS.relay.lithium) {
+    if (max < MAX_SUPPLY && max - used < 6 + makers * 4 && sim.t - mind.relayAt > 5 && g.lithium >= BUILDINGS.relay.lithium) {
       if (this.placeNear(g, "relay", home)) mind.relayAt = sim.t;
     }
 
     // ── Building up ──
-    // The next thing it builds: units wait for it, except Haulers (money first).
-    let reserveL = KEEP_BACK, reserveP = 0;
+    // The next thing it builds. Units do not wait for its lithium (a Foundry turns out only so much, and it makes more
+    // than it spends: the buildings come out of the rest), except for a new Core, which is worth saving for; they do
+    // wait for its plasma, which is scarce (a Tank's would otherwise always come first).
+    let reserveL = KEEP_BACK, reserveP = 0, waiting = false;
     for (const [kind, want] of BUILD_ORDER) {
       if (mine.filter((b) => b.kind === kind).length >= want) continue;
       if (kind === "core" && (sim.t - g.bornAt < EXPAND_AFTER || !this.natural(g))) continue;
@@ -146,10 +171,13 @@ export class Computer {
         // (Nowhere to put it: on to the next, rather than waiting for ever.)
         if (placed || kind === "tap" || kind === "core") continue;
       }
-      reserveL = Math.max(KEEP_BACK, def.lithium);
+      if (kind === "core") reserveL = Math.max(KEEP_BACK, def.lithium);
       reserveP = def.plasma;
+      waiting = true;
       break;
     }
+    // All of that up, and lithium piling up all the same: another Foundry to spend it.
+    if (!waiting && g.lithium >= SPARE && mine.filter((b) => b.kind === "foundry").length < MOST_FOUNDRIES) this.placeNear(g, "foundry", home);
     const afford = (kind: UnitKind) => g.lithium - reserveL >= UNITS[kind].lithium && g.plasma - reserveP >= UNITS[kind].plasma;
     const room = (kind: UnitKind) => sim.supplyUsed(slot) + UNITS[kind].supply <= sim.supplyMax(slot);
     const has = (kind: BuildingKind) => built(kind).length > 0;
@@ -163,88 +191,169 @@ export class Computer {
       let kind: UnitKind = "trooper";
       if (n("scout") < 1) kind = "scout";
       else if (mind.sawAir && has("armory") && n("missile") < Math.min(MOST.missile!, 2 + Math.floor(n("trooper") / 6))) kind = "missile";
-      else if (mind.sawForts && has("armory") && n("artillery") < MOST.artillery!) kind = "artillery";
       else if (n("tank") < n("trooper") * TANKS_PER_TROOPER && g.plasma - reserveP >= UNITS.tank.plasma) kind = "tank";
+      // (Artillery once it has a few Tanks to stand in front of it.)
+      else if (mind.sawForts && has("armory") && n("tank") >= 3 && n("artillery") < MOST.artillery!) kind = "artillery";
       else if (sim.t - g.bornAt > EXPAND_AFTER && n("scout") < MOST.scout!) kind = "scout";
-      make(b, kind);
+      // (What it wants cannot be paid for yet: a Trooper meanwhile, rather than the Foundry standing idle.)
+      make(b, afford(kind) ? kind : "trooper");
     }
-    for (const b of built("skyport")) if (b.queue.length < 1 && n("gunship") < MOST.gunship!) make(b, "gunship");
+    // (Plasma goes to Tanks first: a gunship only with enough over for one.)
+    for (const b of built("skyport")) if (b.queue.length < 1 && n("gunship") < MOST.gunship! && g.plasma - reserveP >= UNITS.gunship.plasma + UNITS.tank.plasma) make(b, "gunship");
+    for (const b of built("titanbay")) if (b.queue.length < 1 && n("titan") < MOST.titan!) make(b, "titan");
     for (const b of built("armory")) {
       if (b.research) continue;
       const kind = g.upgrades.weapons <= g.upgrades.armour ? "weapons" : "armour";
       const level = g.upgrades[kind];
       const cost = UPGRADE_COST[level] ?? Infinity;
-      if (level < TOP_UPGRADE && g.lithium - reserveL >= cost + 150 && g.plasma - reserveP >= cost) sim.research(slot, b.id, kind);
+      if (level < TOP_UPGRADE && g.lithium - reserveL >= cost + 100 && g.plasma - reserveP >= cost) sim.research(slot, b.id, kind);
     }
     for (const b of mine) if (!b.rally && (b.kind === "foundry" || b.kind === "skyport")) sim.rally(slot, [b.id], rally[0], 0, rally[1]);
 
     // ── Fighting ──
     const fighters = units.filter((u) => UNITS[u.kind].weapon && !u.inside && u.kind !== "hauler");
     for (const id of [...mind.out]) if (!sim.unitById.get(id) || sim.unitById.get(id)!.dead) mind.out.delete(id);
+    for (const id of [...mind.reserve]) if (!sim.unitById.get(id) || sim.unitById.get(id)!.dead || mind.out.has(id)) mind.reserve.delete(id);
     const wave = fighters.filter((u) => mind.out.has(u.id));
     const atHome = fighters.filter((u) => !mind.out.has(u.id));
     const supplyOf = (list: Unit[]) => list.reduce((s, u) => s + UNITS[u.kind].supply, 0);
+    const ids = (list: Unit[]) => list.map((u) => u.id);
+    /** The wave is over (won, lost, or called back): those still out, and those gathering to join it, go home. */
+    const endWave = () => {
+      const all = fighters.filter((u) => mind.out.has(u.id) || mind.reserve.has(u.id));
+      if (all.length > 0) sim.command(slot, ids(all), { k: "move", x: rally[0], z: rally[1], l: 0 });
+      mind.out.clear();
+      mind.reserve.clear();
+    };
 
-    // Its base attacked: everyone at home goes for the attackers (and a wave only just sent comes back for them).
+    // Its base attacked: everyone at home goes for the attackers (and a wave only just sent, or any when what is at its
+    // base outnumbers those at home, comes back for them).
     const threat = this.threat(g, mine, hc);
     if (threat) {
-      const back = sim.t - mind.sentAt < RECALL_WITHIN ? wave : [];
-      if (back.length > 0) mind.out.clear();
-      const go = [...atHome, ...back].filter((u) => u.order.k !== "amove" || Math.hypot(u.order.x - threat[0], u.order.z - threat[1]) > 40);
-      if (go.length > 0) sim.command(slot, go.map((u) => u.id), { k: "amove", x: threat[0], z: threat[1], l: 0 });
+      const back = sim.t - mind.sentAt < RECALL_WITHIN || threat.supply > supplyOf(atHome) ? wave : [];
+      if (back.length > 0) {
+        mind.out.clear();
+        mind.reserve.clear();
+      }
+      const go = [...atHome, ...back].filter((u) => u.order.k !== "amove" || Math.hypot(u.order.x - threat.x, u.order.z - threat.z) > 40);
+      if (go.length > 0) sim.command(slot, ids(go), { k: "amove", x: threat.x, z: threat.z, l: 0 });
     } else {
-      // Nothing at home to fight: whoever is idle away from the gathering place goes back to it.
-      const stray = atHome.filter((u) => (u.order.k === "stop" || u.order.k === "hold") && Math.hypot(u.x - rally[0], u.z - rally[1]) > 50);
-      if (stray.length > 0) sim.command(slot, stray.map((u) => u.id), { k: "move", x: rally[0], z: rally[1], l: 0 });
+      // Nothing at home to fight: whoever is idle away from the gathering place goes back to it (not those gathering to
+      // join a wave).
+      const stray = atHome.filter((u) => !mind.reserve.has(u.id) && (u.order.k === "stop" || u.order.k === "hold") && Math.hypot(u.x - rally[0], u.z - rally[1]) > 50);
+      if (stray.length > 0) sim.command(slot, ids(stray), { k: "move", x: rally[0], z: rally[1], l: 0 });
     }
 
-    // A wave out: on to the next thing of its target's, or home when it has lost too much, or been out too long.
+    // A wave out: it gathers short of its target, goes in together, on to the next thing of its target's; home when it
+    // has lost nearly all of it, or been out too long.
     if (mind.out.size > 0) {
+      const [sx, sz] = mind.stage;
+      const near = (u: Unit) => Math.hypot(u.x - sx, u.z - sz) < GATHERED;
+      /** Those who have just joined a wave gone in: sent on with the rest. */
+      const joined = new Set<number>();
+      if (!threat) {
+        // What was made since it went gathers where the wave did. Gathering still, it is part of the wave; once the wave
+        // has gone in, those gathered go in after it together, when there are enough of them to count.
+        const fresh = atHome.filter((u) => !mind.reserve.has(u.id));
+        if (fresh.length > 0 && (mind.phase === "gather" || supplyOf(fresh) >= REINFORCE_AT / 2)) {
+          sim.command(slot, ids(fresh), { k: "amove", x: sx, z: sz, l: 0 });
+          for (const u of fresh) mind.reserve.add(u.id);
+        }
+        const reserve = atHome.filter((u) => mind.reserve.has(u.id));
+        const ready = reserve.filter(near);
+        const join = mind.phase === "gather" ? reserve : supplyOf(ready) >= Math.max(REINFORCE_AT, supplyOf(wave) * 0.4) ? ready : [];
+        if (join.length > 0) {
+          for (const u of join) {
+            mind.out.add(u.id);
+            mind.reserve.delete(u.id);
+          }
+          mind.outSupply += supplyOf(join);
+          wave.push(...join);
+          if (mind.phase === "attack") for (const u of join) joined.add(u.id);
+        }
+      }
       const left = supplyOf(wave);
       if (left < mind.outSupply * RETREAT_AT || sim.t - mind.sentAt > WAVE_TIME) {
         // (A plain move: they turn for home and do not stop to fight on the way.)
-        sim.command(slot, wave.map((u) => u.id), { k: "move", x: rally[0], z: rally[1], l: 0 });
-        mind.out.clear();
-      } else {
-        const [wx, wz] = middleOf(wave);
-        const target = this.targetOf(mind.target, wx, wz) ?? this.nextTarget(g, wx, wz);
-        if (!target) {
-          sim.command(slot, wave.map((u) => u.id), { k: "amove", x: rally[0], z: rally[1], l: 0 });
-          mind.out.clear();
-        } else {
-          const c = sim.centreOf(target);
-          mind.target = target.owner;
-          const moved = Math.hypot(c[0] - mind.at[0], c[2] - mind.at[1]) > 5;
-          mind.at = [c[0], c[2]];
-          // Those that got there and stopped (or all of them, for a new target): near it, an attack on it; further, an
-          // attack-move to the ground before it (fighting whatever they meet on the way).
-          const idle = wave.filter((u) => moved || u.order.k === "stop" || u.order.k === "hold");
-          const close = idle.filter((u) => Math.hypot(u.x - c[0], u.z - c[2]) < 70);
-          const far = idle.filter((u) => !close.includes(u));
-          if (close.length > 0) sim.command(slot, close.map((u) => u.id), { k: "attack", tk: T_BUILDING, id: target.id });
-          if (far.length > 0) {
-            const [fx, fz] = this.before(target, wx, wz);
-            sim.command(slot, far.map((u) => u.id), { k: "amove", x: fx, z: fz, l: 0 });
-          }
-        }
+        endWave();
+        return;
       }
+      if (mind.phase === "gather") {
+        // Most of it there (or long enough waiting), and strong enough for what it sees of them now (or as big as it can
+        // be): in together. Not yet: it waits there, and what is made meanwhile joins it.
+        const there = wave.filter(near).length >= wave.length * 0.8 || sim.t - mind.stageAt >= GATHER_TIME;
+        const strong = left >= STRONGER * (mind.strength.get(mind.target) ?? 0) || sim.supplyUsed(slot) >= MAX_SUPPLY - 6;
+        if (!there || !strong) return;
+        mind.phase = "attack";
+        mind.at = [Infinity, Infinity];
+      }
+      const [wx, wz] = middleOf(wave);
+      // An army of the enemy's in sight near it: that first, before any building.
+      const foe = this.foeNear(g, wx, wz);
+      if (foe) {
+        if (!mind.foe || Math.hypot(foe[0] - mind.foe[0], foe[1] - mind.foe[1]) > 15) {
+          mind.foe = foe;
+          sim.command(slot, ids(wave), { k: "amove", x: foe[0], z: foe[1], l: 0 });
+        }
+        return;
+      }
+      if (mind.foe) {
+        // (The fight is over: on to the buildings, all of them afresh.)
+        mind.foe = null;
+        mind.at = [Infinity, Infinity];
+      }
+      const target = this.targetOf(mind.target, wx, wz) ?? this.nextTarget(g, wx, wz);
+      if (!target) {
+        endWave();
+        return;
+      }
+      const c = sim.centreOf(target);
+      mind.target = target.owner;
+      const moved = Math.hypot(c[0] - mind.at[0], c[2] - mind.at[1]) > 5;
+      mind.at = [c[0], c[2]];
+      // Those that got there and stopped (or all of them, for a new target): near it, an attack on it; further, an
+      // attack-move to the ground before it (shooting whatever they meet on the way).
+      const idle = wave.filter((u) => moved || joined.has(u.id) || u.order.k === "stop" || u.order.k === "hold");
+      const close = idle.filter((u) => Math.hypot(u.x - c[0], u.z - c[2]) < 70);
+      const far = idle.filter((u) => !close.includes(u));
+      if (close.length > 0) sim.command(slot, ids(close), { k: "attack", tk: T_BUILDING, id: target.id });
+      if (far.length > 0) {
+        const [fx, fz] = this.before(target, wx, wz);
+        sim.command(slot, ids(far), { k: "amove", x: fx, z: fz, l: 0 });
+      }
+      // The wave's gathering place keeps up with it, for those who come after.
+      if (Math.hypot(wx - sx, wz - sz) > STAGE) mind.stage = this.stageFor(c[0], c[2], wx, wz);
       return;
     }
 
-    // Big enough, and long enough since the last: the next wave.
-    if (!threat && supplyOf(atHome) >= mind.wave && sim.t - mind.sentAt >= WAVE_GAP) {
-      const target = this.nextTarget(g, hc[0], hc[2]);
-      if (!target) return;
-      const c = sim.centreOf(target);
-      mind.out = new Set(atHome.map((u) => u.id));
-      mind.outSupply = supplyOf(atHome);
-      mind.sentAt = sim.t;
-      mind.target = target.owner;
-      mind.at = [c[0], c[2]];
-      mind.wave = Math.min(BIGGEST_WAVE, mind.wave + WAVE_STEP);
-      const [fx, fz] = this.before(target, ...middleOf(atHome));
-      sim.command(slot, atHome.map((u) => u.id), { k: "amove", x: fx, z: fz, l: 0 });
-    }
+    // Big enough for what it has seen of them (and long enough since the last): the next wave, to gather short of them.
+    if (threat || sim.t - mind.sentAt < WAVE_GAP || atHome.length === 0) return;
+    const [hx, hz] = middleOf(atHome);
+    const target = this.nextTarget(g, hx, hz);
+    if (!target) return;
+    const need = Math.min(BIGGEST_WAVE, Math.max(mind.wave, STRONGER * (mind.strength.get(target.owner) ?? 0)));
+    const full = sim.supplyUsed(slot) >= MAX_SUPPLY - 6;
+    if (supplyOf(atHome) < need && !(full && supplyOf(atHome) >= mind.wave)) return;
+    const c = sim.centreOf(target);
+    mind.out = new Set(ids(atHome));
+    mind.reserve.clear();
+    mind.outSupply = supplyOf(atHome);
+    mind.sentAt = sim.t;
+    mind.target = target.owner;
+    mind.at = [c[0], c[2]];
+    mind.wave = Math.min(BIGGEST_WAVE, mind.wave + WAVE_STEP);
+    mind.foe = null;
+    mind.phase = "gather";
+    mind.stage = this.stageFor(c[0], c[2], hx, hz);
+    mind.stageAt = sim.t;
+    sim.command(slot, ids(atHome), { k: "amove", x: mind.stage[0], z: mind.stage[1], l: 0 });
+  }
+
+  /** Where a wave gathers before going in: STAGE short of (tx, tz) on the way from (x, z) (or where it is, already nearer). */
+  private stageFor(tx: number, tz: number, x: number, z: number): [number, number] {
+    const d = Math.hypot(x - tx, z - tz);
+    if (d <= STAGE) return [x, z];
+    return [tx + ((x - tx) / d) * STAGE, tz + ((z - tz) / d) * STAGE];
   }
 
   /** Open ground just before a building, on the side toward (x, z): where a wave goes to attack it (nobody can stand inside one). */
@@ -260,9 +369,21 @@ export class Computer {
     return (this.mind?.out.size ?? 0) > 0;
   }
 
-  /** What it has seen of its enemies: drones (it makes missile trucks) and turrets (artillery). */
+  /** What it has seen of its enemies: drones (it makes missile trucks), turrets (artillery), and how strong each army looks. */
   private look(g: General, mind: Mind): void {
     const sim = this.sim;
+    // How strong: what of each it sees now, or what it saw before, fading (by half in a little over two minutes).
+    const now = new Map<number, number>();
+    for (const u of sim.units) {
+      if (u.dead || u.inside || u.owner === g.slot || u.owner === NEUTRAL || !UNITS[u.kind].weapon || u.kind === "hauler" || !sim.sees(g.team, u.x, u.z)) continue;
+      now.set(u.owner, (now.get(u.owner) ?? 0) + UNITS[u.kind].supply);
+    }
+    for (const b of sim.buildings.values()) {
+      if (b.dead || b.owner === g.slot || !BUILDINGS[b.kind].weapon || b.doneAt !== 0) continue;
+      const c = sim.centreOf(b);
+      if (sim.sees(g.team, c[0], c[2])) now.set(b.owner, (now.get(b.owner) ?? 0) + TURRET_WORTH);
+    }
+    for (const slot of new Set([...now.keys(), ...mind.strength.keys()])) mind.strength.set(slot, Math.max(now.get(slot) ?? 0, (mind.strength.get(slot) ?? 0) * 0.995));
     if (!mind.sawAir) {
       for (const u of sim.units) {
         if (!u.dead && u.owner !== g.slot && u.owner !== NEUTRAL && UNITS[u.kind].air && sim.sees(g.team, u.x, u.z)) {
@@ -283,10 +404,13 @@ export class Computer {
     }
   }
 
-  /** Where the nearest enemy unit to its base is, when one is within DEFEND_RANGE of any of its buildings; else null. */
-  private threat(g: General, mine: Building[], hc: readonly number[]): [number, number] | null {
+  /**
+   * The nearest enemy unit to its base, when one is within DEFEND_RANGE of any of its buildings, and how much fighting
+   * supply of the enemy's is that near them; else null.
+   */
+  private threat(g: General, mine: Building[], hc: readonly number[]): { x: number; z: number; supply: number } | null {
     const sim = this.sim;
-    let best: [number, number] | null = null, bestD = Infinity;
+    let best: { x: number; z: number; supply: number } | null = null, bestD = Infinity, supply = 0;
     for (const u of sim.units) {
       if (u.dead || u.inside || u.owner === g.slot || u.owner === NEUTRAL) continue;
       let near = false;
@@ -298,19 +422,36 @@ export class Computer {
         }
       }
       if (!near) continue;
+      if (UNITS[u.kind].weapon) supply += UNITS[u.kind].supply;
       const dd = (u.x - hc[0]!) ** 2 + (u.z - hc[2]!) ** 2;
       if (dd < bestD) {
         bestD = dd;
-        best = [u.x, u.z];
+        best = { x: u.x, z: u.z, supply: 0 };
       }
     }
+    if (best) best.supply = supply;
     return best;
   }
 
-  /** Whether an army may be attacked: a person's, past its first NEWCOMER_PEACE seconds. */
+  /** The nearest armed unit, of an army it may attack, that it can see within ENGAGE_RANGE of (x, z); else null. */
+  private foeNear(g: General, x: number, z: number): [number, number] | null {
+    const sim = this.sim;
+    let best: [number, number] | null = null, bestD = ENGAGE_RANGE * ENGAGE_RANGE;
+    sim.nearby(x, z, ENGAGE_RANGE, (u) => {
+      if (u.dead || u.inside || u.owner === g.slot || u.owner === NEUTRAL || !UNITS[u.kind].weapon || u.kind === "hauler" || !this.fair(u.owner)) return;
+      const dd = (u.x - x) ** 2 + (u.z - z) ** 2;
+      if (dd < bestD && sim.sees(g.team, u.x, u.z)) {
+        bestD = dd;
+        best = [u.x, u.z];
+      }
+    });
+    return best;
+  }
+
+  /** Whether an army may be attacked: any person's, at any time (hard: no time of peace for a new one). */
   private fair(slot: number): boolean {
     const g = this.sim.generals[slot];
-    return !!g && !g.ai && this.sim.t - g.bornAt >= NEWCOMER_PEACE;
+    return !!g && !g.ai;
   }
 
   /** The building of this army's nearest a spot (a Core counts as much nearer: it goes for those), or null. */

@@ -52,6 +52,30 @@ export const STARTS: readonly Start[] = START_CELLS.map(([cx, cz]) => {
   return { cx, cz, spawn: [(cx - (cx / d) * 4 + 0.5) * CELL, (cz - (cz / d) * 4 + 0.5) * CELL] as const };
 });
 
+/** The middle of the rich fields in the middle of the map (cells): four round it, and one at the very centre. */
+const RICH_SITES: readonly (readonly [number, number])[] = [[30, 0], [-30, 0], [0, 30], [0, -30], [0, 0]];
+
+/** Where a Command Core can go by its own field (the cell at the middle of the field's arc): a start's main field, its natural, or a rich field in the middle. */
+export interface Site {
+  cx: number;
+  cz: number;
+  kind: "main" | "natural" | "rich";
+  /** The start it belongs to (main and natural), else -1. */
+  start: number;
+}
+
+/** Every site on the map. */
+export const SITES: readonly Site[] = [
+  ...START_CELLS.flatMap(([cx, cz], start): Site[] => {
+    const d = Math.hypot(cx, cz), ox = cx / d, oz = cz / d;
+    return [
+      { cx, cz, kind: "main", start },
+      { cx: Math.round(cx - ox * 24), cz: Math.round(cz - oz * 24), kind: "natural", start },
+    ];
+  }),
+  ...RICH_SITES.map(([cx, cz]): Site => ({ cx, cz, kind: "rich", start: -1 })),
+];
+
 /** The fields of the whole map, full. (A fresh list each time: the caller keeps what is left in them.) */
 export function makeFields(): Field[] {
   const fields: Field[] = [];
@@ -81,7 +105,7 @@ export function makeFields(): Field[] {
     cluster(cx - ox * 24, cz - oz * 24, ox, oz, 6, 5, NATURAL, 5);
   }
   // The middle: four rich fields and one richer still at the very centre.
-  for (const [x, z] of [[30, 0], [-30, 0], [0, 30], [0, -30]] as const) cluster(x, z, x, z, 8, 5, RICH, 5);
+  for (const [x, z] of RICH_SITES.slice(0, 4)) cluster(x, z, x, z, 8, 5, RICH, 5);
   cluster(0, 0, 0, 1, 8, 5, RICH, 6);
   return fields.filter((f) => Math.abs(f.cx) < HALF_CELLS - 1 && Math.abs(f.cz) < HALF_CELLS - 1);
 }

@@ -73,14 +73,34 @@ describe("the computer", () => {
     expect(overlap).toBe(false);
   });
 
-  it("mines, builds up in order and raises an army, by the same rules: nothing on top of anything, turrets by its own Core", () => {
+  it("booms first: a new base as fast as it can save for one, every base its turrets at once, by the same rules (nothing on top of anything, turrets by its own Cores)", () => {
     const { sim, run, theirs, thinkMs } = setup(0);
-    run(360);
+    const coreAt = new Map<number, number>(), guardedAt = new Map<number, number>(), fullAt = new Map<number, number>();
+    run(9 * 60, () => {
+      const mine = theirs(COMPUTER).buildings;
+      for (const c of mine.filter((b) => b.kind === "core")) {
+        if (!coreAt.has(c.id)) coreAt.set(c.id, sim.t);
+        const cc = sim.centreOf(c);
+        const near = mine.filter((b) => BUILDINGS[b.kind].nearCore && Math.hypot(sim.centreOf(b)[0] - cc[0], sim.centreOf(b)[2] - cc[2]) <= GUARD_RADIUS);
+        const sentries = near.filter((b) => b.kind === "sentry").length, flak = near.filter((b) => b.kind === "flak").length;
+        if (sentries >= 2 && !guardedAt.has(c.id)) guardedAt.set(c.id, sim.t);
+        if (sentries >= 4 && flak >= 2 && !fullAt.has(c.id)) fullAt.set(c.id, sim.t);
+      }
+    });
+    const founded = [...coreAt.values()].sort((a, b) => a - b);
+    // Its natural within four minutes, three bases within six, and more after.
+    expect(founded[1]).toBeLessThan(4 * 60);
+    expect(founded[2]).toBeLessThan(6 * 60);
+    expect(founded.length).toBeGreaterThanOrEqual(5);
+    // Every base its first two Sentries within a minute and a half of it (the first, within four minutes: it needs a
+    // Foundry first), and its full defence (four, and two Flak) in the end.
+    for (const [id, at] of coreAt) {
+      if (at > 8 * 60) continue;
+      expect((guardedAt.get(id) ?? Infinity) - at).toBeLessThan(at === founded[0] ? 240 : 90);
+      expect(fullAt.has(id)).toBe(true);
+    }
     const mine = theirs(COMPUTER);
-    const kinds = new Set(mine.buildings.map((b) => b.kind));
-    for (const k of ["foundry", "tap", "relay", "sentry", "armory"] as const) expect(kinds.has(k)).toBe(true);
-    expect(mine.units.filter((u) => u.kind === "hauler").length).toBeGreaterThanOrEqual(12);
-    expect(mine.fighters.length).toBeGreaterThan(6);
+    expect(mine.units.filter((u) => u.kind === "hauler").length).toBeGreaterThanOrEqual(40);
     expect(sim.supplyUsed(COMPUTER)).toBeLessThanOrEqual(sim.supplyMax(COMPUTER));
     // Nothing of its own built over anything.
     const cells = new Set<string>();
@@ -92,14 +112,45 @@ describe("the computer", () => {
         }
       }
     }
-    const home = mine.buildings.find((b) => b.kind === "core")!;
+    // Every turret by one of its own Cores.
+    const cores = mine.buildings.filter((b) => b.kind === "core");
     for (const t of mine.buildings.filter((b) => BUILDINGS[b.kind].nearCore)) {
-      const a = sim.centreOf(t), c = sim.centreOf(home);
-      expect(Math.hypot(a[0] - c[0], a[2] - c[2])).toBeLessThanOrEqual(GUARD_RADIUS);
+      const a = sim.centreOf(t);
+      expect(cores.some((c) => Math.hypot(a[0] - sim.centreOf(c)[0], a[2] - sim.centreOf(c)[2]) <= GUARD_RADIUS)).toBe(true);
     }
     // Light on the server: a think is a small fraction of a millisecond.
     expect(thinkMs()).toBeLessThan(1);
-  }, 60_000);
+  }, 120_000);
+
+  it("takes the starts of colours nobody plays, never one a colour in play holds; and a newcomer is never begun beside it", () => {
+    const { sim, run, theirs } = setup(0);
+    // A second person, on the start beside the computer's.
+    sim.serve("q", 6, "tab-of-q");
+    run(8 * 60);
+    const cores = theirs(COMPUTER).buildings.filter((b) => b.kind === "core").map((b) => sim.centreOf(b));
+    const nearStart = (i: number) => cores.some((c) => Math.hypot(c[0] - (STARTS[i]!.cx + 0.5) * 5, c[2] - (STARTS[i]!.cz + 0.5) * 5) < 120);
+    // On someone's start (or its natural): never.
+    expect(nearStart(0) || nearStart(6)).toBe(false);
+    // On a start nobody plays: yes, at least one.
+    const free = [1, 2, 3, 4, 5].filter(nearStart);
+    expect(free.length).toBeGreaterThan(0);
+    // Someone taking up that colour is begun on another start, not beside the computer's turrets.
+    const colour = free[0]!;
+    const g = sim.serve("r", colour, "tab-of-r")!;
+    expect(g.start).not.toBe(colour);
+    const theirCore = theirs(colour).buildings.find((b) => b.kind === "core")!;
+    for (const c of cores) expect(Math.hypot(sim.centreOf(theirCore)[0] - c[0], sim.centreOf(theirCore)[2] - c[2])).toBeGreaterThan(120);
+  }, 120_000);
+
+  it("with every start held, it clears a rich field's sentries with its army and puts a base there", () => {
+    const { sim, run, theirs } = setup(0);
+    // An army on every other start (nobody serving them: they do nothing), so the only free sites are the middle's.
+    sim.fill();
+    run(16 * 60);
+    const cores = theirs(COMPUTER).buildings.filter((b) => b.kind === "core").map((b) => sim.centreOf(b));
+    const rich = cores.filter((c) => Math.hypot(c[0], c[2]) < 200);
+    expect(rich.length).toBeGreaterThan(0);
+  }, 180_000);
 
   it("with money to spare it builds up to a person's limits, no further: 200 supply, Titans, upgrades to the top", () => {
     const { sim, run, theirs } = setup(0);
@@ -114,17 +165,21 @@ describe("the computer", () => {
     expect(sim.generals[COMPUTER]!.upgrades.armour).toBe(UPGRADE_LEVELS);
   }, 60_000);
 
-  it("leaves nobody alone: it comes for a new army as soon as it has a few units, and a person who does nothing loses their Core early", () => {
-    const { sim, run, theirs, core } = setup(0);
-    const home = sim.centreOf(core(0)!);
-    let firstNear = Infinity;
-    run(9 * 60, () => {
-      if (firstNear === Infinity && theirs(COMPUTER).fighters.some((u) => Math.hypot(u.x - home[0], u.z - home[2]) < 120)) firstNear = sim.t;
+  it("attacks only once booming (three guarded bases), with Titans, Tanks or gunships; then a person who does nothing loses their Core", () => {
+    const { sim, run, theirs, core, ai } = setup(0);
+    let firstWave = Infinity, coresThen = 0, advanced = false;
+    run(13 * 60, () => {
+      if (firstWave === Infinity && ai.attacking) {
+        firstWave = sim.t;
+        coresThen = theirs(COMPUTER).buildings.filter((b) => b.kind === "core").length;
+        advanced = theirs(COMPUTER).fighters.some((u) => u.kind === "titan" || u.kind === "tank" || u.kind === "gunship");
+      }
     });
-    // (It was five minutes of peace, and the Core gone within fifteen.)
-    expect(firstNear).toBeLessThan(480);
+    expect(firstWave).toBeLessThan(13 * 60);
+    expect(coresThen).toBeGreaterThanOrEqual(3);
+    expect(advanced).toBe(true);
     expect(core(0)).toBeUndefined();
-  }, 120_000);
+  }, 180_000);
 
   it("breaks a defended base that the medium computer could not: turrets and an army by the Core, and the Core falls", () => {
     const { sim, run, core, ai } = setup(0);
@@ -155,9 +210,11 @@ describe("the computer", () => {
     for (let i = 0; i < 10; i++) sim.addBuilding("sentry", 0, Math.floor(fx / 5) + i * 2 - 10, Math.floor(fz / 5), true);
     for (let i = 0; i < 40; i++) sim.addUnit("tank", 0, fx + (i % 10) * 4 - 20, fz + Math.floor(i / 10) * 5 + 6);
     let wentIn = false;
-    run(8 * 60, () => void (wentIn ||= ai.attacking && (ai as unknown as { mind: { phase: string } }).mind.phase === "attack"));
+    run(12 * 60, () => void (wentIn ||= ai.attacking && (ai as unknown as { mind: { phase: string } }).mind.phase === "attack"));
     expect(wentIn).toBe(false);
-    expect(theirs(COMPUTER).fighters.length).toBeGreaterThan(40);
+    // (Growing meanwhile: Titans among it.)
+    expect(theirs(COMPUTER).fighters.reduce((s, u) => s + UNITS[u.kind].supply, 0)).toBeGreaterThanOrEqual(50);
+    expect(theirs(COMPUTER).fighters.some((u) => u.kind === "titan")).toBe(true);
     expect(core(0)).toBeTruthy();
   }, 180_000);
 

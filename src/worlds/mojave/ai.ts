@@ -1,7 +1,7 @@
 import { CELL } from "../../game/constants";
-import { BUILDINGS, COMPUTER, MAX_SUPPLY, UNITS, UPGRADE_COST, UPGRADE_LEVELS, type BuildingKind, type UnitKind } from "./kit";
-import { mid, STARTS } from "./map";
-import { NEUTRAL, T_BUILDING, type Building, type General, type Sim, type Unit } from "./sim";
+import { BUILDINGS, COMPUTER, GUARD_RADIUS, MAX_SUPPLY, UNITS, UPGRADE_COST, UPGRADE_LEVELS, type BuildingKind, type UnitKind } from "./kit";
+import { mid, SITES, STARTS } from "./map";
+import { NEUTRAL, T_BUILDING, T_UNIT, type Building, type General, type Sim, type Unit } from "./sim";
 
 /**
  * The computer: one army, always pink (slot COMPUTER), played by the same
@@ -10,23 +10,49 @@ import { NEUTRAL, T_BUILDING, type Building, type General, type Sim, type Unit }
  * where the starts and the Cores are, which everyone can see on the map). It
  * has no body, so it builds wherever its own base is, and it builds no walls.
  *
- * Hard, and fair (user, 2026-11-27: "Make pink really good. it's too easy"; it
- * was medium the same morning). It gets no more than a person: the same income,
- * prices, supply (200) and sight. It is strong by playing well: Haulers on
- * every patch and its natural expansion taken early, its money always spent on
- * four Foundries, two Skyports and a Titan bay, upgrades to the top, Relays
- * well ahead of need, and waves that come as soon as it has a few units and
- * grow to most of its army. A wave goes for the army it meets before the
- * buildings, is fed by everything made while it is out, and turns back only
- * when nearly gone. It leaves nobody alone: there is no time of peace.
+ * Hard, and fair (user, 2026-11-27: "Make pink really good. it's too easy"). It
+ * gets no more than a person: the same income, prices, supply (200) and sight.
+ *
+ * Its plan (the user, the same day: "the number one goal starting off is to
+ * have a strong booming economy. so defense and expansion, as fast as
+ * possible... then building the most advanced units possible"): Haulers on
+ * every patch; a Foundry, then every Core its first turrets, and a new base as
+ * soon as it has saved for one, on any free site (its natural, a start no
+ * colour in play holds, or a rich field in the middle once its army has
+ * cleared the sentries there); each base its full defence on the side trouble
+ * comes from. Its army stays small and at home meanwhile. Once booming (three
+ * guarded bases, or full), it builds what makes the most advanced army (Titan
+ * bays, Skyports, an Armory and its upgrades) and makes Titans, Tanks and
+ * gunships, and its waves begin: gathering out of reach until stronger than
+ * what they have seen of the enemy, then in together.
  *
  * Nothing of its own is saved: what it is in the middle of is worked out
  * again from the board after a restart.
  */
 
 // ── HARD: everything that sets how hard it is ───────────────────────────────
-/** Haulers it keeps for its first Core, and more for each other Core, up to the most. */
-const HAULERS_FIRST = 20, HAULERS_MORE = 14, HAULERS_MOST = 40;
+/** Haulers it keeps for each crystal patch by one of its Cores, and the most in all (supply, and upkeep). */
+const HAULERS_PER_PATCH = 2.5, HAULERS_MOST = 60;
+/** Bases it may have, and how many guarded ones make it booming (and free to attack). */
+const MOST_CORES = 6, BOOM_CORES = 3;
+/** A base's first turrets, and its full defence (and a Laser once it has an Armory). */
+const BASIC_SENTRIES = 2, FULL_SENTRIES = 4, FULL_FLAK = 2;
+/** Sentries a base may have, built from lithium to spare once booming. */
+const MOST_SENTRIES = 8;
+/** Turrets go this far out from their Core, in cells (toward where trouble comes from), this far apart, m. */
+const TURRET_RINGS = [5, 6, 7, 4, 8] as const, TURRET_GAP = 8;
+/** A site with another army's Core this near it is not settled, m. */
+const SITE_TAKEN = 120;
+/** Its army's fighting supply until it is booming, and the Troopers it keeps at home whatever it is saving for. */
+const EARLY_ARMY = 24, HOME_GUARD = 6;
+/** Once booming, Troopers are made only while they are less than this share of its army's fighting supply. */
+const TROOPERS_AT_MOST = 0.2;
+/** Sentries guarding a site are cleared once its army at home is this many times as strong as them. */
+const CLEAR_AT = 1.5;
+/** Neutral sentries this near a site guard it, m. */
+const SITE_GUARDS = 70;
+/** A site sentries guard counts as this much further off than it is, m (clearing it costs time and lives: a free one first). */
+const GUARDED_FURTHER = 600;
 /** The fighting supply of its first wave, how much more each next one waits for, and the most. */
 const FIRST_WAVE = 12, WAVE_STEP = 10, BIGGEST_WAVE = 160;
 /** Seconds between waves at least, and the longest a wave stays out before coming home. */
@@ -49,20 +75,16 @@ const DEFEND_RANGE = 110;
 const RECALL_WITHIN = 90;
 /** Upgrades go this far: as far as a person's. */
 const TOP_UPGRADE = UPGRADE_LEVELS;
-/** It takes its natural expansion this long after it began, s. */
-const EXPAND_AFTER = 240;
 /** Lithium it always keeps back from units, for buildings. */
 const KEEP_BACK = 50;
-/** With everything in BUILD_ORDER up, this much lithium in the bank is spent on another Foundry, up to the most. */
+/** With everything in ADVANCED up, this much lithium in the bank is spent on another Foundry, up to the most. */
 const SPARE = 500, MOST_FOUNDRIES = 6;
-/** How the army is made up: tanks to troopers, and the most of each kind it keeps. */
-const TANKS_PER_TROOPER = 0.6;
-const MOST: Partial<Record<UnitKind, number>> = { scout: 2, missile: 8, artillery: 4, gunship: 8, titan: 3 };
+/** The most of each kind it keeps. */
+const MOST: Partial<Record<UnitKind, number>> = { scout: 2, missile: 8, artillery: 4, gunship: 8, titan: 8 };
 
-/** What it builds, in order: each once the one before it stands. (`core` 2: the natural expansion, after EXPAND_AFTER.) */
-const BUILD_ORDER: readonly [BuildingKind, number][] = [
-  ["foundry", 1], ["tap", 1], ["relay", 1], ["foundry", 2], ["armory", 1], ["sentry", 1], ["core", 2], ["tap", 2], ["skyport", 1], ["foundry", 3],
-  ["flak", 1], ["titanbay", 1], ["foundry", 4], ["sentry", 2], ["skyport", 2], ["laser", 1], ["flak", 2],
+/** Once booming: what makes the most advanced army, in order, each once the one before it stands. */
+const ADVANCED: readonly [BuildingKind, number][] = [
+  ["armory", 1], ["skyport", 1], ["titanbay", 1], ["foundry", 3], ["skyport", 2], ["titanbay", 2], ["foundry", 4],
 ];
 
 /** What it is in the middle of. */
@@ -91,6 +113,10 @@ interface Mind {
   reserve: Set<number>;
   /** How strong each army it may attack has looked (fighting supply, and turrets), by slot: what a wave waits to outdo. */
   strength: Map<number, number>;
+  /** Its Cores with no room left round them for more turrets. */
+  cramped: Set<number>;
+  /** A site for its next base that sentries guard: its army clears them first. */
+  clearing: { x: number; z: number; guarded: number } | null;
 }
 
 export class Computer {
@@ -107,7 +133,7 @@ export class Computer {
       return;
     }
     if (!this.mind || this.mind.bornAt !== g.bornAt) {
-      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map() };
+      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map(), cramped: new Set(), clearing: null };
     }
     const mind = this.mind;
     const slot = g.slot;
@@ -144,71 +170,123 @@ export class Computer {
 
     this.look(g, mind);
 
-    // ── Money ──
+    // ── Money first: Haulers on every patch, at every Core ──
     const used = sim.supplyUsed(slot), max = sim.supplyMax(slot);
-    const wantHaulers = Math.min(HAULERS_MOST, HAULERS_FIRST + (cores.length - 1) * HAULERS_MORE);
+    const wantHaulers = Math.min(HAULERS_MOST, cores.reduce((s, c) => s + Math.round(this.patchesNear(c) * HAULERS_PER_PATCH), 0));
     for (const core of cores) {
       if (core.queue.length < 2 && n("hauler") < wantHaulers && sim.supplyUsed(slot) < sim.supplyMax(slot) && sim.make(slot, core.id, "hauler") === "") count.set("hauler", n("hauler") + 1);
     }
     // Supply before it runs out (more ahead the more it makes at once).
-    const makers = built("foundry").length + built("skyport").length;
+    const makers = built("foundry").length + built("skyport").length + built("titanbay").length;
     if (max < MAX_SUPPLY && max - used < 6 + makers * 4 && sim.t - mind.relayAt > 5 && g.lithium >= BUILDINGS.relay.lithium) {
       if (this.placeNear(g, "relay", home)) mind.relayAt = sim.t;
     }
 
-    // ── Building up ──
-    // The next thing it builds. Units do not wait for its lithium (a Foundry turns out only so much, and it makes more
-    // than it spends: the buildings come out of the rest), except for a new Core, which is worth saving for; they do
-    // wait for its plasma, which is scarce (a Tank's would otherwise always come first).
-    let reserveL = KEEP_BACK, reserveP = 0, waiting = false;
-    for (const [kind, want] of BUILD_ORDER) {
-      if (mine.filter((b) => b.kind === kind).length >= want) continue;
-      if (kind === "core" && (sim.t - g.bornAt < EXPAND_AFTER || !this.natural(g))) continue;
+    // ── Building up: a defended economy first, as fast as it can; then what makes the most advanced army ──
+    const has = (kind: BuildingKind) => built(kind).length > 0;
+    const guard = new Map(cores.map((c) => [c.id, this.guardOf(slot, c)]));
+    // (A Core with no room left round it for turrets counts as guarded: it does not hold everything else up.)
+    const basic = (c: Building) => mind.cramped.has(c.id) || guard.get(c.id)!.sentry >= BASIC_SENTRIES;
+    const full = (c: Building) => {
+      const t = guard.get(c.id)!;
+      return mind.cramped.has(c.id) || (t.sentry >= FULL_SENTRIES && t.flak >= FULL_FLAK && (!has("armory") || t.laser >= 1));
+    };
+    const booming = (cores.length >= BOOM_CORES && cores.every(basic)) || used >= MAX_SUPPLY - 6;
+    let reserveL = KEEP_BACK, reserveP = 0;
+    /**
+     * The next thing on the list: built now if it can be paid for (true: on to the next thing); else saved for (false:
+     * nothing after it). Until it is booming everything but Haulers waits for it; after, units wait only for its plasma
+     * (and for a new Core's lithium, always worth saving for).
+     */
+    const build = (kind: BuildingKind, place: () => boolean): boolean => {
       const def = BUILDINGS[kind];
-      if ((def.needs ?? []).some((need) => built(need).length === 0)) break;
+      if ((def.needs ?? []).some((need) => !has(need))) return true;
       if (g.lithium >= def.lithium && g.plasma >= def.plasma) {
-        const placed = kind === "tap" ? this.placeTap(g, cores) : kind === "core" ? this.expand(g) : this.placeNear(g, kind, home);
         // (Nowhere to put it: on to the next, rather than waiting for ever.)
-        if (placed || kind === "tap" || kind === "core") continue;
+        place();
+        return true;
       }
-      if (kind === "core") reserveL = Math.max(KEEP_BACK, def.lithium);
+      reserveL = booming && kind !== "core" ? KEEP_BACK : Math.max(KEEP_BACK, def.lithium);
       reserveP = def.plasma;
-      waiting = true;
-      break;
-    }
-    // All of that up, and lithium piling up all the same: another Foundry to spend it.
-    if (!waiting && g.lithium >= SPARE && mine.filter((b) => b.kind === "foundry").length < MOST_FOUNDRIES) this.placeNear(g, "foundry", home);
+      return false;
+    };
+    /** A turret at a Core, toward where trouble comes from; no room left there, and that Core is done with. */
+    const turret = (c: Building, kind: BuildingKind) => () => {
+      if (this.placeGuard(g, c, kind)) return true;
+      mind.cramped.add(c.id);
+      return false;
+    };
+    const site = cores.length < MOST_CORES && cores.every(basic) && (cores.length < BOOM_CORES || cores.every(full)) ? this.nextSite(g, cores) : null;
+    mind.clearing = site && site.guarded > 0 ? site : null;
+    ((): void => {
+      if (!has("foundry") && !build("foundry", () => this.placeNear(g, "foundry", home))) return;
+      if (this.freeVent(g, cores) && !build("tap", () => this.placeTap(g, cores))) return;
+      // Every Core its first turrets, before anything else.
+      for (const c of cores) if (!basic(c) && !build("sentry", turret(c, "sentry"))) return;
+      // The next base (one guarded by sentries is cleared by the army first: see Fighting).
+      if (site && site.guarded === 0 && !build("core", () => this.settle(g, site))) return;
+      // Every Core its full defence.
+      for (const c of cores) {
+        if (full(c)) continue;
+        const t = guard.get(c.id)!;
+        const kind: BuildingKind = t.sentry < FULL_SENTRIES ? "sentry" : t.flak < FULL_FLAK ? "flak" : "laser";
+        if (!build(kind, turret(c, kind))) return;
+      }
+      if (mine.filter((b) => b.kind === "foundry").length < 2 && !build("foundry", () => this.placeNear(g, "foundry", home))) return;
+      if (!booming) return;
+      // Booming: what makes the most advanced army there is.
+      for (const [kind, want] of ADVANCED) {
+        if (mine.filter((b) => b.kind === kind).length >= want) continue;
+        if (!build(kind, () => this.placeNear(g, kind, home))) return;
+      }
+      // All of that up, and lithium piling up all the same (plasma is what holds the army back): another Foundry, and
+      // more Sentries at every base.
+      if (g.lithium >= SPARE && mine.filter((b) => b.kind === "foundry").length < MOST_FOUNDRIES) this.placeNear(g, "foundry", home);
+      for (const c of cores) if (g.lithium >= SPARE && !mind.cramped.has(c.id) && guard.get(c.id)!.sentry < MOST_SENTRIES) turret(c, "sentry")();
+    })();
     const afford = (kind: UnitKind) => g.lithium - reserveL >= UNITS[kind].lithium && g.plasma - reserveP >= UNITS[kind].plasma;
     const room = (kind: UnitKind) => sim.supplyUsed(slot) + UNITS[kind].supply <= sim.supplyMax(slot);
-    const has = (kind: BuildingKind) => built(kind).length > 0;
     const make = (b: Building, kind: UnitKind) => {
       if (afford(kind) && room(kind) && sim.make(slot, b.id, kind) === "") count.set(kind, n(kind) + 1);
     };
 
-    // ── The army: what it has seen decides the mix ──
-    for (const b of built("foundry")) {
-      if (b.queue.length >= 2) continue;
-      let kind: UnitKind = "trooper";
-      if (n("scout") < 1) kind = "scout";
-      else if (mind.sawAir && has("armory") && n("missile") < Math.min(MOST.missile!, 2 + Math.floor(n("trooper") / 6))) kind = "missile";
-      else if (n("tank") < n("trooper") * TANKS_PER_TROOPER && g.plasma - reserveP >= UNITS.tank.plasma) kind = "tank";
-      // (Artillery once it has a few Tanks to stand in front of it.)
-      else if (mind.sawForts && has("armory") && n("tank") >= 3 && n("artillery") < MOST.artillery!) kind = "artillery";
-      else if (sim.t - g.bornAt > EXPAND_AFTER && n("scout") < MOST.scout!) kind = "scout";
-      // (What it wants cannot be paid for yet: a Trooper meanwhile, rather than the Foundry standing idle.)
-      make(b, afford(kind) ? kind : "trooper");
+    // ── The army: small until it is booming (its turrets hold the bases), then the most advanced it can make ──
+    const fightingSupply = units.reduce((s, u) => s + (UNITS[u.kind].weapon && u.kind !== "hauler" ? UNITS[u.kind].supply : 0), 0)
+      + mine.reduce((s, b) => s + b.queue.reduce((q, x) => q + (x.kind === "hauler" ? 0 : UNITS[x.kind].supply), 0), 0);
+    if (booming) {
+      // Plasma to Titans first (kept back for the next one while a Titan bay could make it), then Tanks, then drones.
+      for (const b of built("titanbay")) if (b.queue.length < 1 && n("titan") < MOST.titan!) make(b, "titan");
+      reserveP += has("titanbay") && n("titan") < MOST.titan! ? UNITS.titan.plasma : 0;
+      for (const b of built("foundry")) {
+        if (b.queue.length >= 2) continue;
+        let kind: UnitKind = "tank";
+        if (n("scout") < 1) kind = "scout";
+        else if (mind.sawAir && has("armory") && n("missile") < Math.min(MOST.missile!, 2 + Math.floor(fightingSupply / 20))) kind = "missile";
+        // (Artillery once it has a few Tanks to stand in front of it.)
+        else if (mind.sawForts && has("armory") && n("tank") >= 4 && n("artillery") < MOST.artillery!) kind = "artillery";
+        // What it wants cannot be paid for yet: a Trooper meanwhile, while they are a small part of the army (they
+        // would take the room the better units need); else it waits.
+        if (afford(kind)) make(b, kind);
+        else if (n("trooper") * UNITS.trooper.supply < fightingSupply * TROOPERS_AT_MOST) make(b, "trooper");
+      }
+      for (const b of built("skyport")) if (b.queue.length < 1 && n("gunship") < MOST.gunship! && g.plasma - reserveP >= UNITS.gunship.plasma + UNITS.tank.plasma) make(b, "gunship");
+      for (const b of built("armory")) {
+        if (b.research) continue;
+        const kind = g.upgrades.weapons <= g.upgrades.armour ? "weapons" : "armour";
+        const level = g.upgrades[kind];
+        const cost = UPGRADE_COST[level] ?? Infinity;
+        if (level < TOP_UPGRADE && g.lithium - reserveL >= cost + 100 && g.plasma - reserveP >= cost) sim.research(slot, b.id, kind);
+      }
+    } else if (fightingSupply < EARLY_ARMY) {
+      for (const b of built("foundry")) {
+        if (b.queue.length >= 1) continue;
+        // (A few Troopers for home whatever it is saving for; more only from what is over.)
+        if (fightingSupply < HOME_GUARD && g.lithium >= UNITS.trooper.lithium && room("trooper")) {
+          if (sim.make(slot, b.id, "trooper") === "") count.set("trooper", n("trooper") + 1);
+        } else make(b, n("tank") < n("trooper") / 2 && afford("tank") ? "tank" : "trooper");
+      }
     }
-    // (Plasma goes to Tanks first: a gunship only with enough over for one.)
-    for (const b of built("skyport")) if (b.queue.length < 1 && n("gunship") < MOST.gunship! && g.plasma - reserveP >= UNITS.gunship.plasma + UNITS.tank.plasma) make(b, "gunship");
-    for (const b of built("titanbay")) if (b.queue.length < 1 && n("titan") < MOST.titan!) make(b, "titan");
-    for (const b of built("armory")) {
-      if (b.research) continue;
-      const kind = g.upgrades.weapons <= g.upgrades.armour ? "weapons" : "armour";
-      const level = g.upgrades[kind];
-      const cost = UPGRADE_COST[level] ?? Infinity;
-      if (level < TOP_UPGRADE && g.lithium - reserveL >= cost + 100 && g.plasma - reserveP >= cost) sim.research(slot, b.id, kind);
-    }
-    for (const b of mine) if (!b.rally && (b.kind === "foundry" || b.kind === "skyport")) sim.rally(slot, [b.id], rally[0], 0, rally[1]);
+    for (const b of mine) if (!b.rally && (b.kind === "foundry" || b.kind === "skyport" || b.kind === "titanbay")) sim.rally(slot, [b.id], rally[0], 0, rally[1]);
 
     // ── Fighting ──
     const fighters = units.filter((u) => UNITS[u.kind].weapon && !u.inside && u.kind !== "hauler");
@@ -326,14 +404,35 @@ export class Computer {
       return;
     }
 
+    if (threat) return;
+    // Not booming yet: no waves. Its army stays at home, but for clearing the sentries off the site of its next base.
+    if (!booming) {
+      const c = mind.clearing;
+      if (!c) return;
+      const guards = sim.units.filter((u) => !u.dead && u.owner === NEUTRAL && Math.hypot(u.x - c.x, u.z - c.z) < SITE_GUARDS);
+      if (guards.length === 0 || supplyOf(atHome) < CLEAR_AT * c.guarded) return;
+      // Each with nothing to do: at the nearest sentry there (an attack stops at the edge of range and clears all in it).
+      for (const u of atHome.filter((u) => u.order.k === "stop" || u.order.k === "hold")) {
+        let best = guards[0]!, bestD = Infinity;
+        for (const s of guards) {
+          const dd = Math.hypot(s.x - u.x, s.z - u.z);
+          if (dd < bestD) {
+            bestD = dd;
+            best = s;
+          }
+        }
+        sim.command(slot, [u.id], { k: "attack", tk: T_UNIT, id: best.id });
+      }
+      return;
+    }
     // Big enough for what it has seen of them (and long enough since the last): the next wave, to gather short of them.
-    if (threat || sim.t - mind.sentAt < WAVE_GAP || atHome.length === 0) return;
+    if (sim.t - mind.sentAt < WAVE_GAP || atHome.length === 0) return;
     const [hx, hz] = middleOf(atHome);
     const target = this.nextTarget(g, hx, hz);
     if (!target) return;
     const need = Math.min(BIGGEST_WAVE, Math.max(mind.wave, STRONGER * (mind.strength.get(target.owner) ?? 0)));
-    const full = sim.supplyUsed(slot) >= MAX_SUPPLY - 6;
-    if (supplyOf(atHome) < need && !(full && supplyOf(atHome) >= mind.wave)) return;
+    const maxed = sim.supplyUsed(slot) >= MAX_SUPPLY - 6;
+    if (supplyOf(atHome) < need && !(maxed && supplyOf(atHome) >= mind.wave)) return;
     const c = sim.centreOf(target);
     mind.out = new Set(ids(atHome));
     mind.reserve.clear();
@@ -487,23 +586,105 @@ export class Computer {
     return best;
   }
 
-  /** The middle of its natural expansion (cells), when nobody else has a Core there; else null. */
-  private natural(g: General): [number, number] | null {
-    const s = STARTS[g.start]!;
-    const d = Math.hypot(s.cx, s.cz) || 1;
-    const nx = Math.round(s.cx - (s.cx / d) * 24), nz = Math.round(s.cz - (s.cz / d) * 24);
-    for (const b of this.sim.buildings.values()) {
-      if (b.dead || b.kind !== "core" || b.owner === g.slot) continue;
-      const c = this.sim.centreOf(b);
-      if (Math.hypot(c[0] - mid(nx), c[2] - mid(nz)) < 60) return null;
+  /**
+   * Where its next base goes: the nearest free site to its bases (its natural, a start no colour in play holds, or its
+   * natural, or a rich field in the middle), as cells, with the supply of neutral sentries guarding it (to be cleared
+   * first; such a site counts as further off). None with a Core of its own on it, or another army's near it.
+   */
+  private nextSite(g: General, cores: Building[]): { cx: number; cz: number; x: number; z: number; guarded: number } | null {
+    const sim = this.sim;
+    const held = new Set<number>();
+    for (const other of sim.generals) if (other && other.slot !== g.slot) held.add(other.start);
+    let best: { cx: number; cz: number; x: number; z: number; guarded: number } | null = null, bestS = Infinity;
+    for (const site of SITES) {
+      if (site.start >= 0 && held.has(site.start)) continue;
+      const x = mid(site.cx), z = mid(site.cz);
+      let near = Infinity, taken = false;
+      for (const b of sim.buildings.values()) {
+        if (b.dead || b.kind !== "core") continue;
+        const c = sim.centreOf(b), dd = Math.hypot(c[0] - x, c[2] - z);
+        if (b.owner === g.slot ? dd < 60 : dd < SITE_TAKEN) taken = true;
+      }
+      if (taken) continue;
+      for (const c of cores) near = Math.min(near, Math.hypot(sim.centreOf(c)[0] - x, sim.centreOf(c)[2] - z));
+      let guarded = 0;
+      sim.nearby(x, z, SITE_GUARDS, (u) => {
+        if (!u.dead && u.owner === NEUTRAL && Math.hypot(u.x - x, u.z - z) < SITE_GUARDS) guarded += UNITS[u.kind].supply;
+      });
+      const score = near + (guarded > 0 ? GUARDED_FURTHER : 0);
+      if (score < bestS) {
+        bestS = score;
+        best = { cx: site.cx, cz: site.cz, x, z, guarded };
+      }
     }
-    return [nx, nz];
+    return best;
   }
 
-  private expand(g: General): boolean {
-    const at = this.natural(g);
-    const spot = at && this.sim.clearSpot(g.slot, "core", at[0] - 1, at[1] - 1, 4);
+  /** A Core on a site (on the nearest clear ground to its middle). */
+  private settle(g: General, site: { cx: number; cz: number }): boolean {
+    const spot = this.sim.clearSpot(g.slot, "core", site.cx - 1, site.cz - 1, 6);
     return !!spot && this.sim.orderBuilding(g.slot, "core", spot[0], spot[1]) === "";
+  }
+
+  /** Crystal patches with crystals left within 60 m of a Core. */
+  private patchesNear(core: Building): number {
+    const c = this.sim.centreOf(core);
+    let n = 0;
+    for (const f of this.sim.fields) if (f.kind === "crystal" && f.amount > 0 && Math.hypot(mid(f.cx) - c[0], mid(f.cz) - c[2]) < 60) n++;
+    return n;
+  }
+
+  /** Its turrets guarding a Core (within GUARD_RADIUS of it), by kind. */
+  private guardOf(slot: number, core: Building): { sentry: number; flak: number; laser: number } {
+    const sim = this.sim;
+    const c = sim.centreOf(core);
+    const t = { sentry: 0, flak: 0, laser: 0 };
+    for (const b of sim.buildings.values()) {
+      if (b.dead || b.owner !== slot || (b.kind !== "sentry" && b.kind !== "flak" && b.kind !== "laser")) continue;
+      const a = sim.centreOf(b);
+      if (Math.hypot(a[0] - c[0], a[2] - c[2]) <= GUARD_RADIUS) t[b.kind]++;
+    }
+    return t;
+  }
+
+  /** Which way trouble comes to a Core from: toward the nearest other army's Core, else the middle of the map (a unit vector). */
+  private danger(g: General, core: Building): [number, number] {
+    const sim = this.sim;
+    const c = sim.centreOf(core);
+    let tx = 0, tz = 0, bestD = Infinity;
+    for (const b of sim.buildings.values()) {
+      if (b.dead || b.kind !== "core" || b.owner === g.slot) continue;
+      const o = sim.centreOf(b), dd = Math.hypot(o[0] - c[0], o[2] - c[2]);
+      if (dd < bestD) {
+        bestD = dd;
+        tx = o[0];
+        tz = o[2];
+      }
+    }
+    const dx = tx - c[0], dz = tz - c[2], d = Math.hypot(dx, dz);
+    return d > 1 ? [dx / d, dz / d] : [0, 1];
+  }
+
+  /** A turret by a Core, on the side trouble comes from, spread across it and TURRET_GAP from its others. */
+  private placeGuard(g: General, core: Building, kind: BuildingKind): boolean {
+    const sim = this.sim;
+    const c = sim.centreOf(core);
+    const [ux, uz] = this.danger(g, core);
+    const towards = Math.atan2(ux, uz);
+    const others: [number, number][] = [];
+    for (const b of sim.buildings.values()) {
+      if (!b.dead && b.owner === g.slot && BUILDINGS[b.kind].nearCore) others.push([sim.centreOf(b)[0], sim.centreOf(b)[2]]);
+    }
+    for (const r of TURRET_RINGS) {
+      for (const off of [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 1.9, -1.9, 2.5, -2.5, Math.PI]) {
+        const a = towards + off;
+        const cx = Math.floor((c[0] + Math.sin(a) * r * CELL) / CELL), cz = Math.floor((c[2] + Math.cos(a) * r * CELL) / CELL);
+        const x = mid(cx), z = mid(cz);
+        if (others.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < TURRET_GAP)) continue;
+        if (sim.cannotBuild(g.slot, kind, cx, cz) === "" && sim.orderBuilding(g.slot, kind, cx, cz) === "") return true;
+      }
+    }
+    return false;
   }
 
   /** A building on the nearest clear ground to the Core, on the side toward the middle of the map (the crystals are on the other), a cell clear all round. */
@@ -526,12 +707,12 @@ export class Computer {
     return false;
   }
 
-  /** A Tap on the nearest vent without one, near one of its Cores. */
-  private placeTap(g: General, cores: Building[]): boolean {
+  /** The nearest vent without a Tap within 70 m of one of its Cores (cells), or null. */
+  private freeVent(g: General, cores: Building[]): [number, number] | null {
     const sim = this.sim;
     let best: [number, number] | null = null, bestD = 70;
     for (const f of sim.fields) {
-      if (f.kind !== "vent" || f.amount <= 0 || sim.cannotBuild(g.slot, "tap", f.cx, f.cz) !== "") continue;
+      if (f.kind !== "vent" || f.amount <= 0 || sim.cannotBuild(g.slot, "tap", f.cx, f.cz, true) !== "") continue;
       for (const core of cores) {
         const c = sim.centreOf(core);
         const dd = Math.hypot(mid(f.cx) - c[0], mid(f.cz) - c[2]);
@@ -541,7 +722,13 @@ export class Computer {
         }
       }
     }
-    return !!best && sim.orderBuilding(g.slot, "tap", best[0], best[1]) === "";
+    return best;
+  }
+
+  /** A Tap on the nearest vent without one, near one of its Cores. */
+  private placeTap(g: General, cores: Building[]): boolean {
+    const at = this.freeVent(g, cores);
+    return !!at && this.sim.orderBuilding(g.slot, "tap", at[0], at[1]) === "";
   }
 }
 

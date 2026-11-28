@@ -73,6 +73,8 @@ export const BUILD_REACH = 45;
 const RETARGET = 5;
 /** A Hauler choosing crystals counts each other Hauler already at a patch as this much further to go, m (one digs at a time: about the walk it waits). */
 const HAULER_CROWD = 25;
+/** A start with another army's Command Core this near it is not given to an army begun afresh, m. */
+const START_TAKEN = 120;
 /** How much room a general takes: units step round this, m. */
 const GENERAL_RADIUS = 0.6;
 /** Shells fly this fast, m/s (never there in under a second: time to see it coming). */
@@ -444,6 +446,11 @@ export class Sim {
   /** Begins an army afresh on an empty slot: a Core at its start, and its first Haulers at work. */
   seat(slot: number): General {
     const used = new Set(this.generals.flatMap((g) => (g ? [g.start] : [])));
+    // (A start another army has built a Core by, the computer expanding say, is taken too: nobody begins beside it.)
+    for (let i = 0; i < STARTS.length; i++) {
+      const s = STARTS[i]!;
+      for (const b of this.buildings.values()) if (b.kind === "core" && !b.dead && Math.hypot(this.centreOf(b)[0] - mid(s.cx), this.centreOf(b)[2] - mid(s.cz)) < START_TAKEN) used.add(i);
+    }
     // Its own start when that is free (it always is in a war begun with eight); else any that is.
     const start = !used.has(slot) ? slot : (STARTS.map((_, i) => i).find((i) => !used.has(i)) ?? slot);
     const ai = slot === COMPUTER;

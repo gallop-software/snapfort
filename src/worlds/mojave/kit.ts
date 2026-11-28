@@ -16,6 +16,7 @@ export const BUILDING_KINDS = ["core", "tap", "relay", "foundry", "armory", "sky
 export type BuildingKind = (typeof BUILDING_KINDS)[number];
 
 export interface Weapon {
+  /** m: a unit's from its middle, to a unit's middle or a building's edge; a turret's from its own edge (`Sim.turretReach`), so the two meet evenly. 1.3 times as far up on a floor (HIGH_GROUND). */
   range: number;
   /** Nearer than this it cannot fire (artillery). */
   minRange?: number;

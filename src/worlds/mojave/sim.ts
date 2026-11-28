@@ -2015,20 +2015,30 @@ export class Sim {
     }
   }
 
+  /**
+   * How far a turret reaches: from the edge of its cell, as every shot at it is measured to that edge, so a turret and
+   * a unit of the same range hit each other from the same distance (the user, 2026-11-28: "update turrets so they can
+   * hit tanks evenly like tanks can hit them"); up on a floor, as far again as a unit up there (HIGH_GROUND).
+   */
+  turretReach(b: Building, w: Weapon): number {
+    return w.range * (b.l > 0 ? HIGH_GROUND : 1) + (BUILDINGS[b.kind].size * CELL) / 2;
+  }
+
   /** A turret looks for something to shoot. */
   private guard(b: Building): void {
     const w = BUILDINGS[b.kind].weapon;
     if (!w || b.dead || b.doneAt !== 0 || this.t < b.stunUntil) return;
     const c = this.centreOf(b);
+    const reach = this.turretReach(b, w);
     let wall: string | null = null;
     if (b.tk) {
-      if (this.canHit(c[0], c[2], b.l, true, b.owner, w, w.range, b.tk, b.tid, false) !== "ok") b.tk = 0;
+      if (this.canHit(c[0], c[2], b.l, true, b.owner, w, reach, b.tk, b.tid, false) !== "ok") b.tk = 0;
       else wall = this.shotWall;
     }
     if (!b.tk && (this.step + b.id) % 3 === 0) {
       // (A turret stands above buildings and shoots over them; every wall stops it, its own army's too. Up on a floor,
       // it shoots over the walls below.)
-      const found = this.findTarget(c[0], c[2], b.l, true, b.owner, w, w.range);
+      const found = this.findTarget(c[0], c[2], b.l, true, b.owner, w, reach);
       if (found) {
         b.tk = found[0];
         b.tid = found[1];

@@ -1068,6 +1068,40 @@ describe("fighting", () => {
     expect(sim.buildings.has(high.id)).toBe(false);
   });
 
+  it("a turret reaches as far as what shoots at it: a Tank stopping at the edge of its range of a Sentry is hit there", () => {
+    const { sim, a, b, run } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    const sentry = sim.addBuilding("sentry", b.slot, cx, cz, true);
+    const [sx, , sz] = sim.centreOf(sentry);
+    const tank = sim.addUnit("tank", a.slot, sx, sz - 60);
+    sim.command(a.slot, [tank.id], { k: "attack", tk: T_BUILDING, id: sentry.id });
+    run(6);
+    // It stopped as far off as it can hit the Sentry from (its range to the Sentry's edge), and was hit standing there.
+    const d = Math.hypot(tank.x - sx, tank.z - sz);
+    expect(d).toBeGreaterThan(UNITS.tank.weapon!.range);
+    expect(d).toBeLessThanOrEqual(UNITS.tank.weapon!.range + CELL / 2);
+    expect(tank.hp).toBeLessThan(UNITS.tank.hp);
+    expect(sentry.hp).toBeLessThan(BUILDINGS.sentry.hp);
+  });
+
+  it("a turret up on a floor reaches 1.3 times as far, as a unit up there does", () => {
+    const { sim, a, b, run, piece } = twoSides();
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
+    // On the ground, a Tank holding 45 m off is out of its reach (36, from its edge).
+    const low = sim.addBuilding("sentry", b.slot, cx, cz, true);
+    const [sx, , sz] = sim.centreOf(low);
+    const tank = sim.addUnit("tank", a.slot, sx, sz - 45);
+    sim.command(a.slot, [tank.id], { k: "hold" });
+    run(4);
+    expect(tank.hp).toBe(UNITS.tank.hp);
+    // The same Sentry up on a floor hits it.
+    sim.scrap(b.slot, low.id);
+    piece("pb", "floor", cx, 1, cz, 0);
+    sim.addBuilding("sentry", b.slot, cx, cz, true, 1);
+    run(4);
+    expect(tank.hp).toBeLessThan(UNITS.tank.hp);
+  });
+
   it("floors and ramps are roofs: a drone cannot hit what is under one (it shoots the roof), nor what is under one hit a drone; a shell bursts on it", () => {
     const { sim, a, b, run, piece, host } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);

@@ -691,3 +691,11 @@ Checks: `ai.test.ts`: with every start held it takes the middle; with the middle
 
 Checks: `ai.test.ts`: every turret on a tower of its own, every guarded base ringed with its gates open, Haulers still mining from inside, an enemy's Tanks shooting its walls on the way in, and all it built going with its army; unit tests all pass.
 
+
+## Mojave: turrets reach as far as what shoots at them (user, 2026-11-28: "can you update turrets so they can hit tanks evenly like tanks can hit them")
+
+- A shot at a building is measured to the edge of its cell, so a Tank (36) hit a Sentry (36) from 38.5 m, centre to centre, while the Sentry reached only 36 m back. With attacks stopping at the edge of range, five Tanks could take a grid of a hundred Sentries corner first without once being hit.
+- Now a turret's range counts from the edge of its own cell (`Sim.turretReach`), so a turret and a unit of the same range hit each other from the same distance. Up on a floor it reaches 1.3 times as far, as a unit up there does (written above and for the computer's towers, but never applied to turrets until now): a Sentry on a floor reaches about 49 m.
+- Only Tank against Sentry changes much: an even fight now (one on one, the Sentry wins). Troopers and Scouts were outranged already; artillery and Titans still outrange a Sentry on the ground.
+
+Checks: `sim.test.ts`: a Tank told to attack a Sentry stops at the edge of its range and is hit there; a Sentry on the ground does not reach a Tank 45 m off, and the same Sentry up on a floor does. Both fail under the old rule.

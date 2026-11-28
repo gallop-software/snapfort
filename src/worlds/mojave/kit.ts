@@ -225,8 +225,6 @@ export const GENERAL_SIGHT = 120;
 export const SIGHT_PER_METRE = 2.4;
 /** Units and buildings on an upper storey see and shoot this much further. */
 export const HIGH_GROUND = 1.3;
-/** Units go after an enemy on their own within this share of their sight: they see further than they chase. */
-export const CHASE_OF_SIGHT = 0.5;
 /** With no page connected to the room at all for this long (and a little more), whoever the war still believes is serving an army is taken to have gone, seconds. */
 export const LEAVE_GRACE = 60;
 /** A routed general may drop a new Core, free, after this long. */

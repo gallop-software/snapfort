@@ -10,7 +10,6 @@ import {
   DIG_TIME,
   EMP,
   FLIGHT_HEIGHT,
-  CHASE_OF_SIGHT,
   COMPUTER,
   COMPUTER_SUPPLY,
   GENERAL_SIGHT,
@@ -71,12 +70,8 @@ const BUCKET = 16;
 const BUCKETS = Math.ceil((HALF_CELLS * 2 * CELL) / BUCKET);
 /** How far a general can be from where they put a building, m. */
 export const BUILD_REACH = 45;
-/** The other sides a unit goes round to for a shot, once as near as it gets has done no good (radians from its own). */
-const TRY_ANGLES = [0, 1.05, -1.05, 2.1, -2.1, Math.PI] as const;
-/** A target no side of which could be got at is let go of for this long, s. */
-const GIVE_UP_FOR = 20;
-/** A unit with nothing to shoot joins in what one of its own this near it is fighting, m. */
-const ASSIST_RANGE = 30;
+/** A unit on an attack order goes after its target again once it has moved this far from where the way was worked out, m. */
+const RETARGET = 5;
 /** A Hauler choosing crystals counts each other Hauler already at a patch as this much further to go, m (one digs at a time: about the walk it waits). */
 const HAULER_CROWD = 25;
 /** How much room a general takes: units step round this, m. */
@@ -129,8 +124,8 @@ export type Order =
   | { k: "amove"; x: number; z: number; l: number; auto?: boolean }
   /** (`px`, `pz`: this unit's place from the middle of the group, kept at both ends, so a patrol keeps its shape.) */
   | { k: "patrol"; x: number; z: number; l: number; bx: number; bz: number; bl: number; px?: number; pz?: number }
-  /** (`fan`: the angle off the line from the target that this unit closes in at, so a group spreads round what it attacks.) */
-  | { k: "attack"; tk: TargetKind; id: number | string; fan?: number }
+  /** (Going to the target, in the group's shape round it, and shooting it first whenever it can: over only once there, even when the target is gone first.) */
+  | { k: "attack"; tk: TargetKind; id: number | string }
   | { k: "gather"; field: number }
   | { k: "return" }
   | { k: "load"; into: number }
@@ -163,33 +158,16 @@ export interface Unit {
   goal: Goal | null;
   /** Units ordered somewhere together share this, and stop when they reach the others. */
   group: number;
+  /** Ordered with others: the top speed of the slowest of them, which the group marches at (0: alone, at its own). */
+  pace: number;
   arrived: boolean;
   /** What it is shooting at (or closing in on). */
   tk: TargetKind | 0;
   tid: number | string;
   /** Where its gun points, radians (a vehicle's turret turns on its own; a soldier turns to it). */
   aim: number;
-  /** Where it is going to get a shot (its own spot near what it is fighting), or back to where it stood: kept apart from the order's own way, which it picks up again after. */
-  chase: Goal | null;
-  /** When `chase` was worked out, and where its target was then. */
-  chaseAt: number;
-  chaseX: number;
-  chaseZ: number;
-  /** How near to close in, as a part of its range: less each time it gets there and still cannot fire (a wall between, say). */
-  closer: number;
-  /** Ways tried to get a shot at what it is after, once as near as it gets will not do: other sides of it, then through walls; then it gives that one up a while. */
-  tries: number;
-  /** The same as `stuck` and `linger`, for its own way (`chase`) rather than the order's. */
-  chaseStuck: number;
-  chaseLinger: number;
   /** Times it has looked again for the way, held up on its order's way (in a crowd, say), before settling for where it is. */
   replans: number;
-  /** Standing (no order): where it stood, to come back to after a fight. */
-  home: [number, number, number] | null;
-  /** Shot at from out of sight while standing: where from, and until when it goes to look. */
-  alarmX: number;
-  alarmZ: number;
-  alarmUntil: number;
   coolAt: number;
   stunUntil: number;
   /** Thrown: on its back until then. */
@@ -346,8 +324,6 @@ export class Sim {
   private nextBuilding = 1;
   private nextGroup = 1;
   private readonly flows = new Map<string, Flow & { used: number }>();
-  /** Units' own short ways (to something in sight): see flowOf. */
-  private readonly nearFlows = new Map<string, Flow & { used: number }>();
   /** Who is near whom: the first unit in each bucket, and the next after each unit (by place in `units`). */
   private readonly head = new Int32Array(BUCKETS * BUCKETS);
   private next = new Int32Array(256);
@@ -915,8 +891,7 @@ export class Sim {
       id: this.nextUnit++, kind, owner, x, y: def.air ? FLIGHT_HEIGHT : 0, z, cx: Math.floor(x / CELL), cz: Math.floor(z / CELL), level: 0, heading: 0, side: 1, sideUntil: 0, hp: def.hp,
       order: { k: "stop" }, queue: [], goal: null, group: 0, arrived: true, tk: 0, tid: 0, coolAt: 0, stunUntil: 0, downUntil: 0, deployedAt: 0, packedAt: 0,
       carry: 0, phase: 0, digUntil: 0, field: 0, cargo: [], inside: 0, empAt: 0, stuck: 0, linger: 0, hitUntil: 0, post: -1, dead: false,
-      aim: 0, chase: null, chaseAt: 0, chaseX: 0, chaseZ: 0, closer: 0.85, home: null, alarmX: 0, alarmZ: 0, alarmUntil: 0,
-      tries: 0, chaseStuck: 0, chaseLinger: 0, replans: 0,
+      aim: 0, replans: 0, pace: 0,
     };
     if (!def.air) this.putOnGround(u, x, z);
     this.units.push(u);
@@ -1031,28 +1006,21 @@ export class Sim {
         this.places.set(u.id, [ox, oz]);
       }
     }
-    // An attack: each comes at the target from its own angle, the group fanned across about a quarter of the way round it per eight.
-    const fans = new Map<number, number>();
-    if (order.k === "attack" && units.length > 1) {
-      const spread = Math.min(Math.PI * 1.6, 0.32 * units.length);
-      // (Ordered across the line to the target, so neighbours take neighbouring angles.)
-      const target = this.spotOf(order.tk, order.id);
-      const across = target ? Math.atan2(target[0] - mx, target[1] - mz) + Math.PI / 2 : 0;
-      const sorted = [...units].sort((a, b) => (a.x - mx) * Math.sin(across) + (a.z - mz) * Math.cos(across) - ((b.x - mx) * Math.sin(across) + (b.z - mz) * Math.cos(across)));
-      sorted.forEach((u, k) => fans.set(u.id, (k / (sorted.length - 1) - 0.5) * spread));
-    }
+    // Together, they march at the pace of the slowest of them (see speedOf), and keep their shape.
+    let pace = 0;
+    if (units.length > 1) pace = Math.min(...units.map((u) => UNITS[u.kind].speed));
     for (const u of units) {
       let mine = this.fit(u, order);
       if (mine.k === "patrol") {
         const place = this.places.get(u.id);
         mine = { ...mine, px: place?.[0] ?? 0, pz: place?.[1] ?? 0 };
       }
-      if (mine.k === "attack" && fans.has(u.id)) mine = { ...mine, fan: fans.get(u.id) };
       if (queue && u.order.k !== "stop" && u.order.k !== "hold") {
         if (u.queue.length < 12) u.queue.push(mine);
         continue;
       }
       u.queue = [];
+      u.pace = pace;
       this.begin(u, mine, group, spread);
     }
     this.places.clear();
@@ -1119,13 +1087,7 @@ export class Sim {
     u.linger = 0;
     u.goal = null;
     u.tk = 0;
-    u.chase = null;
-    u.closer = 0.85;
-    u.tries = 0;
     u.replans = 0;
-    u.alarmUntil = 0;
-    // Standing: this is where it stands, and comes back to after a fight. Any other order: it has no such spot.
-    u.home = order.k === "stop" ? [u.x, u.z, u.level] : null;
     const def = UNITS[u.kind];
     // Artillery packs up before it moves.
     if (def.deploy && u.deployedAt > 0 && order.k !== "stop" && order.k !== "hold") {
@@ -1144,10 +1106,12 @@ export class Sim {
       case "patrol":
         this.head_(u, order.x, order.z, order.l, spread, true);
         break;
-      case "attack":
-        u.tk = order.tk;
-        u.tid = order.id;
+      case "attack": {
+        // To where the target is, each to its own place in the group's shape round it.
+        const at = this.spotOf(order.tk, order.id);
+        if (at) this.headAt(u, order.tk, order.id, at, spread, this.places.get(u.id) ?? [0, 0]);
         break;
+      }
       case "gather":
         u.field = order.field;
         u.phase = u.carry > 0 ? 3 : 1;
@@ -1182,18 +1146,30 @@ export class Sim {
     this.route(u, x, z, seeds, radius, breach && !!def.weapon && def.weapon.wear > 0, ox, oz);
   }
 
+  /**
+   * Sets a unit going to a target's spot (`at`), to its own place `off` from it: to the cells round a building, or the
+   * one a unit stands in; through the enemy's walls, when its weapon breaks them.
+   */
+  private headAt(u: Unit, tk: TargetKind, id: number | string, at: [number, number], radius: number, off: readonly [number, number]): void {
+    const def = UNITS[u.kind];
+    const ox = clampEdge(at[0] + off[0]), oz = clampEdge(at[1] + off[1]);
+    if (def.air) {
+      u.goal = { x: at[0], z: at[1], ox, oz, reach: 0, key: "", seeds: [], breach: false, limit: Infinity, radius, wx: ox, wz: oz, set: true };
+      return;
+    }
+    u.goal = this.goalTo(u, at[0], at[1], this.seedsAt(tk, id, at), radius, !!def.weapon && def.weapon.wear > 0, ox, oz);
+  }
+
   /** Sets a ground unit going to any of `seeds` (and from there to its own spot, when it has one). */
   private route(u: Unit, x: number, z: number, seeds: readonly Node[], radius: number, breach: boolean, ox = x, oz = z): void {
     u.goal = this.goalTo(u, x, z, seeds, radius, breach, ox, oz);
   }
 
   /** The way to any of `seeds`, and from there to a spot of its own. */
-  private goalTo(u: Unit, x: number, z: number, seeds: readonly Node[], radius: number, breach: boolean, ox = x, oz = z, near = false): Goal {
+  private goalTo(u: Unit, x: number, z: number, seeds: readonly Node[], radius: number, breach: boolean, ox = x, oz = z): Goal {
     const def = UNITS[u.kind];
     const first = seeds[0];
-    // Near (its own way to something in sight): the flow is worked out only so far round the goal, well past where the
-    // unit is (half as far again as straight there, and more): a whole map's worth for every chase would cost too much.
-    const limit = near ? Math.ceil(((Math.hypot(u.x - x, u.z - z) / CELL) * 1.5 + 12) / 10) * 100 : Infinity;
+    const limit = Infinity;
     const key = `${classOf(def)}|${breach ? this.teamOf(u.owner) : "-"}|${seeds.length}|${first ? `${first.x},${first.z},${first.l}` : ""}|${limit}`;
     // (A step of the way is 10: see nav.ts.)
     const reach = ox === x && oz === z ? 0 : (Math.ceil(Math.hypot(ox - x, oz - z) / CELL) + 1) * 10;
@@ -1201,9 +1177,7 @@ export class Sim {
   }
 
   private flowOf(u: Unit, goal: Goal): Flow {
-    // (A unit's own short ways are kept apart from orders' ways: there are many more of them, and they would push the
-    // orders' out, to be worked out again across the whole map.)
-    const flows = goal.limit < Infinity ? this.nearFlows : this.flows;
+    const flows = this.flows;
     let flow = flows.get(goal.key);
     // Worked out again when the build has changed (not more than about twice a second each).
     if (!flow || (flow.version !== this.nav.version && this.t - flow.at > 0.5)) {
@@ -1235,7 +1209,7 @@ export class Sim {
       const w = UNITS[u.kind].weapon;
       if (w && u.tk === T_UNIT && !u.dead) this.pledged.set(u.tid as number, (this.pledged.get(u.tid as number) ?? 0) + w.damage / w.cooldown);
     }
-    this.dodge();
+    this.marchCentres();
     for (let i = 0; i < this.units.length; i++) {
       const u = this.units[i]!;
       if (u.dead || u.inside) continue;
@@ -1416,6 +1390,10 @@ export class Sim {
 
   // ── What each unit does ────────────────────────────────────────────────
 
+  /**
+   * A unit does what it was told, and nothing of its own: it goes only where its order sends it, and shoots whatever
+   * of the enemy's comes within its range (see `fight`), on the move too. Only a patrol stops for what it finds.
+   */
   private think(u: Unit, i: number): void {
     const def = UNITS[u.kind];
     const order = u.order;
@@ -1425,204 +1403,65 @@ export class Sim {
     if (order.k === "emp") return this.pulse(u, order);
     const w = def.weapon;
 
-    // A plain move goes straight on, never stopping or turning aside for anything; but it shoots, on the move, at
-    // whatever comes within its range (nobody just takes it). Artillery cannot fire on the move.
-    if (order.k === "move" || (!w && (order.k === "amove" || order.k === "patrol"))) {
-      if (!w || def.deploy) this.drop(u);
-      if (!u.goal) return this.done(u);
-      this.travel(u, def);
-      if (w && !def.deploy) this.fight(u, def, w, i, true);
-      if (u.arrived) this.done(u);
+    // Standing (or holding): it never moves; it shoots whatever comes within its range until nothing there is left.
+    // Artillery sets up where it stands.
+    if (order.k === "stop" || order.k === "hold") {
+      if (w) this.fight(u, def, w, i, false);
+      else u.aim = u.heading;
+      if (def.deploy && u.deployedAt === 0 && this.t >= u.packedAt) u.deployedAt = this.t + def.deploy;
       return;
     }
-    if (!w) {
-      u.aim = u.heading;
-      return;
-    }
-    const state = this.fight(u, def, w, i);
-
     if (order.k === "attack") {
-      if (!this.spotOf(order.tk, order.id)) return this.done(u);
-      if (state === "fire") {
-        u.chase = null;
-        return;
+      const at = this.spotOf(order.tk, order.id);
+      // Its target has moved off: after it, each still in its place in the group's shape round it. Gone: on to where it
+      // was all the same (the order is over only once it is there).
+      if (at && u.goal && Math.hypot(at[0] - u.goal.x, at[1] - u.goal.z) > RETARGET) {
+        this.headAt(u, order.tk, order.id, at, u.goal.radius, [u.goal.ox - u.goal.x, u.goal.oz - u.goal.z]);
+        u.arrived = false;
+        u.linger = 0;
       }
-      // Nothing it can do to it (a gun for the air, told to attack something on the ground): the order is over.
-      if (state === "none" && !u.tk) return this.done(u);
-      return this.closeIn(u, def, w, order.fan);
+      // Artillery goes only as far as it can hit the target from, sets up there and shells it, until it is gone. (A
+      // little inside its reach before it stops: a shell throws what it hits, and it should not have to pack up and come
+      // on again after every one.)
+      if (w && def.deploy) {
+        if (!at) return this.done(u);
+        const reach = this.rangeOf(u, def, w) * (u.deployedAt > 0 ? 1 : 0.9);
+        if (this.canHit(u.x, u.z, u.level, false, u.owner, w, reach, order.tk, order.id, true) === "ok") {
+          this.fight(u, def, w, i, false);
+          return;
+        }
+      }
     }
-    if (order.k === "amove" || order.k === "patrol") {
-      // In range of something: it stands and fights. Something it can see but not yet hit: it goes and gets a shot,
-      // each from its own spot. Shot at by something it cannot see: it goes to find it. Nothing: on its way again,
-      // until it is there (or dies trying).
-      if (state === "fire") {
-        u.chase = null;
-        return;
-      }
-      if (state === "close") return this.closeIn(u, def, w);
-      if (this.t < u.alarmUntil && Math.hypot(u.alarmX - u.x, u.alarmZ - u.z) > w.range * 0.6) return this.walkTo(u, def, u.alarmX, u.alarmZ, w.wear > 0);
-      u.chase = null;
-      if (!u.goal) return this.done(u);
-      this.travel(u, def);
-      if (u.arrived) {
-        if (order.k === "patrol") {
-          // Back the other way, each to its own place at that end, so the patrol keeps its shape.
-          const back: Order = { k: "patrol", x: order.bx, z: order.bz, l: order.bl, bx: order.x, bz: order.z, bl: order.l, px: order.px, pz: order.pz };
-          this.places.set(u.id, [order.px ?? 0, order.pz ?? 0]);
-          this.begin(u, back, u.group, u.goal?.radius ?? 2);
-          this.places.delete(u.id);
-        } else this.done(u);
-      }
-      return;
+    // Patrolling: something of the enemy's in range and it stops where it is and destroys it all, then goes on along
+    // its leg. It never leaves the way to go after anything.
+    if (order.k === "patrol" && w && this.fight(u, def, w, i, false) === "fire") return;
+    if (!u.goal) return this.done(u);
+    // On the move (and an attack-move, and an attack on its way there): it shoots as it goes at whatever comes within
+    // its range, never stopping or turning aside for it. Artillery cannot fire on the move.
+    if (order.k !== "patrol") {
+      if (w && !def.deploy) this.fight(u, def, w, i, true);
+      else this.drop(u);
     }
-    if (order.k === "stop") {
-      if (state === "fire") {
-        u.chase = null;
-        return;
-      }
-      if (state === "close") return this.closeIn(u, def, w);
-      // Shot at by something it cannot see: it goes to look, a little way.
-      if (this.t < u.alarmUntil && Math.hypot(u.alarmX - u.x, u.alarmZ - u.z) > w.range * 0.6) return this.walkTo(u, def, u.alarmX, u.alarmZ, w.wear > 0);
-      // Nothing to fight: back to where it stood.
-      if (u.home && Math.hypot(u.home[0] - u.x, u.home[1] - u.z) > 3) return this.walkTo(u, def, u.home[0], u.home[1]);
-      u.chase = null;
-    }
-    // Standing: artillery sets up where it stops.
-    if (def.deploy && u.deployedAt === 0 && this.t >= u.packedAt && !u.chase) u.deployedAt = this.t + def.deploy;
+    this.travel(u, def);
+    if (!u.arrived) return;
+    if (order.k === "patrol") {
+      // Back the other way, each to its own place at that end, so the patrol keeps its shape.
+      const back: Order = { k: "patrol", x: order.bx, z: order.bz, l: order.bl, bx: order.x, bz: order.z, bl: order.l, px: order.px, pz: order.pz };
+      this.places.set(u.id, [order.px ?? 0, order.pz ?? 0]);
+      this.begin(u, back, u.group, u.goal?.radius ?? 2);
+      this.places.delete(u.id);
+    } else this.done(u);
   }
 
-  /** Lets go of whatever it was aiming at or closing in on. */
+  /** Lets go of whatever it was aiming at. */
   private drop(u: Unit): void {
     u.tk = 0;
-    u.chase = null;
     u.aim = u.heading;
   }
 
-  /**
-   * Goes to get a shot at what it is fighting: to a spot of its own, a little
-   * inside its range of the target, at its own angle round it (so a group
-   * closing in spreads round the target instead of queueing at it). Worked out
-   * again as the target moves; and nearer each time it gets there and still
-   * cannot fire (a wall between, say).
-   */
-  private closeIn(u: Unit, def: UnitDef, w: Weapon, fan?: number): void {
-    const target = this.spotOf(u.tk as TargetKind, u.tid);
-    if (!u.tk || !target) {
-      u.chase = null;
-      return;
-    }
-    const moved = Math.hypot(target[0] - u.chaseX, target[1] - u.chaseZ);
-    if (!u.chase || moved > 5 || (this.t - u.chaseAt > 3 && moved > 1.5)) {
-      let slack = 0;
-      if (u.tk === T_BUILDING) {
-        const b = this.buildings.get(u.tid as number);
-        if (b) slack = (BUILDINGS[b.kind].size * CELL) / 2;
-      }
-      const range = w.range * (u.level > 0 && !def.air ? HIGH_GROUND : 1);
-      const r = Math.max(w.minRange ? w.minRange + 4 : 0, slack + Math.max(2, range * u.closer - def.radius));
-      // Its own angle: the one the order gave it, else a little either side of where it comes from (by who it is); and,
-      // as near as it gets having done no good, another side of the target each time (round the back in the end).
-      const off = (fan ?? (scatter(u.id, 31) - 0.5) * 1.3) + TRY_ANGLES[u.tries % TRY_ANGLES.length]!;
-      const from = Math.atan2(u.x - target[0], u.z - target[1]) + off;
-      const ox = clampEdge(target[0] + Math.sin(from) * r), oz = clampEdge(target[1] + Math.cos(from) * r);
-      // (A weapon that can break walls breaks through one in its way, as an attack-move does.)
-      u.chase = def.air ? this.airGoal(ox, oz) : this.goalTo(u, target[0], target[1], this.seedsAt(u.tk as TargetKind, u.tid, target), 1, w.wear > 0, ox, oz, true);
-      u.chaseAt = this.t;
-      u.chaseX = target[0];
-      u.chaseZ = target[1];
-      u.chaseStuck = 0;
-      u.chaseLinger = 0;
-    }
-    this.follow(u, def);
-    if (u.chase === null) {
-      // There and still no shot: nearer next time; as near as that gets, from another side; every side tried, it gives
-      // that one up for a while (and an order to attack it is over) rather than stand there.
-      if (u.closer > 0.26) u.closer = Math.max(0.25, u.closer * 0.7);
-      else if (++u.tries >= TRY_ANGLES.length) this.giveUp(u);
-    }
-  }
-
-  /** What it is after cannot be got at from anywhere it can go: let go of it for a while (see `unreachable`), and of an order to attack it. */
-  private giveUp(u: Unit): void {
-    if (!u.tk) return;
-    this.unreachable.set(`${u.id}|${u.tk}|${u.tid}`, this.t + GIVE_UP_FOR);
-    const was = u.order.k === "attack" && u.order.tk === u.tk && u.order.id === u.tid;
-    const w = UNITS[u.kind].weapon;
-    if (w) this.pledge(u, w, -1);
-    u.tk = 0;
-    u.chase = null;
-    u.closer = 0.85;
-    u.tries = 0;
-    if (was) this.done(u);
-  }
-
-  /** Targets a unit has given up on (see giveUp), until when: "unit|kind|id". */
-  private readonly unreachable = new Map<string, number>();
-
-  /** Whether a unit gave this target up a moment ago. */
-  private gaveUp(u: Unit, tk: TargetKind, tid: number | string): boolean {
-    const until = this.unreachable.get(`${u.id}|${tk}|${tid}`);
-    return until !== undefined && this.t < until;
-  }
-
-  /** Walks to a spot on its own way, the order's own way kept for after (back to where it stood, or toward whoever shot at it: through walls, if it can break them). */
-  private walkTo(u: Unit, def: UnitDef, x: number, z: number, breach = false): void {
-    if (!u.chase || Math.hypot(u.chase.ox - x, u.chase.oz - z) > 2) {
-      const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
-      u.chase = def.air ? this.airGoal(x, z) : this.goalTo(u, x, z, [{ x: cx, z: cz, l: 0 }, ...this.nav.around(cx, cz, 1)], 1, breach, x, z, true);
-      u.chaseStuck = 0;
-      u.chaseLinger = 0;
-    }
-    this.follow(u, def);
-  }
-
-  /** Travels along its own way (`chase`), not the order's: when it gets there, `chase` is let go. */
-  private follow(u: Unit, def: UnitDef): void {
-    const c = u.chase;
-    // Open ground all the way there (the usual case in a fight): straight there, no way to work out.
-    // (Open ground: no wall, building, field, ramp, or floor too low for a Titan along the way.)
-    if (c && !def.air && u.level === 0 && this.t >= u.downUntil && !(def.deploy && this.t < u.packedAt) && this.nav.clearLine(u.x, u.z, c.ox, c.oz, 0) && this.nav.openLine(u.x, u.z, c.ox, c.oz, classOf(def))) {
-      const dx = c.ox - u.x, dz = c.oz - u.z;
-      const d = Math.hypot(dx, dz);
-      if (d <= 0.7 + def.radius * 0.4) {
-        u.chase = null;
-        return;
-      }
-      if (def.deploy && u.deployedAt > 0) {
-        u.deployedAt = 0;
-        u.packedAt = this.t + def.deploy;
-        return;
-      }
-      u.heading = Math.atan2(dx, dz);
-      const step = Math.min(def.speed * DT, d);
-      const bx = u.x, bz = u.z;
-      const [sx, sz] = this.clearStep(u, def, dx / d, dz / d, step, d);
-      this.shift(u, u.x + sx, u.z + sz, classOf(def));
-      if (Math.hypot(u.x - bx, u.z - bz) < step * 0.3) {
-        u.chaseStuck += DT;
-        if (u.chaseStuck > 3) {
-          u.chaseStuck = 0;
-          u.chase = null;
-        }
-      } else u.chaseStuck = Math.max(0, u.chaseStuck - DT * 0.5);
-      return;
-    }
-    // Along its own way, with its own way's counters (the order's are kept for the order).
-    const keep = u.goal, kept = u.arrived, stuck = u.stuck, linger = u.linger, replans = u.replans;
-    u.goal = u.chase;
-    u.arrived = false;
-    u.stuck = u.chaseStuck;
-    u.linger = u.chaseLinger;
-    u.replans = 3;
-    this.travel(u, def);
-    u.chase = u.arrived ? null : u.goal;
-    u.chaseStuck = u.chase ? u.stuck : 0;
-    u.chaseLinger = u.chase ? u.linger : 0;
-    u.goal = keep;
-    u.arrived = kept;
-    u.stuck = stuck;
-    u.linger = linger;
-    u.replans = replans;
+  /** How far its weapon reaches from where it is now (further from up on a floor). */
+  private rangeOf(u: Unit, def: UnitDef, w: Weapon): number {
+    return w.range * (u.level > 0 && !def.air ? HIGH_GROUND : 1);
   }
 
   /** Where a target can be got at: the cells to find the way to (shared by everyone going for that target, so the way is worked out once). */
@@ -1639,99 +1478,67 @@ export class Sim {
     return [{ x: cx, z: cz, l: 0 }, ...this.nav.around(cx, cz, 1)];
   }
 
-  private airGoal(x: number, z: number): Goal {
-    return { x, z, ox: x, oz: z, reach: 0, key: "", seeds: [], breach: false, limit: Infinity, radius: 1, wx: x, wz: z, set: true };
-  }
-
   /** The order is finished: on to the next one queued, or stand. */
   private done(u: Unit): void {
     const next = u.queue.shift();
     if (next) return this.begin(u, next, u.group, u.goal?.radius ?? 2);
-    const hold = u.order.k === "hold";
-    u.order = hold ? u.order : { k: "stop" };
+    if (u.order.k !== "hold") u.order = { k: "stop" };
     u.goal = null;
-    u.chase = null;
     u.arrived = true;
-    u.home = hold ? null : [u.x, u.z, u.level];
   }
 
   /**
-   * What a unit does about the enemy: "fire" (it has a target in range and a
-   * clear shot: it stands and shoots), "close" (it has one it can see but not
-   * yet hit: it goes to get a shot), or "none". Each unit chooses its own
-   * target, and looks again now and then (see `choose`).
+   * A unit shoots what is in its range: the target of its attack order first, whenever it can be hit; else the best
+   * enemy unit or building it has a shot at; else (a weapon that breaks them) the nearest wall, floor or ramp of the
+   * enemy's. "fire" when it has something to shoot, else "none". It never goes after anything: where it goes is its
+   * order's business. `moving`: it keeps facing the way it goes, and shoots as it passes.
    */
-  private fight(u: Unit, def: UnitDef, w: Weapon, i: number, moving = false): "fire" | "close" | "none" {
-    const range = w.range * (u.level > 0 && !def.air ? HIGH_GROUND : 1);
+  private fight(u: Unit, def: UnitDef, w: Weapon, i: number, moving: boolean): "fire" | "none" {
+    const range = this.rangeOf(u, def, w);
     const order = u.order;
-    const ordered = order.k === "attack";
-    // Standing with no spot of its own yet (made, or put there): this is where it stands.
-    if (order.k === "stop" && !u.home && !u.tk && !u.chase) u.home = [u.x, u.z, u.level];
-    // Hold, or on a plain move: only what it can hit from where it is. Attack-move and patrol: anything it sees (they
-    // are sent to fight). Standing: anything near enough to go after (it sees further than it chases).
-    const roam = order.k !== "hold" && !moving;
-    const hunting = order.k === "amove" || order.k === "patrol";
-    const acquire = !roam ? range : hunting ? Math.max(range * 1.1, def.sight) : Math.max(range * 1.1, def.sight * CHASE_OF_SIGHT);
-    if (ordered && (u.tk !== order.tk || u.tid !== order.id)) {
-      u.tk = order.tk;
-      u.tid = order.id;
-      u.closer = 0.85;
-      u.tries = 0;
-    }
-    let state: "fire" | "close" | "none" = "none";
+    let state: "fire" | "none" = "none";
     /** A wall of the enemy's between it and its target: shot first. */
     let wall: string | null = null;
-    if (u.tk) {
-      state = this.judge(u, def, w, range, acquire, roam, ordered);
+    if (order.k === "attack" && this.canHit(u.x, u.z, def.air ? SKY : u.level, !!def.air, u.owner, w, range, order.tk, order.id, true) === "ok") {
       wall = this.shotWall;
-    }
-    // Looks again now and then, each unit on its own step (and soon, with nothing to aim at): something better may be about.
-    if (!ordered && ((this.step + i) % 10 === 0 || (!u.tk && (this.step + i) % 3 === 0))) {
-      const pick = this.choose(u, def, w, range, acquire);
-      if (pick && (pick.tk !== u.tk || pick.tid !== u.tid)) {
-        const now = u.tk ? this.scoreOf(u, w, range, u.tk, u.tid, true) : Infinity;
-        // (A clear shot now is worth keeping unless the other is a good deal better.)
-        if (!u.tk || pick.score < now - (state === "fire" ? 0.35 : 0.15)) {
-          this.pledge(u, w, -1);
-          u.tk = pick.tk;
-          u.tid = pick.tid;
-          u.closer = 0.85;
-          u.tries = 0;
-          u.chase = null;
-          this.pledge(u, w, 1);
-          state = this.judge(u, def, w, range, acquire, roam, false);
-          wall = this.shotWall;
+      if (u.tk !== order.tk || u.tid !== order.id) this.aimAt(u, w, order.tk, order.id);
+      state = "fire";
+    } else {
+      // (Its ordered target out of reach for now: anything else in range meanwhile.)
+      if (order.k === "attack" && u.tk === order.tk && u.tid === order.id) {
+        this.pledge(u, w, -1);
+        u.tk = 0;
+      }
+      if (u.tk) {
+        state = this.judge(u, def, w, range);
+        wall = this.shotWall;
+      }
+      // Looks again now and then, each unit on its own step (and soon, with nothing to shoot): something better may
+      // have come within range.
+      if ((this.step + i) % 10 === 0 || (state === "none" && (this.step + i) % 3 === 0)) {
+        const pick = this.choose(u, def, w, range);
+        if (pick && (pick.tk !== u.tk || pick.tid !== u.tid)) {
+          const now = state === "fire" ? this.scoreOf(u, w, range, u.tk as TargetKind, u.tid, true) : Infinity;
+          // (A shot it has now is worth keeping unless the other is a good deal better.)
+          if (pick.score < now - 0.35) {
+            this.aimAt(u, w, pick.tk, pick.tid);
+            state = this.judge(u, def, w, range);
+            wall = this.shotWall;
+          }
         }
       }
     }
-    // Nothing of its own to shoot, and one of its own beside it fighting: it joins in, at the same target (nobody
-    // stands by while the unit next to it fights). Not on a plain move or holding.
-    if (!u.tk && roam && !ordered && (this.step + i) % 5 === 0) {
-      const help = this.fightNear(u, def, w, acquire);
-      if (help) {
-        u.tk = help[0];
-        u.tid = help[1];
-        u.closer = 0.85;
-        u.tries = 0;
-        u.chase = null;
-        this.pledge(u, w, 1);
-        state = this.judge(u, def, w, range, acquire * 1.25, roam, false);
-        wall = this.shotWall;
-      }
-    }
-    if (!u.tk) {
+    if (state === "none" || !u.tk) {
       u.aim = u.heading;
       return "none";
     }
     // The gun turns to the target (or the wall in its way); a soldier (or a drone) turns with it, a vehicle's hull keeps to where it drives.
-    const spot = wall && state === "fire" ? this.spotOf(T_PIECE, wall) : this.spotOf(u.tk, u.tid);
+    const spot = wall ? this.spotOf(T_PIECE, wall) : this.spotOf(u.tk, u.tid);
     if (spot) {
       u.aim = Math.atan2(spot[0] - u.x, spot[1] - u.z);
       // (On the move, it keeps facing the way it goes: it shoots as it passes.)
-      if (state === "fire" && !moving && (def.infantry || def.air || def.deploy)) u.heading = u.aim;
+      if (!moving && (def.infantry || def.air || def.deploy)) u.heading = u.aim;
     }
-    if (state !== "fire") return state;
-    u.tries = 0;
     // Artillery fires only once set up.
     if (def.deploy) {
       if (u.deployedAt === 0) {
@@ -1748,53 +1555,20 @@ export class Sim {
     return "fire";
   }
 
-  /**
-   * What a unit of the same army close by is fighting, that this one can go
-   * after too (on the ground or in the air as its weapon allows, and within
-   * `acquire`): [kind, id], or null.
-   */
-  private fightNear(u: Unit, def: UnitDef, w: Weapon, acquire: number): [TargetKind, number] | null {
-    let found: [TargetKind, number] | null = null, bestD = Infinity;
-    this.nearby(u.x, u.z, ASSIST_RANGE, (o) => {
-      if (o === u || o.dead || o.inside || o.owner !== u.owner || (o.tk !== T_UNIT && o.tk !== T_BUILDING)) return;
-      const d = dist2(o.x, o.z, u.x, u.z);
-      if (d > ASSIST_RANGE * ASSIST_RANGE || d >= bestD) return;
-      const spot = this.spotOf(o.tk, o.tid);
-      if (!spot || Math.hypot(spot[0] - u.x, spot[1] - u.z) > acquire * 1.2 || this.gaveUp(u, o.tk, o.tid as number)) return;
-      if (o.tk === T_UNIT) {
-        const t = this.unitById.get(o.tid as number);
-        if (!t || (UNITS[t.kind].air ? !w.air : !w.ground)) return;
-      } else if (!w.ground) return;
-      if (u.home && Math.hypot(spot[0] - u.home[0], spot[1] - u.home[1]) > this.leash(w)) return;
-      bestD = d;
-      found = [o.tk, o.tid as number];
-    });
-    void def;
-    return found;
+  /** Aims at a new target. */
+  private aimAt(u: Unit, w: Weapon, tk: TargetKind, tid: number | string): void {
+    this.pledge(u, w, -1);
+    u.tk = tk;
+    u.tid = tid;
+    this.pledge(u, w, 1);
   }
 
-  /** Whether the target it has is one to shoot now, one to go and get a shot at, or one to let go. */
-  private judge(u: Unit, def: UnitDef, w: Weapon, range: number, acquire: number, roam: boolean, ordered: boolean): "fire" | "close" | "none" {
-    const ok = this.canHit(u.x, u.z, def.air ? SKY : u.level, !!def.air, u.owner, w, range, u.tk as TargetKind, u.tid, ordered);
-    if (ok === "ok") return "fire";
-    if (ok === "far" && (ordered || (roam && this.worthChasing(u, w, acquire)))) return "close";
+  /** Whether the target it has can be shot from here now: "fire", or it is let go ("none"). */
+  private judge(u: Unit, def: UnitDef, w: Weapon, range: number): "fire" | "none" {
+    if (this.canHit(u.x, u.z, def.air ? SKY : u.level, !!def.air, u.owner, w, range, u.tk as TargetKind, u.tid, false) === "ok") return "fire";
     this.pledge(u, w, -1);
     u.tk = 0;
-    u.chase = null;
     return "none";
-  }
-
-  /** A target out of reach is still worth going after: in sight, and (for a unit standing guard) not too far from where it stood. */
-  private worthChasing(u: Unit, w: Weapon, acquire: number): boolean {
-    const spot = this.spotOf(u.tk as TargetKind, u.tid);
-    if (!spot) return false;
-    if (Math.hypot(spot[0] - u.x, spot[1] - u.z) > acquire * 1.25) return false;
-    return !u.home || Math.hypot(spot[0] - u.home[0], spot[1] - u.home[1]) <= this.leash(w);
-  }
-
-  /** How far a unit standing guard goes after an enemy before it gives up and walks back, m. */
-  private leash(w: Weapon): number {
-    return w.range * 1.5 + 10;
   }
 
   /** Damage each unit target is about to take in the next second, from those aiming at it: so the next unit to choose picks another once one is covered. */
@@ -1838,48 +1612,90 @@ export class Sim {
       const d = Math.max(0, Math.hypot(c[0] - u.x, c[2] - u.z) - (BUILDINGS[b.kind].size * CELL) / 2);
       return d / range + 0.55 - (heavy ? 0.3 : 0) - (BUILDINGS[b.kind].weapon ? 0.25 : 0) + scatter(u.id, b.id) * 0.1;
     }
-    // (A piece: only ever what it was told to shoot.)
-    return 1;
+    // (A piece: only when there is nothing else in range, the nearest first.)
+    const at = this.spotOf(T_PIECE, tid);
+    return 10 + (at ? Math.hypot(at[0] - u.x, at[1] - u.z) / range : 1);
   }
 
-  /** The target a unit would choose now, of those in its sight (or range, holding): the best scored, with whether it can be shot from here. */
-  private choose(u: Unit, def: UnitDef, w: Weapon, range: number, acquire: number): { tk: TargetKind; tid: number; score: number } | null {
-    const air = !!def.air;
+  /**
+   * What a unit would shoot now, of what is in its range: the best scored enemy unit or building it can hit (a clear
+   * line better than one through a wall of the enemy's, which it would have to break first); with none, and a weapon
+   * that breaks them, the nearest wall, floor or ramp of the enemy's (see `nearestPiece`).
+   */
+  private choose(u: Unit, def: UnitDef, w: Weapon, range: number): { tk: TargetKind; tid: number | string; score: number } | null {
+    const air = !!def.air, level = air ? SKY : u.level;
     const min = w.minRange ?? 0;
-    const leash = u.home ? this.leash(w) : Infinity;
-    const found: { tk: TargetKind; tid: number; score: number; d: number; x: number; z: number; l: number; flying: boolean }[] = [];
-    this.nearby(u.x, u.z, acquire, (o) => {
+    const found: { tk: TargetKind; tid: number; score: number }[] = [];
+    this.nearby(u.x, u.z, range, (o) => {
       if (o.dead || o.inside || !this.hostile(u.owner, o.owner)) return;
-      const flying = !!UNITS[o.kind].air;
-      if (flying ? !w.air : !w.ground) return;
+      if (UNITS[o.kind].air ? !w.air : !w.ground) return;
       const d = Math.hypot(o.x - u.x, o.z - u.z);
-      if (d > acquire || (min && d < min)) return;
-      if (u.home && Math.hypot(o.x - u.home[0], o.z - u.home[1]) > leash) return;
-      if (this.gaveUp(u, T_UNIT, o.id)) return;
-      found.push({ tk: T_UNIT, tid: o.id, score: this.scoreOf(u, w, range, T_UNIT, o.id, false), d, x: o.x, z: o.z, l: o.level, flying });
+      if (d > range || (min && d < min)) return;
+      found.push({ tk: T_UNIT, tid: o.id, score: this.scoreOf(u, w, range, T_UNIT, o.id, false) });
     });
     if (w.ground) {
       for (const b of this.buildings.values()) {
         if (b.dead || !this.hostile(u.owner, b.owner)) continue;
         const c = this.centreOf(b);
         const d = Math.max(0, Math.hypot(c[0] - u.x, c[2] - u.z) - (BUILDINGS[b.kind].size * CELL) / 2);
-        if (d > acquire || (min && d < min)) continue;
-        if (u.home && Math.hypot(c[0] - u.home[0], c[2] - u.home[1]) > leash) continue;
-        if (this.gaveUp(u, T_BUILDING, b.id)) continue;
-        found.push({ tk: T_BUILDING, tid: b.id, score: this.scoreOf(u, w, range, T_BUILDING, b.id, false), d, x: c[0], z: c[2], l: b.l, flying: false });
+        if (d > range || (min && d < min)) continue;
+        found.push({ tk: T_BUILDING, tid: b.id, score: this.scoreOf(u, w, range, T_BUILDING, b.id, false) });
       }
     }
-    if (found.length === 0) return null;
     found.sort((a, b) => a.score - b.score);
-    // Of those it could shoot from here, one with a clear line is better than one behind a wall (which it would have to break first).
-    for (const f of found.slice(0, 4)) {
-      const slack = f.tk === T_BUILDING ? (BUILDINGS[this.buildings.get(f.tid as number)!.kind].size * CELL) / 2 : 0;
-      const blocked = f.d <= range && !this.lineOfFire(u.x, u.z, air ? SKY : u.level, f.x, f.z, f.flying ? SKY : f.l, slack, !!w.lob || air || f.flying);
-      if (!blocked) return f;
-      f.score += 0.4;
+    let walled: { tk: TargetKind; tid: number; score: number } | null = null;
+    for (const f of found.slice(0, 6)) {
+      if (this.canHit(u.x, u.z, level, air, u.owner, w, range, f.tk, f.tid, false) !== "ok") continue;
+      if (!this.shotWall) return f;
+      walled ??= { ...f, score: f.score + 0.4 };
     }
-    found.sort((a, b) => a.score - b.score);
-    return found[0]!;
+    if (walled) return walled;
+    if (w.wear > 0) {
+      const piece = this.nearestPiece(u.x, u.z, u.owner, range, min);
+      if (piece) return { tk: T_PIECE, tid: piece, score: this.scoreOf(u, w, range, T_PIECE, piece, false) };
+    }
+    return null;
+  }
+
+  /** Every piece some army holds, by the bucket it stands in (see `nearestPiece`): worked out again as the build changes, not more than twice a second. */
+  private readonly pieceBuckets = new Map<number, { id: string; x: number; z: number }[]>();
+  private piecesAt = -1;
+  private piecesOf = -1;
+
+  /** The nearest wall, floor or ramp within `range` of a spot (and not nearer than `min`) that an army hostile to `owner` holds, by id; or null. Nobody's are not shot at unless in the way. */
+  private nearestPiece(x: number, z: number, owner: number, range: number, min: number): string | null {
+    if (this.piecesOf !== this.nav.version && (this.piecesAt < 0 || this.t - this.piecesAt >= 0.5)) {
+      this.piecesOf = this.nav.version;
+      this.piecesAt = this.t;
+      this.pieceBuckets.clear();
+      for (const p of this.build.all()) {
+        if (this.ownerOfPiece(p.id) === NO_OWNER) continue;
+        const at = this.spotOf(T_PIECE, p.id)!;
+        const k = bucketOf(at[0], at[1]);
+        const list = this.pieceBuckets.get(k);
+        if (list) list.push({ id: p.id, x: at[0], z: at[1] });
+        else this.pieceBuckets.set(k, [{ id: p.id, x: at[0], z: at[1] }]);
+      }
+    }
+    if (this.pieceBuckets.size === 0) return null;
+    const half = HALF_CELLS * CELL;
+    const x0 = Math.max(0, Math.floor((x - range + half) / BUCKET)), x1 = Math.min(BUCKETS - 1, Math.floor((x + range + half) / BUCKET));
+    const z0 = Math.max(0, Math.floor((z - range + half) / BUCKET)), z1 = Math.min(BUCKETS - 1, Math.floor((z + range + half) / BUCKET));
+    let best: string | null = null, bestD = range;
+    for (let bx = x0; bx <= x1; bx++) {
+      for (let bz = z0; bz <= z1; bz++) {
+        for (const p of this.pieceBuckets.get(bx * BUCKETS + bz) ?? []) {
+          // (As canHit measures it: to the piece's near edge.)
+          const d = Math.hypot(p.x - x, p.z - z) - CELL / 2;
+          if (d > bestD || (min && d < min)) continue;
+          const whose = this.ownerOfPiece(p.id);
+          if (whose === NO_OWNER || !this.hostile(owner, whose) || !this.build.get(p.id)) continue;
+          best = p.id;
+          bestD = d;
+        }
+      }
+    }
+    return best;
   }
 
   /**
@@ -2078,23 +1894,13 @@ export class Sim {
     }
   }
 
-  private hurtUnit(u: Unit, damage: number, by: number, fromX: number, fromZ: number): void {
+  private hurtUnit(u: Unit, damage: number, _by: number, _fromX: number, _fromZ: number): void {
     const g = this.generals[u.owner];
     u.hp -= damage * (1 - (g?.upgrades.armour ?? 0) * UPGRADE_STEP);
     u.hitUntil = this.t + 0.3;
     if (u.hp <= 0) return this.kill(u, false);
+    // (Shot at, a unit does nothing about it of its own: it shoots back only what comes within its range.)
     if (g) this.underAttack(g, u.x, u.z);
-    // Shot at by something it cannot see: it goes to find it (standing, not too far from where it stood; sent to
-    // fight, wherever it is).
-    if ((u.order.k === "stop" || u.order.k === "amove" || u.order.k === "patrol") && !u.tk && UNITS[u.kind].weapon && by !== u.owner && u.owner !== NEUTRAL) {
-      const w = UNITS[u.kind].weapon!;
-      const home = u.home ?? [u.x, u.z, u.level];
-      if (u.order.k !== "stop" || Math.hypot(fromX - home[0], fromZ - home[1]) <= this.leash(w) + w.range) {
-        u.alarmX = fromX;
-        u.alarmZ = fromZ;
-        u.alarmUntil = this.t + 8;
-      }
-    }
   }
 
   private hurtBuilding(b: Building, damage: number, _by: number): void {
@@ -2401,13 +2207,47 @@ export class Sim {
 
   // ── Getting about ──────────────────────────────────────────────────────
 
+  /** Where the middle of each group on the march is now (by group): see speedOf. */
+  private readonly marching = new Map<number, { x: number; z: number; n: number }>();
+
+  /** Works out the middle of every group of more than one on its way somewhere, once a step. */
+  private marchCentres(): void {
+    this.marching.clear();
+    for (const u of this.units) {
+      if (u.dead || u.inside || !u.pace || u.arrived || !u.goal) continue;
+      const m = this.marching.get(u.group);
+      if (m) {
+        m.x += u.x;
+        m.z += u.z;
+        m.n++;
+      } else this.marching.set(u.group, { x: u.x, z: u.z, n: 1 });
+    }
+  }
+
+  /**
+   * How fast a unit goes, m/s. Alone, as fast as it can. Ordered with others, at the pace of the slowest of them, and
+   * keeping its place in their shape: its place is the middle of the group now and its own spot from the middle (as it
+   * stood when ordered). Behind its place, it goes faster to catch up (as fast as it can); ahead, it holds back.
+   */
+  private speedOf(u: Unit, def: UnitDef): number {
+    if (!u.pace || !u.goal) return def.speed;
+    const pace = Math.min(def.speed, u.pace);
+    const m = this.marching.get(u.group);
+    if (!m || m.n < 2) return pace;
+    const px = m.x / m.n + (u.goal.ox - u.goal.x), pz = m.z / m.n + (u.goal.oz - u.goal.z);
+    // How far its place is ahead of it, along the way it goes (a little either way is near enough).
+    const along = (px - u.x) * Math.sin(u.heading) + (pz - u.z) * Math.cos(u.heading);
+    const off = along > 1.5 ? along - 1.5 : along < -1.5 ? along + 1.5 : 0;
+    return Math.max(pace * 0.6, Math.min(def.speed, pace + off * 0.6));
+  }
+
   /** Moves a unit one step toward its goal. Sets `arrived` when it is there (or as near as it will get). */
   private travel(u: Unit, def: UnitDef): void {
     const goal = u.goal;
     if (!goal || u.arrived) return;
     // Artillery waits until it has packed up.
     if (def.deploy && this.t < u.packedAt) return;
-    const reach = def.speed * DT;
+    const reach = this.speedOf(u, def) * DT;
     // How far it still is from its own spot.
     const near = Math.hypot(goal.ox - u.x, goal.oz - u.z);
     if (def.air) {
@@ -2460,7 +2300,9 @@ export class Sim {
           return;
         }
         if (way === WALL_WAY) {
-          // A wall of the enemy's in the way: it is shot down.
+          // A wall of the enemy's in the way: it is shot down (and breaking through is not waiting about near enough: it
+          // gets there once the wall is down).
+          u.linger = 0;
           const wall = this.build.occupant({ type: "wall", x: this.nav.wallX, y: this.nav.wallL, z: this.nav.wallZ, rot: this.nav.wallRot });
           if (wall && def.weapon) {
             u.tk = T_PIECE;
@@ -2493,6 +2335,12 @@ export class Sim {
       goal.set = false;
       return;
     }
+    // Artillery set up packs up before it moves on (a patrol's, say, having shelled what it found).
+    if (def.deploy && u.deployedAt > 0) {
+      u.deployedAt = 0;
+      u.packedAt = this.t + def.deploy;
+      return;
+    }
     u.heading = Math.atan2(dx, dz);
     const s = Math.min(reach, d);
     const bx = u.x, bz = u.z;
@@ -2519,7 +2367,7 @@ export class Sim {
 
   /** Whether a unit is on its way somewhere roughly along (ux, uz): by where it is going, not where it faces (it may not have turned yet). */
   private goingAlong(o: Unit, ux: number, uz: number): boolean {
-    const to = o.chase ?? (o.arrived ? null : o.goal);
+    const to = o.arrived ? null : o.goal;
     if (!to) return false;
     const dx = to.ox - o.x, dz = to.oz - o.z;
     const d = Math.hypot(dx, dz);
@@ -2551,7 +2399,7 @@ export class Sim {
       if (Math.abs(across) >= gap) return;
       // One of its own army standing in the way is nudged aside, off its line (as a crowd parts for one going
       // through it); an enemy, one set up and not to be moved, or a Hauler at work, is gone round.
-      if (along < gap + s * 3 && o.owner === u.owner && !o.inside && !(o.chase ?? (o.arrived ? null : o.goal)) && !(od.deploy && o.deployedAt > 0) && !(o.kind === "hauler" && (o.order.k === "gather" || o.order.k === "return"))) {
+      if (along < gap + s * 3 && o.owner === u.owner && !o.inside && (o.arrived || !o.goal) && !(od.deploy && o.deployedAt > 0) && !(o.kind === "hauler" && (o.order.k === "gather" || o.order.k === "return"))) {
         const away = Math.abs(across) > 0.05 ? Math.sign(across) : o.id % 2 ? 1 : -1;
         const push = Math.min(gap - Math.abs(across), s * 1.2);
         const nx = o.x + uz * away * push, nz = o.z - ux * away * push;
@@ -2576,7 +2424,7 @@ export class Sim {
       if (t < allowed) {
         allowed = t;
         side = across > 0.3 * gap ? -1 : 1;
-        still = !(o.chase ?? (o.arrived ? null : o.goal));
+        still = (o.arrived || !o.goal);
       }
     });
     if (allowed >= s) return [ux * s, uz * s];
@@ -2746,7 +2594,7 @@ export class Sim {
         this.nearby(p[0], p[2], 5, (o) => {
           const od = UNITS[o.kind];
           if (o.dead || o.inside || od.air || Math.abs(o.y - feet) > 1.6) return;
-          if ((o.arrived || !o.goal) && !o.chase) return;
+          if (o.arrived || !o.goal) return;
           const gap = od.radius + GENERAL_RADIUS;
           let dx = o.x - p[0], dz = o.z - p[2];
           const d = Math.hypot(dx, dz);
@@ -2761,23 +2609,6 @@ export class Sim {
           this.shift(o, o.x + dx * Math.min(0.8, gap - d), o.z + dz * Math.min(0.8, gap - d), classOf(od));
         });
       }
-    }
-  }
-
-  /** Soldiers on the ground step away from where a shell is about to land among them (those holding their ground stay). */
-  private dodge(): void {
-    for (const s of this.shells) {
-      if (this.t < s.landAt - 1.2) continue;
-      const r = s.weapon.splash + 1.5;
-      this.nearby(s.x, s.z, r, (o) => {
-        const od = UNITS[o.kind];
-        if (o.dead || o.inside || !od.infantry || o.order.k === "hold" || !this.hostile(s.owner, o.owner) || this.t < o.downUntil) return;
-        const dx = o.x - s.x, dz = o.z - s.z;
-        const d = Math.hypot(dx, dz) || 1;
-        if (d >= r) return;
-        const step = Math.min(r - d, od.speed * DT);
-        this.shift(o, o.x + (dx / d) * step, o.z + (dz / d) * step, classOf(od));
-      });
     }
   }
 
@@ -2867,7 +2698,6 @@ export class Sim {
   /** Lets go of every path worked out (the war has stopped: they are worked out again when wanted). */
   forgetPaths(): void {
     this.flows.clear();
-    this.nearFlows.clear();
   }
 
   // ── Keeping it through a sleep ─────────────────────────────────────────
@@ -2882,7 +2712,7 @@ export class Sim {
       owners: [...this.pieceOwner],
       tabs: [...this.lastOfTab].slice(-300),
       generals: this.generals,
-      units: this.units.filter((u) => !u.dead).map((u) => ({ ...u, goal: null, chase: null, tk: 0, tid: 0 })),
+      units: this.units.filter((u) => !u.dead).map((u) => ({ ...u, goal: null, tk: 0, tid: 0 })),
       buildings: [...this.buildings.values()].map((b) => ({ ...b, tk: 0, tid: 0 })),
       fields: this.fields.map((f) => [f.id, Math.round(f.amount), f.refillAt]),
       posts: this.posts.map((p) => [p.unit, p.deadAt]),
@@ -2940,18 +2770,10 @@ export class Sim {
         u.goal = null;
         // (Saved before soldiers chose their own targets.)
         u.aim ??= u.heading;
-        u.chase = null;
-        u.chaseAt ??= 0;
-        u.chaseX ??= 0;
-        u.chaseZ ??= 0;
-        u.closer ??= 0.85;
-        u.home ??= u.order.k === "stop" ? [u.x, u.z, u.level] : null;
-        u.alarmX ??= 0;
-        u.alarmZ ??= 0;
-        u.alarmUntil ??= 0;
-        u.tries ??= 0;
-        u.chaseStuck ??= 0;
-        u.chaseLinger ??= 0;
+        u.pace ??= 0;
+        // (Saved when units still went after things of their own accord.)
+        for (const old of ["chase", "chaseAt", "chaseX", "chaseZ", "closer", "home", "alarmX", "alarmZ", "alarmUntil", "tries", "chaseStuck", "chaseLinger"]) delete (u as unknown as Record<string, unknown>)[old];
+        if (u.order.k === "attack") delete (u.order as { fan?: number }).fan;
         u.replans ??= 0;
         u.arrived = true;
         this.units.push(u);
@@ -2990,7 +2812,6 @@ export class Sim {
     }
     for (const id of this.pieceOwner.keys()) if (!this.build.get(id)) this.pieceOwner.delete(id);
     for (const id of this.haulTo.keys()) if (!this.unitById.has(id)) this.haulTo.delete(id);
-    for (const [k, until] of this.unreachable) if (this.t >= until) this.unreachable.delete(k);
   }
 
   /** How much there is of everything, for checks and the load test. */

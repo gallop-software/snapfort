@@ -131,6 +131,13 @@ export interface Room {
    */
   remove?(ids: readonly string[], by: string): void;
   /**
+   * Puts pieces into the build by this world's own doing (an army building its walls, say), with the checks a
+   * builder's pieces get (room left, the material, nothing built into a building, a siege engine or someone), in
+   * order (so a floor can rest on walls put in before it). Every page is told, and it is logged as `by`. Returns the
+   * ids of those that went in. (Paying for them is the world's own business.)
+   */
+  place?(pieces: readonly Piece[], by: string): string[];
+  /**
    * Wears pieces down at `point` with something of this world's own: each
    * [piece id, hits] adds that many hits (fractions allowed). What runs out of
    * hits breaks, and what that strands falls, as when a stone lands.

@@ -87,6 +87,7 @@ export function openWar(room: Room): War {
     positionOf: (pid) => room.positionOf(pid),
     wear: (point, hits, by) => room.wear?.(point, hits, by),
     removePieces: (ids, by) => room.remove?.(ids, by),
+    placePieces: (pieces, by) => room.place?.(pieces, by) ?? [],
   });
   const w: War = { sim, viewers: new Map(), running: false, last: 0, savedAt: 0, dirty: false, gens: "", fieldSent: new Map(), speed: 1, swept: false, empty: 0, gone: new Map(), keep: false, computer: new Computer(sim), perf: { steps: 0, ms: 0, worst: 0, sent: 0 } };
   // (A test room, where the checks run, is quiet: no computer until a check asks for one.)

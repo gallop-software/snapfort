@@ -1,5 +1,5 @@
 import { CELL } from "../../game/constants";
-import { BUILDINGS, COMPUTER, GUARD_RADIUS, MAX_SUPPLY, UNITS, UPGRADE_COST, UPGRADE_LEVELS, type BuildingKind, type UnitKind } from "./kit";
+import { BUILDINGS, COMPUTER, GUARD_RADIUS, MAX_SUPPLY, PIECE_COST, UNITS, UPGRADE_COST, UPGRADE_LEVELS, type BuildingKind, type UnitKind } from "./kit";
 import { mid, SITES, STARTS } from "./map";
 import { NEUTRAL, T_BUILDING, type Building, type General, type Sim, type Unit } from "./sim";
 
@@ -41,6 +41,13 @@ const BASIC_SENTRIES = 2, FULL_SENTRIES = 4, FULL_FLAK = 2;
 const MOST_SENTRIES = 8;
 /** Turrets go this far out from their Core, in cells (toward where trouble comes from), this far apart, m. */
 const TURRET_RINGS = [5, 6, 7, 4, 8] as const, TURRET_GAP = 8;
+/**
+ * Every turret stands on a tower: a cell walled round with a floor on it (five pieces), up where it shoots over every
+ * wall below, its own army's too, and further. What the tower costs.
+ */
+const TOWER_COST = 5 * PIECE_COST;
+/** A base's ring of walls: a square this many cells out from its Core's middle (inside the 75 m walls may go), a gate 2 cells wide in the middle of each side; put up this many pieces a think. */
+const RING = 10, RING_BATCH = 24;
 /** A site with another army's Core this near it is not settled, m. */
 const SITE_TAKEN = 120;
 /** Its army's fighting supply until it is booming, and the Troopers it keeps at home whatever it is saving for. */
@@ -107,8 +114,9 @@ interface Mind {
   reserve: Set<number>;
   /** How strong each army it may attack has looked (fighting supply, and turrets), by slot: what a wave waits to outdo. */
   strength: Map<number, number>;
-  /** Its Cores with no room left round them for more turrets. */
+  /** Its Cores with no room left round them for more turrets, and those whose ring of walls is up. */
   cramped: Set<number>;
+  ringed: Set<number>;
 }
 
 export class Computer {
@@ -125,7 +133,7 @@ export class Computer {
       return;
     }
     if (!this.mind || this.mind.bornAt !== g.bornAt) {
-      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map(), cramped: new Set() };
+      this.mind = { bornAt: g.bornAt, wave: FIRST_WAVE, sentAt: -1e9, out: new Set(), outSupply: 0, target: -1, at: [0, 0], sawAir: false, sawForts: false, relayAt: -1e9, foe: null, phase: "gather", stage: [0, 0], stageAt: 0, reserve: new Set(), strength: new Map(), cramped: new Set(), ringed: new Set() };
     }
     const mind = this.mind;
     const slot = g.slot;
@@ -190,30 +198,30 @@ export class Computer {
      * nothing after it). Until it is booming everything but Haulers waits for it; after, units wait only for its plasma
      * (and for a new Core's lithium, always worth saving for).
      */
-    const build = (kind: BuildingKind, place: () => boolean): boolean => {
+    const build = (kind: BuildingKind, place: () => boolean, extra = 0): boolean => {
       const def = BUILDINGS[kind];
       if ((def.needs ?? []).some((need) => !has(need))) return true;
-      if (g.lithium >= def.lithium && g.plasma >= def.plasma) {
+      if (g.lithium >= def.lithium + extra && g.plasma >= def.plasma) {
         // (Nowhere to put it: on to the next, rather than waiting for ever.)
         place();
         return true;
       }
-      reserveL = booming && kind !== "core" ? KEEP_BACK : Math.max(KEEP_BACK, def.lithium);
+      reserveL = booming && kind !== "core" ? KEEP_BACK : Math.max(KEEP_BACK, def.lithium + extra);
       reserveP = def.plasma;
       return false;
     };
     /** A turret at a Core, toward where trouble comes from; no room left there, and that Core is done with. */
     const turret = (c: Building, kind: BuildingKind) => () => {
-      if (this.placeGuard(g, c, kind)) return true;
-      mind.cramped.add(c.id);
-      return false;
+      const done = this.placeGuard(g, c, kind);
+      if (done === "none") mind.cramped.add(c.id);
+      return done === "placed";
     };
     const site = cores.length < MOST_CORES && cores.every(basic) && (cores.length < BOOM_CORES || cores.every(full)) ? this.nextSite(g, cores) : null;
     ((): void => {
       if (!has("foundry") && !build("foundry", () => this.placeNear(g, "foundry", home))) return;
       if (this.freeVent(g, cores) && !build("tap", () => this.placeTap(g, cores))) return;
       // Every Core its first turrets, before anything else.
-      for (const c of cores) if (!basic(c) && !build("sentry", turret(c, "sentry"))) return;
+      for (const c of cores) if (!basic(c) && !build("sentry", turret(c, "sentry"), TOWER_COST)) return;
       // The next base.
       if (site && !build("core", () => this.settle(g, site))) return;
       // Every Core its full defence.
@@ -221,7 +229,13 @@ export class Computer {
         if (full(c)) continue;
         const t = guard.get(c.id)!;
         const kind: BuildingKind = t.sentry < FULL_SENTRIES ? "sentry" : t.flak < FULL_FLAK ? "flak" : "laser";
-        if (!build(kind, turret(c, kind))) return;
+        if (!build(kind, turret(c, kind), TOWER_COST)) return;
+      }
+      // Every fully guarded base its ring of walls, a batch at a time (they cost only lithium: nothing waits for them).
+      for (const c of cores) {
+        if (mind.ringed.has(c.id) || !full(c)) continue;
+        if (g.lithium < RING_BATCH * PIECE_COST) break;
+        if (this.ring(g, c) === 0) mind.ringed.add(c.id);
       }
       if (mine.filter((b) => b.kind === "foundry").length < 2 && !build("foundry", () => this.placeNear(g, "foundry", home))) return;
       if (!booming) return;
@@ -632,9 +646,13 @@ export class Computer {
     return d > 1 ? [dx / d, dz / d] : [0, 1];
   }
 
-  /** A turret by a Core, on the side trouble comes from, spread across it and TURRET_GAP from its others. */
-  private placeGuard(g: General, core: Building, kind: BuildingKind): boolean {
+  /**
+   * A turret by a Core, on the side trouble comes from, spread across it and TURRET_GAP from its others, up on a tower
+   * (see TOWER_COST). "placed"; "money" (not enough for it and its tower yet); "none" (no room left there).
+   */
+  private placeGuard(g: General, core: Building, kind: BuildingKind): "placed" | "money" | "none" {
     const sim = this.sim;
+    if (g.lithium - g.pending < BUILDINGS[kind].lithium + TOWER_COST || g.plasma < BUILDINGS[kind].plasma) return "money";
     const c = sim.centreOf(core);
     const [ux, uz] = this.danger(g, core);
     const towards = Math.atan2(ux, uz);
@@ -648,10 +666,41 @@ export class Computer {
         const cx = Math.floor((c[0] + Math.sin(a) * r * CELL) / CELL), cz = Math.floor((c[2] + Math.cos(a) * r * CELL) / CELL);
         const x = mid(cx), z = mid(cz);
         if (others.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < TURRET_GAP)) continue;
-        if (sim.cannotBuild(g.slot, kind, cx, cz) === "" && sim.orderBuilding(g.slot, kind, cx, cz) === "") return true;
+        if (sim.cannotBuild(g.slot, kind, cx, cz) !== "") continue;
+        // The tower: its four walls, then the floor on them; the turret up on the floor.
+        const tower = [
+          { type: "wall", x: cx, y: 0, z: cz, rot: 0 }, { type: "wall", x: cx, y: 0, z: cz + 1, rot: 0 },
+          { type: "wall", x: cx, y: 0, z: cz, rot: 1 }, { type: "wall", x: cx + 1, y: 0, z: cz, rot: 1 },
+          { type: "floor", x: cx, y: 1, z: cz, rot: 0 },
+        ] as const;
+        if (sim.placeFor(g.slot, tower).length < tower.length) continue;
+        if (sim.orderBuilding(g.slot, kind, cx, cz, null, 1) === "") return "placed";
       }
     }
-    return false;
+    return "none";
+  }
+
+  /**
+   * Puts up the next batch of a base's ring of walls (see RING), and says how many pieces of it were still to go
+   * up before (0: it is done, as far as it can be: an edge a building or a field takes, or past where walls may go, is left).
+   */
+  private ring(g: General, core: Building): number {
+    const sim = this.sim;
+    const mx = core.cx + 1, mz = core.cz + 1;
+    const edges: { type: "wall"; x: number; y: number; z: number; rot: 0 | 1 }[] = [];
+    const gate = (d: number) => d === -1 || d === 0;
+    for (let d = -RING; d <= RING; d++) {
+      if (gate(d)) continue;
+      edges.push({ type: "wall", x: mx + d, y: 0, z: mz - RING, rot: 0 }, { type: "wall", x: mx + d, y: 0, z: mz + RING + 1, rot: 0 });
+      edges.push({ type: "wall", x: mx - RING, y: 0, z: mz + d, rot: 1 }, { type: "wall", x: mx + RING + 1, y: 0, z: mz + d, rot: 1 });
+    }
+    const todo = edges.filter((e) => {
+      if (sim.build.occupant(e)) return false;
+      if (sim.guardWhy(g.slot, (e.x + (e.rot === 1 ? 0 : 0.5)) * CELL, (e.z + (e.rot === 0 ? 0 : 0.5)) * CELL, "wall")) return false;
+      return !sim.blocks({ ...e, id: "", material: "brick", edit: 0 });
+    });
+    sim.placeFor(g.slot, todo.slice(0, RING_BATCH));
+    return todo.length;
   }
 
   /** A building on the nearest clear ground to the Core, on the side toward the middle of the map (the crystals are on the other), a cell clear all round. */

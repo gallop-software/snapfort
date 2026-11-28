@@ -681,3 +681,13 @@ Checks: `ai.test.ts`: booms first (natural within 4 minutes, three bases within 
 
 Checks: `ai.test.ts`: with every start held it takes the middle; with the middle taken (the person's Cores there) it takes empty starts, never one in play, and a newcomer is begun elsewhere; the rest as before; unit tests all pass.
 
+## Mojave: the computer's walls and towers (stage B of "the computer booms first")
+
+- **A door for the war to build**: `Room.place(pieces, by)` (`serverDoors.ts`), `putIn()` in `worker/world.ts`: the checks a builder's pieces get (room left, the material, not into a building, an engine or someone), in order (a floor rests on walls put in before it), logged as `by`, sent to every page, saved, flights planned again. The war pays: `Sim.placeFor(slot, specs)` takes a general's rules (a wall only by a Core of its own and never by another's, nothing into a building or a field, 8 lithium a piece) and records them as that army's (`pieceOwner`: enemies shoot them, snapshots keep them, they go with the army). Ids `cpu<slot>-<step>-<n>`.
+- **Towers**: every turret it builds stands on one: its cell walled round and floored over (five pieces, 40 lithium), the turret up on the floor, where it shoots over every wall below (its own ring too) and 1.3 times as far, and nobody walks up to it.
+- **Rings**: every fully guarded base a square of walls 10 cells out from its Core (inside the 75 m walls may go), round the Core and its crystals, a gate two cells wide in the middle of each side; 24 pieces a think, nothing waiting for them; an edge a building or a field takes is left. (The plan's towers either side of every gate were not built: the base's own towers inside the ring cover the gates.)
+
+**Measured**: six bases ringed by about 10 minutes (about 620 walls, some 5,000 lithium, so its army comes a little later than before: about 10 units at 10 minutes, 64 at 15); 60 Haulers mining throughout; a think about 0.2 ms. In a browser test room, 786 of its pieces reached the page as it built and a page joining later had them all, no errors.
+
+Checks: `ai.test.ts`: every turret on a tower of its own, every guarded base ringed with its gates open, Haulers still mining from inside, an enemy's Tanks shooting its walls on the way in, and all it built going with its army; unit tests all pass.
+

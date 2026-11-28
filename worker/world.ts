@@ -948,6 +948,24 @@ export class World extends DurableObject<Env> {
     this.scheduleFlush();
   }
 
+  /** Puts pieces in by this world's own doing (see Room.place): the checks a builder's pieces get, but no asking whose they are. */
+  private putIn(pieces: readonly Piece[], by: string): string[] {
+    if (pieces.length === 0) return [];
+    const now = Date.now();
+    const { done } = applyAction(
+      this.build,
+      pieces.map((piece) => ({ kind: "place", piece }) as BuildOp),
+      (piece) => !this.isFull(piece) && materialAllowed(piece.type, piece.material, piece.y, this.environment) && !this.keptOut(piece) && !this.onSomeone(piece),
+    );
+    if (done.length === 0) return [];
+    for (const d of done) this.unsavedLog.push([now, by, encodeOp(d.op), encodeOp(d.inverse)]);
+    this.broadcast({ t: "ops", by, ops: done.map((d) => encodeOp(d.op)) });
+    this.scheduleFlush();
+    const put = done.flatMap((d) => (d.op.kind === "place" ? [d.op.piece] : []));
+    this.replanFlights(put);
+    return put.map((p) => p.id);
+  }
+
   /**
    * Builders near an impact at `point` are thrown; builders left standing on
    * nothing (what held them was removed) fall. Each flight is planned here,
@@ -1075,6 +1093,7 @@ export class World extends DurableObject<Env> {
       },
       tabOf: (id) => find(id)?.player.tab ?? null,
       remove: (ids, by) => this.takeOut(ids, by),
+      place: (pieces, by) => this.putIn(pieces, by),
       wear: (point, hits, by) => this.wear(point, hits, by),
       test: () => this.name.startsWith("test-"),
       solidThings: () => this.solidThings(),

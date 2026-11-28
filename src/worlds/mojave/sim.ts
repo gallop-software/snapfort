@@ -284,6 +284,8 @@ export interface Host {
   wear(point: Vec, hits: [string, number][], by: string): void;
   /** Takes pieces out of the build. */
   removePieces(ids: string[], by: string): void;
+  /** Puts pieces into the build (the computer's walls and towers): the ids of those that went in. */
+  placePieces?(pieces: Piece[], by: string): string[];
 }
 
 /** Colours for armies whose general's own is too like another's: eight that are easy to tell apart. */
@@ -587,6 +589,39 @@ export class Sim {
     g.pending += price;
     return true;
   }
+
+  /**
+   * Pieces built for an army by the war itself (the computer's walls and towers), by a general's rules: a wall only by
+   * a Core of its own army and never by another's, nothing into a building or a field, the same price, paid for those
+   * that went in. The room puts them in, in order (so a floor rests on walls put in before it), and every page is told.
+   * Returns the ids of those that went in.
+   */
+  placeFor(slot: number, specs: readonly { type: "wall" | "floor"; x: number; y: number; z: number; rot: 0 | 1 }[]): string[] {
+    const g = this.generals[slot];
+    if (!g || !this.host.placePieces || specs.length === 0) return [];
+    if (this.pieceStep !== this.step) {
+      this.pieceStep = this.step;
+      this.pieceSeq = 0;
+    }
+    const pieces: Piece[] = [];
+    for (const s of specs) {
+      if (g.lithium - g.pending < (pieces.length + 1) * PIECE_COST) break;
+      // (Named for the army and the moment: never the same as another, a builder's or one built before.)
+      const piece: Piece = { ...s, id: `cpu${slot}-${this.step.toString(36)}-${(this.pieceSeq++).toString(36)}`, material: "brick", edit: 0 };
+      if (piece.type === "wall" && this.guardWhy(slot, (piece.x + (piece.rot === 1 ? 0 : 0.5)) * CELL, (piece.z + (piece.rot === 0 ? 0 : 0.5)) * CELL, "wall")) continue;
+      if (this.blocks(piece)) continue;
+      pieces.push(piece);
+    }
+    const went = this.host.placePieces(pieces, g.name);
+    for (const id of went) {
+      this.pieceOwner.set(id, slot);
+      g.lithium = Math.max(0, g.lithium - PIECE_COST);
+    }
+    return went;
+  }
+  /** (Numbering the war's own pieces within a step.) */
+  private pieceStep = -1;
+  private pieceSeq = 0;
 
   /** The pieces that really went in: paid for now. */
   placed(pid: string, pieces: readonly Piece[]): void {

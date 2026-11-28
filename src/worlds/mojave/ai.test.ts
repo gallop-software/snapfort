@@ -11,7 +11,14 @@ function setup(start = 0) {
   const build = new BuildState();
   build.halfCells = HALF_CELLS;
   const at = new Map<string, [number, number, number]>();
-  const host: Host = { positionOf: (p) => at.get(p) ?? null, wear: () => {}, removePieces: () => {} };
+  // (The room puts the computer's pieces in as a real one does: in order, each only where it may go.)
+  const worn: string[] = [];
+  const host: Host = {
+    positionOf: (p) => at.get(p) ?? null,
+    wear: (_at, hits) => void worn.push(...hits.map(([id]) => id)),
+    removePieces: (ids) => void ids.forEach((id) => build.apply({ kind: "remove", id })),
+    placePieces: (pieces) => pieces.filter((piece) => build.apply({ kind: "place", piece }) !== null).map((p) => p.id),
+  };
   const sim = new Sim(build, world, host);
   sim.computerOn = true;
   const ai = new Computer(sim);
@@ -38,7 +45,7 @@ function setup(start = 0) {
     fighters: sim.units.filter((u) => u.owner === slot && !u.dead && UNITS[u.kind].weapon && u.kind !== "hauler"),
   });
   const core = (slot: number) => theirs(slot).buildings.find((b) => b.kind === "core");
-  return { sim, ai, person, run, theirs, core, thinkMs: () => ms / Math.max(1, thinks) };
+  return { sim, ai, person, run, theirs, core, build, worn, thinkMs: () => ms / Math.max(1, thinks) };
 }
 
 describe("the computer", () => {
@@ -165,6 +172,56 @@ describe("the computer", () => {
     expect(sim.generals[COMPUTER]!.upgrades.armour).toBe(UPGRADE_LEVELS);
   }, 60_000);
 
+  it("walls: every turret up on a tower of its own (four walls and a floor), every guarded base ringed with walls and its gates open; Haulers still mine, and the enemy has to shoot through", () => {
+    const { sim, run, theirs, ai, build, worn } = setup(0);
+    run(11 * 60);
+    const mine = theirs(COMPUTER).buildings;
+    const ours = (spec: { type: "wall" | "floor"; x: number; y: number; z: number; rot: 0 | 1 }) => {
+      const p = build.occupant(spec);
+      return !!p && sim.ownerOfPiece(p.id) === COMPUTER;
+    };
+    const turrets = mine.filter((b) => BUILDINGS[b.kind].nearCore);
+    expect(turrets.length).toBeGreaterThan(12);
+    for (const t of turrets) {
+      expect(t.l).toBe(1);
+      expect(ours({ type: "floor", x: t.cx, y: 1, z: t.cz, rot: 0 })).toBe(true);
+      for (const w of [{ x: t.cx, z: t.cz, rot: 0 }, { x: t.cx, z: t.cz + 1, rot: 0 }, { x: t.cx, z: t.cz, rot: 1 }, { x: t.cx + 1, z: t.cz, rot: 1 }] as const) {
+        expect(ours({ type: "wall", y: 0, ...w })).toBe(true);
+      }
+    }
+    // Rings: most of each side up, the two cells in its middle left open.
+    const ringed = (ai as unknown as { mind: { ringed: Set<number> } }).mind.ringed;
+    expect(ringed.size).toBeGreaterThanOrEqual(3);
+    for (const c of mine.filter((b) => b.kind === "core" && ringed.has(b.id))) {
+      const mx = c.cx + 1, mz = c.cz + 1, R = 10;
+      let up = 0, open = 0;
+      for (let d = -R; d <= R; d++) {
+        const sides = [{ x: mx + d, z: mz - R, rot: 0 }, { x: mx + d, z: mz + R + 1, rot: 0 }, { x: mx - R, z: mz + d, rot: 1 }, { x: mx + R + 1, z: mz + d, rot: 1 }] as const;
+        for (const e of sides) {
+          const there = ours({ type: "wall", y: 0, ...e });
+          if (d === -1 || d === 0) open += there ? 0 : 1;
+          else up += there ? 1 : 0;
+        }
+      }
+      expect(open).toBe(8);
+      expect(up).toBeGreaterThan(40);
+    }
+    // Haulers still get their crystals out from inside the rings.
+    const left = () => sim.fields.reduce((t, f) => t + (f.kind === "crystal" ? f.amount : 0), 0);
+    const before = left();
+    run(60);
+    expect(before - left()).toBeGreaterThan(300);
+    // Tanks of the enemy's sent at one of its bases shoot its walls and towers on the way in.
+    const target = mine.find((b) => b.kind === "core" && ringed.has(b.id))!;
+    const tc = sim.centreOf(target);
+    const tanks = Array.from({ length: 8 }, (_, i) => sim.addUnit("tank", 0, tc[0] + 90 + (i % 4) * 5, tc[2] + Math.floor(i / 4) * 5));
+    for (const t of tanks) t.hp = 1e6;
+    sim.command(0, tanks.map((t) => t.id), { k: "amove", x: tc[0], z: tc[2], l: 0 });
+    worn.length = 0;
+    run(30);
+    expect(worn.some((id) => sim.ownerOfPiece(id) === COMPUTER || id.startsWith(`cpu${COMPUTER}-`))).toBe(true);
+  }, 180_000);
+
   it("attacks only once booming (three guarded bases), with Titans, Tanks or gunships; then a person who does nothing loses their Core", () => {
     const { sim, run, theirs, core, ai } = setup(0);
     let firstWave = Infinity, coresThen = 0, advanced = false;
@@ -212,9 +269,9 @@ describe("the computer", () => {
     let wentIn = false;
     run(12 * 60, () => void (wentIn ||= ai.attacking && (ai as unknown as { mind: { phase: string } }).mind.phase === "attack"));
     expect(wentIn).toBe(false);
-    // (Growing meanwhile: Titans among it.)
-    expect(theirs(COMPUTER).fighters.reduce((s, u) => s + UNITS[u.kind].supply, 0)).toBeGreaterThanOrEqual(50);
-    expect(theirs(COMPUTER).fighters.some((u) => u.kind === "titan")).toBe(true);
+    // (Growing meanwhile, with the advanced units: its walls and towers come first, so not yet many.)
+    expect(theirs(COMPUTER).fighters.reduce((s, u) => s + UNITS[u.kind].supply, 0)).toBeGreaterThanOrEqual(20);
+    expect(theirs(COMPUTER).fighters.some((u) => u.kind === "titan" || u.kind === "tank" || u.kind === "gunship")).toBe(true);
     expect(core(0)).toBeTruthy();
   }, 180_000);
 
@@ -273,15 +330,18 @@ describe("the computer", () => {
     expect(person.bornAt).toBe(sim.t);
   });
 
-  it("goes when there is no person's army left, and is begun afresh for the next", () => {
-    const { sim, run, theirs } = setup(0);
-    run(120);
+  it("goes when there is no person's army left, with all it built, and is begun afresh for the next", () => {
+    const { sim, run, theirs, build } = setup(0);
+    run(300);
+    expect([...build.all()].some((p) => p.id.startsWith(`cpu${COMPUTER}-`))).toBe(true);
     sim.leave("p");
     sim.wipe(0);
     sim.keepComputer();
     expect(sim.generals[COMPUTER]).toBeNull();
     expect(theirs(COMPUTER).units).toHaveLength(0);
     expect(theirs(COMPUTER).buildings).toHaveLength(0);
+    // Its walls and towers went with it.
+    expect([...build.all()].some((p) => p.id.startsWith(`cpu${COMPUTER}-`))).toBe(false);
     sim.serve("q", 3, "tab-of-q");
     expect(theirs(COMPUTER).buildings).toHaveLength(1);
     expect(sim.generals[COMPUTER]!.lithium).toBe(START_LITHIUM);

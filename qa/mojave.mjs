@@ -594,6 +594,9 @@ await frames(a, 3);
 // (Esc in a real browser lets go of the mouse; headless, it has to be let go of by hand.)
 await sf(a, () => window.snapfort.input.unlock()); await wait(900);
 const escExtra = await sf(a, () => { const box = document.getElementById("paused-extras"); return !document.getElementById("view-paused").hidden && !box.hidden ? [...box.querySelectorAll("button")].map((b) => b.textContent).join(",") : null; });
+const escRow = await sf(a, () => { const r = document.getElementById("resume").getBoundingClientRect(), e = document.querySelector("#paused-extras button").getBoundingClientRect(); return Math.abs(r.top - e.top) < 2 && e.left >= r.right + 8; });
+check("Change army sits beside Back to building, a gap between them, not stacked on it", escRow === true);
+await a.screenshot({ path: "qa/shots/mojave-esc.png" });
 await a.click("#paused-extras button"); await wait(1500);
 if (!(await sf(a, () => window.snapfort.input.locked))) { await a.mouse.click(640, 300); await wait(1300); }
 const escArmy = await rowHas(a, ["Red", "Back"]);

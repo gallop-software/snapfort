@@ -345,6 +345,9 @@ html.arriving #overlay { display: none; }
 .buttons button:hover:not(:disabled) { transform: translateY(-1px); }
 .buttons button:active:not(:disabled) { transform: translateY(3px); box-shadow: none; }
 .buttons button:disabled { background: #c9bfae; box-shadow: 0 4px 0 #a39a8a; cursor: default; }
+/* A world's own buttons in the Esc menu sit beside Back to building, on its row. */
+#paused-extras { display: contents; }
+#paused-extras[hidden] { display: none; }
 
 .bars { width: 120px; height: 80px; margin-top: 14px; fill: #ffe9c2; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .bars .bar { stroke-width: 6; }

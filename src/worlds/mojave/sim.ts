@@ -123,7 +123,7 @@ export type Order =
   | { k: "amove"; x: number; z: number; l: number; auto?: boolean }
   /** (`px`, `pz`: this unit's place from the middle of the group, kept at both ends, so a patrol keeps its shape.) */
   | { k: "patrol"; x: number; z: number; l: number; bx: number; bz: number; bl: number; px?: number; pz?: number }
-  /** (Going to the target, in the group's shape round it, and shooting it first whenever it can: over only once there, even when the target is gone first.) */
+  /** (To the target's spot, in the group's shape round it: stopping to destroy whatever comes in range on the way, the target first; over only once there with nothing left in range, even when the target is gone first.) */
   | { k: "attack"; tk: TargetKind; id: number | string }
   | { k: "gather"; field: number }
   | { k: "return" }
@@ -1419,25 +1419,16 @@ export class Sim {
         u.arrived = false;
         u.linger = 0;
       }
-      // Artillery goes only as far as it can hit the target from, sets up there and shells it, until it is gone. (A
-      // little inside its reach before it stops: a shell throws what it hits, and it should not have to pack up and come
-      // on again after every one.)
-      if (w && def.deploy) {
-        if (!at) return this.done(u);
-        const reach = this.rangeOf(u, def, w) * (u.deployedAt > 0 ? 1 : 0.9);
-        if (this.canHit(u.x, u.z, u.level, false, u.owner, w, reach, order.tk, order.id, true) === "ok") {
-          this.fight(u, def, w, i, false);
-          return;
-        }
-      }
     }
-    // Patrolling: something of the enemy's in range and it stops where it is and destroys it all, then goes on along
-    // its leg. It never leaves the way to go after anything.
-    if (order.k === "patrol" && w && this.fight(u, def, w, i, false) === "fire") return;
+    // Attacking or patrolling: the moment something of the enemy's is in range (its target first), it stops where it is,
+    // as far off as it can fight from, and destroys everything in range; then on along its way. An attack is over only
+    // once it stands where its target was, with nothing left in range. Neither ever leaves the way to go after anything.
+    const halts = order.k === "attack" || order.k === "patrol";
+    if (halts && w && this.fight(u, def, w, i, false) === "fire") return;
     if (!u.goal) return this.done(u);
-    // On the move (and an attack-move, and an attack on its way there): it shoots as it goes at whatever comes within
-    // its range, never stopping or turning aside for it. Artillery cannot fire on the move.
-    if (order.k !== "patrol") {
+    // On the move (and an attack-move): it shoots as it goes at whatever comes within its range, never stopping or
+    // turning aside for it. Artillery cannot fire on the move.
+    if (!halts) {
       if (w && !def.deploy) this.fight(u, def, w, i, true);
       else this.drop(u);
     }
@@ -1493,7 +1484,9 @@ export class Sim {
    * order's business. `moving`: it keeps facing the way it goes, and shoots as it passes.
    */
   private fight(u: Unit, def: UnitDef, w: Weapon, i: number, moving: boolean): "fire" | "none" {
-    const range = this.rangeOf(u, def, w);
+    // (Artillery not yet set up looks a little inside its reach: a shell throws what it hits, and it should not have to
+    // pack up and come on again after every one.)
+    const range = this.rangeOf(u, def, w) * (def.deploy && u.deployedAt === 0 ? 0.9 : 1);
     const order = u.order;
     let state: "fire" | "none" = "none";
     /** A wall of the enemy's between it and its target: shot first. */

@@ -616,6 +616,35 @@ describe("units do as they are told, and shoot whatever is in range", () => {
     }
   });
 
+  it("told to attack, they stop as far off as they can shoot from, destroy everything in range, go on, and end standing where the target was", () => {
+    const { sim, a, b, run } = twoSides();
+    const red = squad(sim, a.slot, 6, OPEN[0], OPEN[1]);
+    for (const u of red) u.hp = 1e6;
+    const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor((OPEN[1] + 100) / CELL);
+    const relay = sim.addBuilding("relay", b.slot, cx, cz, true);
+    const c = sim.centreOf(relay);
+    // One of theirs just past it: out of reach from where they stop for the relay.
+    const guard = sim.addUnit("trooper", b.slot, c[0], c[2] + 12);
+    sim.command(b.slot, [guard.id], { k: "hold" });
+    sim.command(a.slot, red.map((u) => u.id), { k: "attack", tk: T_BUILDING, id: relay.id });
+    let nearest = Infinity;
+    for (let i = 0; i < 300 && !relay.dead; i++) {
+      run(0.1);
+      for (const u of red) nearest = Math.min(nearest, Math.hypot(u.x - c[0], u.z - c[2]) - (BUILDINGS.relay.size * CELL) / 2);
+    }
+    // They stopped at the edge of their range of it (not walked up to it), and destroyed it from there.
+    expect(relay.dead).toBe(true);
+    expect(nearest).toBeGreaterThan(UNITS.trooper.weapon!.range - 6);
+    expect(red.every((u) => u.order.k === "attack")).toBe(true);
+    // On to where it was: the guard by it is destroyed on the way, and they stand there, nothing left in range.
+    run(40);
+    expect(guard.dead).toBe(true);
+    for (const u of red) {
+      expect(u.order.k).toBe("stop");
+      expect(Math.hypot(u.x - c[0], u.z - c[2])).toBeLessThan(14);
+    }
+  });
+
   it("told to attack a unit that moves off, they go after it", () => {
     const { sim, a, b, run } = twoSides();
     const red = squad(sim, a.slot, 4, OPEN[0], OPEN[1]);
@@ -626,7 +655,12 @@ describe("units do as they are told, and shoot whatever is in range", () => {
     run(2);
     sim.command(b.slot, [target.id], { k: "move", x: OPEN[0] + 80, z: OPEN[1] + 100, l: 0 });
     run(30);
-    for (const u of red) expect(Math.hypot(u.x - target.x, u.z - target.z)).toBeLessThan(15);
+    // After it, as far as its range and no nearer (it cannot be killed: they stand there shooting it).
+    for (const u of red) {
+      const d = Math.hypot(u.x - target.x, u.z - target.z);
+      expect(d).toBeLessThan(UNITS.trooper.weapon!.range + 1);
+      expect(d).toBeGreaterThan(UNITS.trooper.weapon!.range - 10);
+    }
   });
 
   it("told to attack something shut in by walls nobody's army holds any more, they break in and get it", () => {
@@ -644,19 +678,19 @@ describe("units do as they are told, and shoot whatever is in range", () => {
     // They shoot the walls (the room takes a wall down once worn through: here, by hand).
     const ids = new Set(walls.map((w) => w.id));
     expect(host.worn.filter(([id]) => ids.has(id)).reduce((t, [, h]) => t + h, 0)).toBeGreaterThan(2);
-    // Each went to its own place in the group's shape round the target (some are there, beside the walls, and stand
-    // shooting them; the others are still breaking through): none went anywhere else.
-    for (const t of tanks) expect(Math.hypot(t.x - inside.x, t.z - inside.z)).toBeLessThan(25);
+    // They stopped as far off as they could shoot from, and shot the walls from there: none went anywhere else.
+    for (const t of tanks) expect(Math.hypot(t.x - inside.x, t.z - inside.z)).toBeLessThan(UNITS.tank.weapon!.range + 4);
     for (const w of walls) build.apply({ kind: "remove", id: w.id });
     run(20);
     expect(inside.dead).toBe(true);
   });
 
-  it("told to attack something behind a building, a unit goes round the building to it and gets it", () => {
-    const { sim, a, b, run } = twoSides();
+  it("told to attack something behind a building of its own army's, a unit goes round the building for a shot and gets it", () => {
+    const { sim, a, run } = twoSides();
     const cx = Math.floor(OPEN[0] / CELL), cz = Math.floor(OPEN[1] / CELL);
-    // A Foundry (two cells square) with the target hard against its far side, and a Tank straight across from it.
-    sim.addBuilding("foundry", b.slot, cx, cz, true);
+    // A Foundry of its own (two cells square, a straight shot does not go through it) with the target hard against its
+    // far side, and a Tank straight across from it.
+    sim.addBuilding("foundry", a.slot, cx, cz, true);
     const target = sim.addUnit("hauler", NEUTRAL, (cx + 1) * CELL, (cz + 2) * CELL + 1.6);
     const tank = sim.addUnit("tank", a.slot, (cx + 1) * CELL, (cz - 5) * CELL);
     sim.command(a.slot, [tank.id], { k: "attack", tk: T_UNIT, id: target.id });

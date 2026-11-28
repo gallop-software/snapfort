@@ -654,3 +654,11 @@ The same brain (`ai.ts`), the same rules and calls as a person, and no more than
 
 Checks: `ai.test.ts`: limits a person's and no further (200, Titans, upgrades to 3), nobody left alone, that defended base taken within 16 minutes, no wave thrown at a fortress far stronger than it (it waits and grows), a wave all but wiped out turns for home, raiders driven off (its army comes back for them), routed and beginning again, and going with the last army.
 
+## Mojave: an attack stops at the edge of range (user, 2026-11-27: "when i have units attack an object, they get as close as possible and then begin attacking. that is not smart. they should begin attacking at the farthest possible position... protect them from a kamikaze going right up to a turret"; "the end goal is to be able to stand in the place of where the attack spot was, without having anything in a radius of any unit that needs destroying")
+
+- **Attack** now works as Patrol does on the way: the moment anything of the enemy's is in a unit's range, it stops where it is (as far off as it can fight from) and destroys everything in range, its target first whenever it can be hit; then it goes on. It is over only once the unit stands where the target was (in the group's shape round it) with nothing left in range; a target destroyed first, by them or anyone, leaves them going on to its spot. A group spreads into a firing line by itself: each stops when it has something in range, so those behind come up until they do.
+- Artillery: the same, and looks at 0.9 of its reach until set up (so a shell throwing its target back does not make it pack up and come on again); it no longer ends its attack when the target is gone, but goes on to the spot like everyone else.
+- A unit with nothing to shoot still looks every third step (the user: "every third step is fine").
+
+Checks: `sim.test.ts` "told to attack, they stop as far off as they can shoot from...": six Troopers stop at the edge of their range of a Relay and destroy it, go on, destroy a guard just past it, and stand where it was; a unit that moves off is followed to range and no nearer; tanks shoot walls round a target from as far as they reach; with its own army's building in the way, a Tank goes round it for a shot.
+
